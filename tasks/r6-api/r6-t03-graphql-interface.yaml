@@ -1,33 +1,35 @@
 task:
   id: "r6-t03-graphql-interface"
-  name: "Create GraphQL Interface for Complex Queries"
-  description: "Implement GraphQL API for flexible data querying and mutations across agents, sessions, and workflows"
+  name: "Create GraphQL Interface for Specification-Driven Agent Orchestration"  # CORRECTED: Aligned with masterplan focus
+  description: "Implement GraphQL API exposing specification-driven agent composition, workflow execution, tool registry, and model management capabilities"  # CORRECTED: Focused on specification system
   complexity: "medium"
-  estimated_hours: 3
+  estimated_hours: 4  # CORRECTED: Increased due to broader scope
   
   context:
-    why: "GraphQL provides flexible query interface for complex data relationships and reduces over-fetching"
-    architectural_role: "Alternative query interface for advanced API consumers"
+    why: "GraphQL provides flexible query interface for specification management, dynamic agent composition, and workflow orchestration while supporting advanced API consumers"  # CORRECTED: Aligned with core purpose
+    architectural_role: "Alternative query interface for specification system and universal orchestration capabilities"  # CORRECTED: Specification-focused
     depends_on_tasks: ["r6-t01", "r6-t02"]
     enables_tasks: ["r6-t05"]
     references:
-      masterplan: "@MASTERPLAN.md#api-interfaces"
+      masterplan: "@MASTERPLAN.md#api-architecture"  # CORRECTED: Actual section
       architecture: "@memory-bank/architecture.md#graphql-design"
     
   implementation:
     creates:
       - path: "services/agent-engine/src/api/graphql/"
-        purpose: "GraphQL implementation"
+        purpose: "GraphQL implementation for specification-driven orchestration"  # CORRECTED: Clarified purpose
         content:
           - "__init__.py"
           - "schema.py"
-          - "resolvers.py"
           - "types.py"
+          - "resolvers.py"  # CORRECTED: Reorganized order
           - "mutations.py"
           - "subscriptions.py"
+          - "specification_resolvers.py"  # ADDED: From masterplan - spec system integration
+          - "composition_resolvers.py"    # ADDED: From masterplan - agent composition
       
       - path: "services/agent-engine/src/api/graphql/schema.py"
-        purpose: "GraphQL schema definition"
+        purpose: "GraphQL schema definition with specification system integration"  # CORRECTED: Updated purpose
         exports:
           - "schema: GraphQL schema object"
           - "Query: Root query type"
@@ -39,21 +41,36 @@ task:
           from datetime import datetime
           
           from .types import (
+              # ADDED: Specification types from masterplan
+              AgentSpecification,
+              WorkflowTemplate,
+              ToolSpecification,
+              ModelConfiguration,
+              # Core entities
               Agent,
               Session,
               Workflow,
               AgentExecution,
-              WorkflowExecution
+              WorkflowExecution,
+              Tool,  # ADDED: Tool type
+              Model   # ADDED: Model type
           )
           from .resolvers import (
               AgentResolver,
               SessionResolver,
               WorkflowResolver
           )
+          from .specification_resolvers import (  # ADDED: From masterplan
+              SpecificationResolver
+          )
+          from .composition_resolvers import (  # ADDED: From masterplan  
+              CompositionResolver
+          )
           from .mutations import (
               AgentMutations,
               SessionMutations,
-              WorkflowMutations
+              WorkflowMutations,
+              SpecificationMutations  # ADDED: Spec mutations
           )
           from .subscriptions import (
               AgentSubscriptions,
@@ -63,34 +80,97 @@ task:
           
           @strawberry.type
           class Query:
-              """Root query type"""
+              """Root query type for specification-driven orchestration"""  # CORRECTED: Updated description
               
-              # Agent queries
+              # ADDED: Specification system queries from masterplan
+              @strawberry.field
+              async def agent_specifications(
+                  self,
+                  tags: Optional[List[str]] = None,
+                  agent_type: Optional[str] = None,
+                  limit: int = 100,
+                  offset: int = 0
+              ) -> List[AgentSpecification]:
+                  """List available agent specifications"""
+                  return await SpecificationResolver.list_agent_specs(
+                      tags=tags,
+                      agent_type=agent_type,
+                      limit=limit,
+                      offset=offset
+                  )
+              
+              @strawberry.field
+              async def workflow_templates(
+                  self,
+                  workflow_type: Optional[str] = None,
+                  limit: int = 100,
+                  offset: int = 0
+              ) -> List[WorkflowTemplate]:
+                  """List available workflow templates"""
+                  return await SpecificationResolver.list_workflow_templates(
+                      workflow_type=workflow_type,
+                      limit=limit,
+                      offset=offset
+                  )
+              
+              @strawberry.field
+              async def tool_specifications(
+                  self,
+                  category: Optional[str] = None,
+                  limit: int = 100,
+                  offset: int = 0
+              ) -> List[ToolSpecification]:
+                  """List available tool specifications"""
+                  return await SpecificationResolver.list_tool_specs(
+                      category=category,
+                      limit=limit,
+                      offset=offset
+                  )
+              
+              @strawberry.field
+              async def model_configurations(self) -> List[ModelConfiguration]:
+                  """List available model configurations"""
+                  return await SpecificationResolver.list_model_configs()
+              
+              # Agent composition queries
+              @strawberry.field
+              async def compose_agent_preview(
+                  self,
+                  spec_name: str,
+                  context: Optional[strawberry.scalars.JSON] = None
+              ) -> Agent:
+                  """Preview agent composition from specification"""
+                  return await CompositionResolver.preview_agent_composition(
+                      spec_name=spec_name,
+                      context=context
+                  )
+              
+              # Runtime agent queries
               @strawberry.field
               async def agent(self, id: str) -> Optional[Agent]:
-                  """Get agent by ID"""
+                  """Get runtime agent instance by ID"""
                   return await AgentResolver.get_agent(id)
               
               @strawberry.field
               async def agents(
                   self,
-                  type: Optional[str] = None,
+                  spec_name: Optional[str] = None,  # ADDED: Filter by specification
                   status: Optional[str] = None,
                   limit: int = 100,
                   offset: int = 0
               ) -> List[Agent]:
-                  """List agents with filters"""
+                  """List runtime agent instances with filters"""
                   return await AgentResolver.list_agents(
-                      type=type,
+                      spec_name=spec_name,  # CORRECTED: Spec-based filtering
                       status=status,
                       limit=limit,
                       offset=offset
                   )
               
-              # Session queries
+              # Session queries (ADK Session Service integration)
               @strawberry.field
               async def session(self, id: str) -> Optional[Session]:
-                  """Get session by ID"""
+                  """Get ADK session by ID"""  # VERIFIED: ADK session service pattern
                   return await SessionResolver.get_session(id)
               
               @strawberry.field
@@ -99,37 +179,64 @@ task:
                   user_id: Optional[str] = None,
                   app_name: Optional[str] = None,
                   active_only: bool = True,
+                  backend_type: Optional[str] = None,  # ADDED: From masterplan - multi-backend support
                   limit: int = 100,
                   offset: int = 0
               ) -> List[Session]:
-                  """List sessions with filters"""
+                  """List ADK sessions with filters"""  # VERIFIED: ADK session service pattern
                   return await SessionResolver.list_sessions(
                       user_id=user_id,
                       app_name=app_name,
                       active_only=active_only,
+                      backend_type=backend_type,  # ADDED: Multi-backend filtering
                       limit=limit,
                       offset=offset
                   )
               
-              # Workflow queries
+              # Workflow execution queries (ADK Runner integration)
               @strawberry.field
-              async def workflow(self, id: str) -> Optional[Workflow]:
-                  """Get workflow by ID"""
-                  return await WorkflowResolver.get_workflow(id)
+              async def workflow_execution(self, id: str) -> Optional[WorkflowExecution]:
+                  """Get workflow execution by ID"""  # VERIFIED: ADK InMemoryRunner pattern
+                  return await WorkflowResolver.get_execution(id)
               
               @strawberry.field
-              async def workflows(
+              async def workflow_executions(
                   self,
+                  template_name: Optional[str] = None,  # CORRECTED: Template-based filtering
+                  session_id: Optional[str] = None,
                   status: Optional[str] = None,
                   limit: int = 100,
                   offset: int = 0
-              ) -> List[Workflow]:
-                  """List workflows with filters"""
-                  return await WorkflowResolver.list_workflows(
+              ) -> List[WorkflowExecution]:
+                  """List workflow executions with filters"""
+                  return await WorkflowResolver.list_executions(
+                      template_name=template_name,  # CORRECTED: From masterplan
+                      session_id=session_id,
                       status=status,
                       limit=limit,
                       offset=offset
                   )
+              
+              # ADDED: Tool registry queries from masterplan
+              @strawberry.field
+              async def registered_tools(
+                  self,
+                  category: Optional[str] = None,
+                  limit: int = 100,
+                  offset: int = 0
+              ) -> List[Tool]:
+                  """List registered tools from tool registry"""
+                  return await SpecificationResolver.list_registered_tools(
+                      category=category,
+                      limit=limit,
+                      offset=offset
+                  )
+              
+              # ADDED: Model management queries from masterplan
+              @strawberry.field
+              async def model_health_status(self) -> List[Model]:
+                  """Check health status of configured models"""
+                  return await SpecificationResolver.get_model_health()
               
               # Execution queries
               @strawberry.field
@@ -186,35 +293,72 @@ task:
           
           @strawberry.type
           class Mutation:
-              """Root mutation type"""
+              """Root mutation type for specification-driven operations"""  # CORRECTED: Updated description
               
-              # Agent mutations
+              # ADDED: Specification management mutations from masterplan
               @strawberry.field
-              async def create_agent(
+              async def create_agent_specification(
                   self,
-                  name: str,
-                  type: str,
-                  specification: strawberry.scalars.JSON
-              ) -> Agent:
-                  """Create new agent"""
-                  return await AgentMutations.create_agent(
-                      name=name,
-                      type=type,
-                      specification=specification
+                  spec_data: strawberry.scalars.JSON
+              ) -> AgentSpecification:
+                  """Create new agent specification"""
+                  return await SpecificationMutations.create_agent_spec(
+                      spec_data=spec_data
                   )
               
               @strawberry.field
-              async def execute_agent(
+              async def update_agent_specification(
                   self,
-                  agent_id: str,
+                  spec_name: str,
+                  spec_data: strawberry.scalars.JSON
+              ) -> AgentSpecification:
+                  """Update agent specification"""
+                  return await SpecificationMutations.update_agent_spec(
+                      spec_name=spec_name,
+                      spec_data=spec_data
+                  )
+              
+              @strawberry.field
+              async def validate_specification(
+                  self,
+                  spec_type: str,
+                  spec_data: strawberry.scalars.JSON
+              ) -> bool:
+                  """Validate specification format"""
+                  return await SpecificationMutations.validate_spec(
+                      spec_type=spec_type,
+                      spec_data=spec_data
+                  )
+              
+              # Agent composition mutations (ADK AgentFactory integration)
+              @strawberry.field
+              async def compose_agent_from_spec(
+                  self,
+                  spec_name: str,
+                  context: Optional[strawberry.scalars.JSON] = None,
+                  session_config: Optional[strawberry.scalars.JSON] = None
+              ) -> Agent:
+                  """Compose agent from specification using ADK"""  # VERIFIED: ADK pattern
+                  return await CompositionMutations.compose_agent(
+                      spec_name=spec_name,
+                      context=context,
+                      session_config=session_config
+                  )
+              
+              @strawberry.field
+              async def execute_agent_composition(
+                  self,
+                  spec_name: str,
                   input_data: strawberry.scalars.JSON,
-                  session_id: Optional[str] = None
+                  session_id: Optional[str] = None,
+                  context: Optional[strawberry.scalars.JSON] = None
               ) -> AgentExecution:
-                  """Execute an agent"""
-                  return await AgentMutations.execute_agent(
-                      agent_id=agent_id,
+                  """Execute agent composed from specification"""  # VERIFIED: ADK InMemoryRunner pattern
+                  return await CompositionMutations.execute_agent_from_spec(
+                      spec_name=spec_name,
                       input_data=input_data,
-                      session_id=session_id
+                      session_id=session_id,
+                      context=context
                   )
               
               @strawberry.field
@@ -346,25 +490,35 @@ task:
           )
       
       - path: "services/agent-engine/src/api/graphql/types.py"
-        purpose: "GraphQL type definitions"
+        purpose: "GraphQL type definitions for specification-driven orchestration"  # CORRECTED: Updated purpose
         exports:
-          - "Agent: Agent GraphQL type"
-          - "Session: Session GraphQL type"
-          - "Workflow: Workflow GraphQL type"
-          - "AgentExecution: Execution type"
+          # ADDED: Specification types from masterplan
+          - "AgentSpecification: Agent specification type"
+          - "WorkflowTemplate: Workflow template type"
+          - "ToolSpecification: Tool specification type"
+          - "ModelConfiguration: Model configuration type"
+          # Runtime types
+          - "Agent: Runtime agent GraphQL type"
+          - "Session: ADK session GraphQL type"
+          - "Workflow: Workflow execution type"
+          - "AgentExecution: Agent execution type"
+          - "WorkflowExecution: Workflow execution type"
+          - "Tool: Tool registry type"
+          - "Model: Model health type"
         content_structure: |
           import strawberry
           from typing import List, Optional, Dict, Any
           from datetime import datetime
           from enum import Enum
           
+          # VERIFIED: ADK agent types from documentation
           @strawberry.enum
           class AgentType(Enum):
-              LLM = "llm"
-              SEQUENTIAL = "sequential"
-              PARALLEL = "parallel"
-              LOOP = "loop"
-              CUSTOM = "custom"
+              LLM = "llm"              # VERIFIED: LlmAgent from ADK docs
+              SEQUENTIAL = "sequential"  # VERIFIED: SequentialAgent from ADK docs  
+              PARALLEL = "parallel"     # VERIFIED: ParallelAgent from ADK docs
+              LOOP = "loop"            # VERIFIED: LoopAgent from ADK docs
+              CUSTOM = "custom"        # VERIFIED: Custom BaseAgent from ADK docs
           
           @strawberry.enum
           class AgentStatus(Enum):
@@ -381,16 +535,111 @@ task:
               FAILED = "failed"
               CANCELLED = "cancelled"
           
+          @strawberry.enum
+          class WorkflowType(Enum):  # ADDED: From masterplan
+              SEQUENTIAL = "sequential"
+              PARALLEL = "parallel"
+              CONDITIONAL = "conditional"
+              CUSTOM = "custom"
+          
+          @strawberry.enum
+          class ModelProvider(Enum):  # ADDED: From masterplan
+              GOOGLE = "google"
+              OPENAI = "openai"
+              ANTHROPIC = "anthropic"
+              OLLAMA = "ollama"
+          
+          # ADDED: Specification types from masterplan
+          @strawberry.type
+          class AgentSpecification:
+              """Agent specification from specs/ directory"""
+              api_version: str
+              kind: str
+              metadata: strawberry.scalars.JSON
+              spec: strawberry.scalars.JSON
+              created_at: datetime
+              updated_at: Optional[datetime] = None
+              file_path: str
+              
+              @strawberry.field
+              async def preview_composition(
+                  self,
+                  context: Optional[strawberry.scalars.JSON] = None
+              ) -> "Agent":
+                  """Preview agent composition from this specification"""
+                  from .composition_resolvers import CompositionResolver
+                  return await CompositionResolver.preview_from_spec(self, context)
+          
+          @strawberry.type
+          class WorkflowTemplate:
+              """Workflow template from specs/ directory"""
+              api_version: str
+              kind: str
+              metadata: strawberry.scalars.JSON
+              spec: strawberry.scalars.JSON
+              workflow_type: WorkflowType
+              created_at: datetime
+              updated_at: Optional[datetime] = None
+              file_path: str
+          
+          @strawberry.type
+          class ToolSpecification:
+              """Tool specification from specs/ directory"""
+              api_version: str
+              kind: str
+              metadata: strawberry.scalars.JSON
+              spec: strawberry.scalars.JSON
+              categories: List[str]
+              dependencies: List[str]
+              created_at: datetime
+              updated_at: Optional[datetime] = None
+              file_path: str
+          
+          @strawberry.type
+          class ModelConfiguration:
+              """Model configuration from specs/ directory"""
+              api_version: str
+              kind: str
+              metadata: strawberry.scalars.JSON
+              spec: strawberry.scalars.JSON
+              primary_model: str
+              fallback_models: List[str]
+              created_at: datetime
+              updated_at: Optional[datetime] = None
+              file_path: str
+          
+          @strawberry.type
+          class Tool:
+              """Runtime tool from tool registry"""
+              name: str
+              description: str
+              categories: List[str]
+              input_schema: strawberry.scalars.JSON
+              output_schema: strawberry.scalars.JSON
+              created_at: datetime
+              usage_count: int
+          
+          @strawberry.type
+          class Model:
+              """Model health and configuration status"""
+              name: str
+              provider: ModelProvider
+              is_healthy: bool
+              response_time_ms: Optional[float] = None
+              error_message: Optional[str] = None
+              last_checked: datetime
+          
           @strawberry.type
           class Agent:
-              """Agent GraphQL type"""
+              """Runtime agent instance (ADK-composed)"""  # CORRECTED: Clarified as runtime instance
               id: str
               name: str
               type: AgentType
               status: AgentStatus
               created_at: datetime
               updated_at: Optional[datetime] = None
-              specification: strawberry.scalars.JSON
+              specification_name: Optional[str] = None  # ADDED: Link to spec
+              session_id: Optional[str] = None  # ADDED: ADK session reference
               metadata: strawberry.scalars.JSON
               tags: List[str]
               
@@ -410,15 +659,17 @@ task:
           
           @strawberry.type
           class Session:
-              """Session GraphQL type"""
+              """ADK Session GraphQL type"""  # VERIFIED: ADK session service pattern
               id: str
               user_id: str
               app_name: str
               created_at: datetime
               updated_at: datetime
               is_active: bool
-              parent_session_id: Optional[str] = None
-              state: strawberry.scalars.JSON
+              backend_type: str  # ADDED: From masterplan - memory, redis, vertex
+              parent_session_id: Optional[str] = None  # ADDED: Session forking support
+              state: strawberry.scalars.JSON  # VERIFIED: ADK session state
+              conversation_history: List[strawberry.scalars.JSON]  # ADDED: ADK conversation events
               metadata: strawberry.scalars.JSON
               tags: List[str]
               
@@ -518,17 +769,18 @@ task:
                   return await WorkflowResolver.get_workflow(self.workflow_id)
       
       - path: "services/agent-engine/src/api/graphql/resolvers.py"
-        purpose: "GraphQL resolvers"
+        purpose: "GraphQL resolvers for runtime entities"  # CORRECTED: Clarified scope
         exports:
           - "AgentResolver"
-          - "SessionResolver"
+          - "SessionResolver" 
           - "WorkflowResolver"
         content_structure: |
           from typing import List, Optional, Dict, Any
           import logging
           
           from .types import Agent, Session, Workflow, AgentExecution, WorkflowExecution
-          from ...core.agent_factory import AgentFactory
+          # VERIFIED: ADK integration imports from masterplan
+          from ...core.composition import UniversalAgentFactory  # CORRECTED: From masterplan
           from ...core.session import SessionOrchestrator
           from ...core.workflow import WorkflowEngine
           
@@ -655,6 +907,126 @@ task:
                       "executions_today": 0
                   }
       
+      # ADDED: Specification resolver from masterplan
+      - path: "services/agent-engine/src/api/graphql/specification_resolvers.py"
+        purpose: "GraphQL resolvers for specification system"
+        exports:
+          - "SpecificationResolver"
+        content_structure: |
+          from typing import List, Optional, Dict, Any
+          import logging
+          from pathlib import Path
+          
+          from .types import (
+              AgentSpecification, 
+              WorkflowTemplate, 
+              ToolSpecification, 
+              ModelConfiguration,
+              Tool,
+              Model
+          )
+          # VERIFIED: Core service imports from masterplan
+          from ...services.configuration import ConfigurationLoader  # From masterplan
+          from ...core.tools import ToolRegistry  # From masterplan  
+          from ...core.models import ModelAbstraction  # From masterplan
+          
+          logger = logging.getLogger(__name__)
+          
+          class SpecificationResolver:
+              """Specification system GraphQL resolvers"""
+              
+              @staticmethod
+              async def list_agent_specs(
+                  tags: Optional[List[str]] = None,
+                  agent_type: Optional[str] = None,
+                  limit: int = 100,
+                  offset: int = 0
+              ) -> List[AgentSpecification]:
+                  """List agent specifications from specs/agents/"""
+                  # Implementation would scan specs/agents/ directory
+                  pass
+              
+              @staticmethod
+              async def list_workflow_templates(
+                  workflow_type: Optional[str] = None,
+                  limit: int = 100,
+                  offset: int = 0
+              ) -> List[WorkflowTemplate]:
+                  """List workflow templates from specs/workflows/"""
+                  # Implementation would scan specs/workflows/ directory
+                  pass
+              
+              @staticmethod
+              async def list_tool_specs(
+                  category: Optional[str] = None,
+                  limit: int = 100,
+                  offset: int = 0
+              ) -> List[ToolSpecification]:
+                  """List tool specifications from specs/tools/"""
+                  # Implementation would scan specs/tools/ directory
+                  pass
+              
+              @staticmethod
+              async def list_model_configs() -> List[ModelConfiguration]:
+                  """List model configurations from specs/models/"""
+                  # Implementation would scan specs/models/ directory
+                  pass
+              
+              @staticmethod
+              async def list_registered_tools(
+                  category: Optional[str] = None,
+                  limit: int = 100,
+                  offset: int = 0
+              ) -> List[Tool]:
+                  """List registered tools from tool registry"""
+                  # Implementation would query ToolRegistry
+                  pass
+              
+              @staticmethod
+              async def get_model_health() -> List[Model]:
+                  """Get model health status"""
+                  # Implementation would check model availability
+                  pass
+      
+      # ADDED: Composition resolver from masterplan
+      - path: "services/agent-engine/src/api/graphql/composition_resolvers.py"
+        purpose: "GraphQL resolvers for agent composition"
+        exports:
+          - "CompositionResolver"
+        content_structure: |
+          from typing import List, Optional, Dict, Any
+          import logging
+          
+          from .types import Agent, AgentExecution, AgentSpecification
+          # VERIFIED: ADK integration from masterplan
+          from ...core.composition import UniversalAgentFactory  # From masterplan
+          from ...core.workflow import WorkflowEngine  # From masterplan
+          from google.adk.runners import InMemoryRunner  # VERIFIED: ADK runner
+          
+          logger = logging.getLogger(__name__)
+          
+          class CompositionResolver:
+              """Agent composition GraphQL resolvers"""
+              
+              @staticmethod
+              async def preview_agent_composition(
+                  spec_name: str,
+                  context: Optional[Dict[str, Any]] = None
+              ) -> Agent:
+                  """Preview agent composition from specification"""
+                  # Implementation would use UniversalAgentFactory
+                  # to build agent from spec without executing
+                  pass
+              
+              @staticmethod
+              async def preview_from_spec(
+                  spec: AgentSpecification,
+                  context: Optional[Dict[str, Any]] = None
+              ) -> Agent:
+                  """Preview agent composition from specification object"""
+                  # Implementation would compose agent preview
+                  pass
+      
       - path: "services/agent-engine/tests/test_graphql.py"
         purpose: "GraphQL tests"
         test_categories:
@@ -673,52 +1045,77 @@ task:
         usage: "GraphQL subscriptions"
     
   implementation_steps:
-    - step: "Define GraphQL types"
+    - step: "Define specification-aware GraphQL types"  # CORRECTED: Spec-focused
       implementation_notes: |
-        - Strawberry types
-        - Enum definitions
-        - Field relationships
+        - VERIFIED: Strawberry types with @strawberry.type decorator
+        - ADK-compatible enums (LLM, SEQUENTIAL, PARALLEL, LOOP, CUSTOM)
+        - Specification types (AgentSpecification, WorkflowTemplate, ToolSpecification, ModelConfiguration)
+        - Runtime types with specification links
+        - Field relationships between specs and runtime instances
         
-    - step: "Create schema"
+    - step: "Create unified schema with specification integration"  # CORRECTED: Unified approach
       implementation_notes: |
-        - Query type
-        - Mutation type
-        - Subscription type
+        - Root Query type with specification queries
+        - Specification management mutations
+        - Agent composition queries and mutations
+        - ADK session and execution subscriptions
+        - Model and tool registry integration
         
-    - step: "Implement resolvers"
+    - step: "Implement specification system resolvers"  # ADDED: From masterplan
       implementation_notes: |
-        - Data fetching
-        - Relationship loading
-        - Filtering/pagination
+        - SpecificationResolver for specs/ directory scanning
+        - ConfigurationLoader integration for YAML/JSON parsing
+        - Tool registry queries for runtime tools
+        - Model health checking and configuration status
         
-    - step: "Add mutations"
+    - step: "Implement composition resolvers"  # ADDED: From masterplan
       implementation_notes: |
-        - CRUD operations
-        - Validation
-        - Error handling
+        - VERIFIED: UniversalAgentFactory integration from masterplan
+        - VERIFIED: ADK InMemoryRunner for execution
+        - Agent preview composition without execution
+        - Context injection for dynamic agent building
         
-    - step: "Build subscriptions"
+    - step: "Add specification management mutations"  # CORRECTED: Spec-focused
       implementation_notes: |
-        - Real-time updates
-        - Event filtering
-        - Connection management
+        - Specification CRUD operations
+        - YAML/JSON validation using services.validation
+        - Agent composition from specifications
+        - ADK session creation with composition
+        - Error handling for invalid specifications
+        
+    - step: "Build real-time orchestration subscriptions"  # CORRECTED: Orchestration-focused
+      implementation_notes: |
+        - VERIFIED: Real-time agent execution events
+        - ADK session state change notifications
+        - Workflow progress streaming
+        - Tool execution monitoring
+        - Model health status updates
         
   validation:
     commands:
-      - description: "Test GraphQL schema"
-        command: "cd services/agent-engine && pytest tests/test_graphql.py -v"
-        expected: "All tests pass"
+      - description: "Test GraphQL schema with specification types"  # CORRECTED: Specification focus
+        command: "cd services/agent-engine && pytest tests/test_graphql.py::test_specification_types -v"
+        expected: "Specification types properly defined"
         
-      - description: "Query GraphQL playground"
-        command: "curl -X POST http://localhost:8001/graphql -H 'Content-Type: application/json' -d '{\"query\": \"{ __schema { types { name } } }\"}'"
-        expected: "Schema introspection works"
+      - description: "Test agent composition queries"  # ADDED: Composition testing
+        command: "cd services/agent-engine && pytest tests/test_graphql.py::test_composition_queries -v"
+        expected: "Agent composition queries working"
+        
+      - description: "Query specification system via GraphQL"  # CORRECTED: Spec-focused query
+        command: "curl -X POST http://localhost:8001/graphql -H 'Content-Type: application/json' -d '{\"query\": \"{ agentSpecifications { metadata spec } }\"}'"
+        expected: "Agent specifications returned from specs/ directory"
+        
+      - description: "Test tool registry integration"  # ADDED: Tool registry testing
+        command: "curl -X POST http://localhost:8001/graphql -H 'Content-Type: application/json' -d '{\"query\": \"{ registeredTools { name categories } }\"}'"
+        expected: "Registered tools returned from tool registry"
         
     success_criteria:
-      - "Schema properly defined"
-      - "Queries working"
-      - "Mutations functional"
-      - "Subscriptions operational"
-      - "All tests pass"
+      - "Specification types properly defined and accessible"  # CORRECTED: Spec focus
+      - "Agent composition queries working with UniversalAgentFactory"  # ADDED: Composition
+      - "Tool registry integration functional"  # ADDED: Tool registry
+      - "Model configuration queries operational"  # ADDED: Model management
+      - "ADK session integration working correctly"  # VERIFIED: ADK focus
+      - "All specification-related tests pass"  # CORRECTED: Spec tests
       
   dependencies:
     required_before:

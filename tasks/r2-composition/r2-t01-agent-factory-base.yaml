@@ -8,7 +8,7 @@ task:
   context:
     why: "The agent factory is the core composition engine that creates agents dynamically from YAML/JSON specifications"
     architectural_role: "Central factory pattern that enables specification-driven agent creation without code changes"
-    depends_on_tasks: ["r1-t02", "r1-t03", "r1-t05"]
+    depends_on_tasks: ["r1-t02", "r1-t03", "r1-t05", "r2-t00-adk-dev-ui-integration"]
     enables_tasks: ["r2-t02", "r2-t03", "r2-t04", "r2-t05"]
     references:
       masterplan: "@MASTERPLAN.md#universal-agent-factory"

@@ -1,13 +1,13 @@
 task:
   id: "r6-t04-api-authentication"
   name: "Implement API Authentication and Authorization"
-  description: "Create comprehensive authentication system with API keys, JWT tokens, and role-based access control"
+  description: "Create service-oriented authentication system with API keys, JWT tokens, rate limiting, and integration with ADK session management"
   complexity: "complex"
-  estimated_hours: 4
-  
+  estimated_hours: 5
+
   context:
-    why: "Secure API access is essential for multi-tenant agent orchestration platform"
-    architectural_role: "Security layer for all API endpoints and WebSocket connections"
+    why: "Service token authentication and rate limiting are essential for secure multi-service agent orchestration platform"
+    architectural_role: "Security and rate limiting layer for all API endpoints, WebSocket connections, and microservices communication"
     depends_on_tasks: ["r6-t01", "r6-t02"]
     enables_tasks: ["r6-t05", "r7-t04"]
     references:
@@ -17,7 +17,7 @@ task:
   implementation:
     creates:
       - path: "services/agent-engine/src/auth/"
-        purpose: "Authentication and authorization system"
+        purpose: "Authentication and authorization system with microservices integration"
         content:
           - "__init__.py"
           - "models.py"
@@ -26,14 +26,19 @@ task:
           - "permissions.py"
           - "jwt_handler.py"
           - "api_keys.py"
+          - "rate_limiter.py"  # ADDED: Rate limiting from masterplan
+          - "service_auth.py"  # ADDED: Service-to-service authentication
+          - "session_integration.py"  # ADDED: ADK session integration
       
       - path: "services/agent-engine/src/auth/models.py"
-        purpose: "Authentication data models"
+        purpose: "Authentication data models aligned with ADK session management"
         exports:
           - "User: User model"
           - "ApiKey: API key model"
           - "Permission: Permission model"
           - "Role: Role model"
+          - "ServiceToken: Service authentication model"  # ADDED
+          - "RateLimit: Rate limiting model"  # ADDED
         content_structure: |
           from typing import Dict, Any, List, Optional, Set
           from datetime import datetime, timedelta
@@ -41,6 +46,13 @@ task:
           from enum import Enum
           import secrets
           import hashlib
+          
+          # VERIFIED: Based on ADK authentication patterns
+          class AuthMethod(str, Enum):
+              API_KEY = "api_key"
+              JWT_TOKEN = "jwt_token"
+              SERVICE_TOKEN = "service_token"  # ADDED: Service-to-service auth
+              BASIC_AUTH = "basic_auth"
           
           class UserStatus(str, Enum):
               ACTIVE = "active"
@@ -65,18 +77,84 @@ task:
               WORKFLOW = "workflow"
               TOOL = "tool"
               SYSTEM = "system"
+              SERVICE = "service"  # ADDED: For service-to-service permissions
+          
+          # ADDED: Rate limiting models from masterplan API gateway requirements
+          class RateLimit(BaseModel):
+              """Rate limiting configuration model"""
+              id: str
+              requests_per_minute: int = 60
+              requests_per_hour: int = 1000
+              burst_capacity: int = 10
+              window_type: str = "sliding"  # sliding, fixed
+              created_at: datetime = Field(default_factory=datetime.now)
+              
+              def is_exceeded(self, current_count: int, window: str) -> bool:
+                  """Check if rate limit is exceeded"""
+                  if window == "minute":
+                      return current_count >= self.requests_per_minute
+                  elif window == "hour":
+                      return current_count >= self.requests_per_hour
+                  return False
+          
+          # ADDED: Service token model for microservices communication
+          class ServiceToken(BaseModel):
+              """Service-to-service authentication token"""
+              id: str
+              service_name: str  # auth, billing, frontend
+              token_hash: str
+              token_prefix: str
+              permissions: List[Permission] = Field(default_factory=list)
+              rate_limit: Optional[RateLimit] = None
+              environment: str = "development"  # CORRECTED: Environment-aware from masterplan
+              allowed_services: List[str] = Field(default_factory=list)
+              created_at: datetime = Field(default_factory=datetime.now)
+              expires_at: Optional[datetime] = None
+              last_used: Optional[datetime] = None
+              
+              @classmethod
+              def create_for_service(
+                  cls,
+                  service_name: str,
+                  environment: str = "development",
+                  expires_in_days: int = 365
+              ) -> tuple["ServiceToken", str]:
+                  """Create service token with environment awareness"""
+                  raw_token = f"svc_{environment}_{secrets.token_urlsafe(32)}"
+                  token_hash = hashlib.sha256(raw_token.encode()).hexdigest()
+                  token_prefix = raw_token[:16]
+                  
+                  expires_at = datetime.now() + timedelta(days=expires_in_days)
+                  
+                  service_token = cls(
+                      id=f"svc_{secrets.token_hex(8)}",
+                      service_name=service_name,
+                      token_hash=token_hash,
+                      token_prefix=token_prefix,
+                      environment=environment,
+                      expires_at=expires_at
+                  )
+                  
+                  return service_token, raw_token
           
           class Permission(BaseModel):
-              """Permission model"""
+              """Permission model with enhanced microservices support"""
               id: str
               action: PermissionAction
               resource_type: ResourceType
-              resource_id: Optional[str] = None  # None means all resources of type
+              resource_id: Optional[str] = None
+              service_scope: Optional[str] = None  # ADDED: Service-specific permissions
               conditions: Dict[str, Any] = Field(default_factory=dict)
               created_at: datetime = Field(default_factory=datetime.now)
               
-              def matches(self, action: PermissionAction, resource_type: ResourceType, resource_id: Optional[str] = None) -> bool:
-                  """Check if permission matches the request"""
+              def matches(
+                  self, 
+                  action: PermissionAction, 
+                  resource_type: ResourceType, 
+                  resource_id: Optional[str] = None,
+                  service_scope: Optional[str] = None
+              ) -> bool:
+                  """Check if permission matches the request with service scope"""
                   if self.action != action and self.action != PermissionAction.ADMIN:
                       return False
                   
@@ -85,35 +163,48 @@ task:
                   
                   if self.resource_id is not None and self.resource_id != resource_id:
                       return False
+                      
+                  # ADDED: Service scope checking
+                  if self.service_scope is not None and self.service_scope != service_scope:
+                      return False
                   
                   return True
           
           class Role(BaseModel):
-              """Role model"""
+              """Role model with service integration"""
               id: str
               name: str
               description: Optional[str] = None
               permissions: List[Permission] = Field(default_factory=list)
               is_system_role: bool = False
+              service_scoped: bool = False  # ADDED: Service-specific roles
               created_at: datetime = Field(default_factory=datetime.now)
               updated_at: datetime = Field(default_factory=datetime.now)
               
-              def has_permission(self, action: PermissionAction, resource_type: ResourceType, resource_id: Optional[str] = None) -> bool:
-                  """Check if role has specific permission"""
+              def has_permission(
+                  self, 
+                  action: PermissionAction, 
+                  resource_type: ResourceType, 
+                  resource_id: Optional[str] = None,
+                  service_scope: Optional[str] = None
+              ) -> bool:
+                  """Check if role has specific permission with service scope"""
                   return any(
-                      perm.matches(action, resource_type, resource_id)
+                      perm.matches(action, resource_type, resource_id, service_scope)
                       for perm in self.permissions
                   )
           
+          # CORRECTED: Simplified user model - less complex user management as noted in validation
           class User(BaseModel):
-              """User model"""
+              """User model - simplified for service-oriented architecture"""
               id: str
               username: str
               email: Optional[str] = None
-              full_name: Optional[str] = None
               status: UserStatus = UserStatus.ACTIVE
-              roles: List[str] = Field(default_factory=list)  # Role IDs
-              permissions: List[Permission] = Field(default_factory=list)  # Direct permissions
+              roles: List[str] = Field(default_factory=list)
+              permissions: List[Permission] = Field(default_factory=list)
+              auth_method: AuthMethod = AuthMethod.API_KEY
+              session_config: Dict[str, Any] = Field(default_factory=dict)  # ADDED: ADK session integration
               metadata: Dict[str, Any] = Field(default_factory=dict)
               created_at: datetime = Field(default_factory=datetime.now)
               updated_at: datetime = Field(default_factory=datetime.now)
@@ -124,31 +215,33 @@ task:
                   action: PermissionAction,
                   resource_type: ResourceType,
                   resource_id: Optional[str] = None,
+                  service_scope: Optional[str] = None,
                   roles: Optional[List[Role]] = None
               ) -> bool:
                   """Check if user has specific permission"""
                   # Check direct permissions
-                  if any(perm.matches(action, resource_type, resource_id) for perm in self.permissions):
+                  if any(perm.matches(action, resource_type, resource_id, service_scope) for perm in self.permissions):
                       return True
                   
                   # Check role permissions
                   if roles:
                       user_roles = [role for role in roles if role.id in self.roles]
-                      return any(role.has_permission(action, resource_type, resource_id) for role in user_roles)
+                      return any(role.has_permission(action, resource_type, resource_id, service_scope) for role in user_roles)
                   
                   return False
           
           class ApiKey(BaseModel):
-              """API key model"""
+              """API key model with rate limiting integration"""
               id: str
               name: str
-              key_hash: str  # Hashed version of the key
-              key_prefix: str  # First 8 chars for identification
+              key_hash: str
+              key_prefix: str
               user_id: str
               status: ApiKeyStatus = ApiKeyStatus.ACTIVE
               permissions: List[Permission] = Field(default_factory=list)
-              rate_limit: Optional[int] = None  # Requests per minute
+              rate_limit: Optional[RateLimit] = None  # ADDED: Rate limiting integration
               allowed_ips: List[str] = Field(default_factory=list)
+              allowed_origins: List[str] = Field(default_factory=list)  # ADDED: CORS support
               metadata: Dict[str, Any] = Field(default_factory=dict)
               created_at: datetime = Field(default_factory=datetime.now)
               expires_at: Optional[datetime] = None
@@ -161,18 +254,25 @@ task:
                   name: str,
                   user_id: str,
                   permissions: List[Permission] = None,
+                  rate_limit: Optional[RateLimit] = None,
                   expires_in_days: Optional[int] = None
               ) -> tuple["ApiKey", str]:
-                  """Create new API key with raw key"""
-                  # Generate secure random key
+                  """Create new API key with rate limiting"""
                   raw_key = f"tahoe_{secrets.token_urlsafe(32)}"
                   key_hash = hashlib.sha256(raw_key.encode()).hexdigest()
-                  key_prefix = raw_key[:12]  # tahoe_ + 6 chars
+                  key_prefix = raw_key[:12]
                   
-                  # Set expiration
                   expires_at = None
                   if expires_in_days:
                       expires_at = datetime.now() + timedelta(days=expires_in_days)
+                  
+                  # ADDED: Default rate limiting if none provided
+                  if rate_limit is None:
+                      rate_limit = RateLimit(
+                          id=f"rl_{secrets.token_hex(8)}",
+                          requests_per_minute=60,
+                          requests_per_hour=1000
+                      )
                   
                   api_key = cls(
                       id=f"key_{secrets.token_hex(8)}",
@@ -181,6 +281,7 @@ task:
                       key_prefix=key_prefix,
                       user_id=user_id,
                       permissions=permissions or [],
+                      rate_limit=rate_limit,
                       expires_at=expires_at
                   )
                   
@@ -204,31 +305,35 @@ task:
                   self,
                   action: PermissionAction,
                   resource_type: ResourceType,
-                  resource_id: Optional[str] = None
+                  resource_id: Optional[str] = None,
+                  service_scope: Optional[str] = None
               ) -> bool:
                   """Check if API key has specific permission"""
                   return any(
-                      perm.matches(action, resource_type, resource_id)
+                      perm.matches(action, resource_type, resource_id, service_scope)
                       for perm in self.permissions
                   )
           
+          # VERIFIED: JWT claims structure based on ADK authentication patterns
           class JWTClaims(BaseModel):
-              """JWT token claims"""
+              """JWT token claims with service integration"""
               sub: str  # Subject (user ID)
               username: str
               roles: List[str]
-              permissions: List[str]  # Serialized permissions
+              permissions: List[str]
+              service_scope: Optional[str] = None  # ADDED: Service-specific tokens
+              session_id: Optional[str] = None  # ADDED: ADK session integration
               iat: int  # Issued at
               exp: int  # Expires at
               jti: Optional[str] = None  # JWT ID
               scope: Optional[str] = None  # OAuth scope
           
-          # Pre-defined system roles
+          # CORRECTED: Enhanced system roles for microservices architecture
           SYSTEM_ROLES = {
               "admin": Role(
                   id="role_admin",
                   name="Administrator",
-                  description="Full system access",
+                  description="Full system access across all services",
                   is_system_role=True,
                   permissions=[
                       Permission(
@@ -238,10 +343,29 @@ task:
                       )
                   ]
               ),
+              "service": Role(  # ADDED: Service-to-service role
+                  id="role_service",
+                  name="Service",
+                  description="Service-to-service communication",
+                  is_system_role=True,
+                  service_scoped=True,
+                  permissions=[
+                      Permission(
+                          id="perm_service_communicate",
+                          action=PermissionAction.EXECUTE,
+                          resource_type=ResourceType.SERVICE
+                      ),
+                      Permission(
+                          id="perm_service_read_sessions",
+                          action=PermissionAction.READ,
+                          resource_type=ResourceType.SESSION
+                      )
+                  ]
+              ),
               "user": Role(
                   id="role_user",
                   name="User",
-                  description="Standard user access",
+                  description="Standard user access with rate limiting",
                   is_system_role=True,
                   permissions=[
                       Permission(
@@ -264,7 +388,7 @@ task:
               "readonly": Role(
                   id="role_readonly",
                   name="Read Only",
-                  description="Read-only access",
+                  description="Read-only access with strict rate limiting",
                   is_system_role=True,
                   permissions=[
                       Permission(
@@ -287,26 +411,30 @@ task:
           }
       
       - path: "services/agent-engine/src/auth/providers.py"
-        purpose: "Authentication providers"
+        purpose: "Authentication providers with service discovery and ADK integration"
         exports:
           - "AuthProvider: Base auth provider"
           - "ApiKeyProvider: API key authentication"
           - "JWTProvider: JWT token authentication"
+          - "ServiceProvider: Service-to-service authentication"  # ADDED
           - "BasicProvider: Basic auth provider"
         content_structure: |
           from typing import Optional, Dict, Any, List
           from abc import ABC, abstractmethod
           import logging
+          import os
           from datetime import datetime
           
-          from .models import User, ApiKey, Role, SYSTEM_ROLES
+          from .models import User, ApiKey, ServiceToken, Role, SYSTEM_ROLES
           from .jwt_handler import JWTHandler
           from .api_keys import ApiKeyManager
+          from .service_auth import ServiceAuthManager  # ADDED
+          from .session_integration import ADKSessionManager  # ADDED
           
           logger = logging.getLogger(__name__)
           
           class AuthProvider(ABC):
-              """Base authentication provider"""
+              """Base authentication provider with ADK integration"""
               
               @abstractmethod
               async def authenticate(self, credentials: Dict[str, Any]) -> Optional[User]:
@@ -317,16 +445,81 @@ task:
               async def get_user_roles(self, user_id: str) -> List[Role]:
                   """Get user roles"""
                   pass
-          
-          class ApiKeyProvider(AuthProvider):
-              """API key authentication provider"""
               
-              def __init__(self, api_key_manager: ApiKeyManager):
-                  self.api_key_manager = api_key_manager
+              # ADDED: ADK session integration
+              async def create_session_context(self, user: User) -> Dict[str, Any]:
+                  """Create ADK session context for authenticated user"""
+                  return {
+                      "user_id": user.id,
+                      "auth_method": user.auth_method.value,
+                      "session_config": user.session_config,
+                      "permissions": [perm.dict() for perm in user.permissions]
+                  }
+          
+          # ADDED: Service-to-service authentication provider
+          class ServiceProvider(AuthProvider):
+              """Service-to-service authentication provider"""
+              
+              def __init__(self, service_auth_manager: ServiceAuthManager):
+                  self.service_auth_manager = service_auth_manager
+                  # CORRECTED: Environment-aware service discovery from masterplan
+                  self.environment = os.getenv("ENVIRONMENT", "development")
+                  self.auth_service_url = self._get_auth_service_url()
+              
+              def _get_auth_service_url(self) -> str:
+                  """Get auth service URL based on environment"""
+                  if self.environment == "development":
+                      return "http://localhost:8002"
+                  elif self.environment == "staging":
+                      return "https://auth.staging.tahoe.com"
+                  elif self.environment == "production":
+                      return "https://auth.tahoe.com"
+                  else:
+                      return "http://localhost:8002"
               
               async def authenticate(self, credentials: Dict[str, Any]) -> Optional[User]:
-                  """Authenticate using API key"""
+                  """Authenticate service using service token"""
+                  service_token = credentials.get("service_token")
+                  if not service_token:
+                      return None
+                  
+                  # Validate service token
+                  token_data = await self.service_auth_manager.validate_token(service_token)
+                  if not token_data:
+                      return None
+                  
+                  # Create service user
+                  user = User(
+                      id=f"service_{token_data.service_name}",
+                      username=f"service_{token_data.service_name}",
+                      auth_method="service_token",
+                      permissions=token_data.permissions,
+                      metadata={
+                          "auth_method": "service_token",
+                          "service_name": token_data.service_name,
+                          "environment": token_data.environment,
+                          "token_id": token_data.id
+                      }
+                  )
+                  
+                  return user
+              
+              async def get_user_roles(self, user_id: str) -> List[Role]:
+                  """Get roles for service user"""
+                  return [SYSTEM_ROLES["service"]]
+          
+          class ApiKeyProvider(AuthProvider):
+              """API key authentication provider with rate limiting"""
+              
+              def __init__(self, api_key_manager: ApiKeyManager, rate_limiter=None):
+                  self.api_key_manager = api_key_manager
+                  self.rate_limiter = rate_limiter  # ADDED: Rate limiting integration
+              
+              async def authenticate(self, credentials: Dict[str, Any]) -> Optional[User]:
+                  """Authenticate using API key with rate limiting"""
                   api_key = credentials.get("api_key")
+                  client_ip = credentials.get("client_ip")
+                  
                   if not api_key:
                       return None
                   
@@ -335,6 +528,17 @@ task:
                   if not key_data:
                       return None
                   
+                  # ADDED: Rate limiting check
+                  if self.rate_limiter and key_data.rate_limit:
+                      is_allowed = await self.rate_limiter.check_rate_limit(
+                          key_id=key_data.id,
+                          limit_config=key_data.rate_limit,
+                          client_ip=client_ip
+                      )
+                      if not is_allowed:
+                          logger.warning(f"Rate limit exceeded for API key {key_data.key_prefix}")
+                          return None
+                  
                   # Update usage
                   await self.api_key_manager.update_usage(key_data.id)
                   
@@ -342,11 +546,17 @@ task:
                   user = User(
                       id=key_data.user_id,
                       username=f"api_user_{key_data.user_id}",
+                      auth_method="api_key",
                       permissions=key_data.permissions,
+                      session_config={  # ADDED: ADK session integration
+                          "persistence": "memory",
+                          "app_name": "agent_engine"
+                      },
                       metadata={
                           "auth_method": "api_key",
                           "api_key_id": key_data.id,
-                          "api_key_name": key_data.name
+                          "api_key_name": key_data.name,
+                          "rate_limit": key_data.rate_limit.dict() if key_data.rate_limit else None
                       }
                   )
                   
@@ -354,18 +564,18 @@ task:
               
               async def get_user_roles(self, user_id: str) -> List[Role]:
                   """Get roles for API key user"""
-                  # API key users get basic user role by default
                   return [SYSTEM_ROLES["user"]]
           
           class JWTProvider(AuthProvider):
-              """JWT token authentication provider"""
+              """JWT token authentication provider with ADK session integration"""
               
-              def __init__(self, jwt_handler: JWTHandler, user_store):
+              def __init__(self, jwt_handler: JWTHandler, user_store, session_manager: ADKSessionManager):
                   self.jwt_handler = jwt_handler
                   self.user_store = user_store
+                  self.session_manager = session_manager  # ADDED: ADK session integration
               
               async def authenticate(self, credentials: Dict[str, Any]) -> Optional[User]:
-                  """Authenticate using JWT token"""
+                  """Authenticate using JWT token with session management"""
                   token = credentials.get("token")
                   if not token:
                       return None
@@ -379,6 +589,12 @@ task:
                   user = await self.user_store.get_user(claims.sub)
                   if not user or user.status != "active":
                       return None
+                  
+                  # ADDED: Integrate with ADK session if session_id provided
+                  if claims.session_id:
+                      session_context = await self.session_manager.get_session_context(claims.session_id)
+                      if session_context:
+                          user.session_config.update(session_context)
                   
                   # Update last login
                   user.last_login = datetime.now()
@@ -417,6 +633,11 @@ task:
                           "password": "user123",
                           "roles": ["user"],
                           "email": "user@localhost"
+                      },
+                      "service": {  # ADDED: Service user for development
+                          "password": "service123",
+                          "roles": ["service"],
+                          "email": "service@localhost"
                       }
                   }
               
@@ -437,8 +658,13 @@ task:
                       username=username,
                       email=user_data.get("email"),
                       roles=user_data.get("roles", []),
+                      auth_method="basic_auth",
+                      session_config={  # ADDED: ADK session integration
+                          "persistence": "memory",
+                          "app_name": "agent_engine"
+                      },
                       metadata={
-                          "auth_method": "basic"
+                          "auth_method": "basic_auth"
                       }
                   )
                   
@@ -458,28 +684,34 @@ task:
                   return roles
       
       - path: "services/agent-engine/src/auth/middleware.py"
-        purpose: "Authentication middleware for FastAPI"
+        purpose: "Authentication and rate limiting middleware for FastAPI with ADK integration"
         exports:
-          - "AuthMiddleware: Authentication middleware"
+          - "AuthMiddleware: Authentication middleware with rate limiting"
+          - "RateLimitMiddleware: Rate limiting middleware"  # ADDED
           - "require_auth: Authentication dependency"
           - "require_permission: Permission dependency"
+          - "require_service_auth: Service authentication dependency"  # ADDED
         content_structure: |
           from typing import Optional, List, Callable, Any
           from fastapi import Request, HTTPException, Depends, status
           from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
+          from fastapi.middleware.base import BaseHTTPMiddleware
           import logging
+          import time
           
           from .models import User, PermissionAction, ResourceType
-          from .providers import AuthProvider, ApiKeyProvider, JWTProvider
+          from .providers import AuthProvider, ApiKeyProvider, JWTProvider, ServiceProvider
+          from .rate_limiter import RateLimiter  # ADDED
           
           logger = logging.getLogger(__name__)
           
           class AuthContext:
-              """Authentication context"""
+              """Authentication context with ADK session integration"""
               def __init__(self, user: User, auth_provider: AuthProvider):
                   self.user = user
                   self.auth_provider = auth_provider
                   self._roles = None
+                  self._session_context = None  # ADDED: ADK session context
               
               async def get_roles(self):
                   """Get user roles (cached)"""
@@ -487,58 +719,124 @@ task:
                       self._roles = await self.auth_provider.get_user_roles(self.user.id)
                   return self._roles
               
+              async def get_session_context(self):
+                  """Get ADK session context (cached)"""
+                  if self._session_context is None:
+                      self._session_context = await self.auth_provider.create_session_context(self.user)
+                  return self._session_context
+              
               async def has_permission(
                   self,
                   action: PermissionAction,
                   resource_type: ResourceType,
-                  resource_id: Optional[str] = None
+                  resource_id: Optional[str] = None,
+                  service_scope: Optional[str] = None
               ) -> bool:
                   """Check if user has permission"""
                   roles = await self.get_roles()
-                  return self.user.has_permission(action, resource_type, resource_id, roles)
+                  return self.user.has_permission(action, resource_type, resource_id, service_scope, roles)
+          
+          # ADDED: Rate limiting middleware from masterplan API gateway requirements
+          class RateLimitMiddleware(BaseHTTPMiddleware):
+              """Rate limiting middleware for API gateway"""
+              
+              def __init__(self, app, rate_limiter: RateLimiter):
+                  super().__init__(app)
+                  self.rate_limiter = rate_limiter
+              
+              async def dispatch(self, request: Request, call_next):
+                  """Apply rate limiting to all requests"""
+                  client_ip = request.client.host
+                  endpoint = f"{request.method}:{request.url.path}"
+                  
+                  # Check rate limit
+                  is_allowed = await self.rate_limiter.check_endpoint_rate_limit(
+                      client_ip=client_ip,
+                      endpoint=endpoint
+                  )
+                  
+                  if not is_allowed:
+                      return HTTPException(
+                          status_code=status.HTTP_429_TOO_MANY_REQUESTS,
+                          detail="Rate limit exceeded",
+                          headers={
+                              "Retry-After": "60",
+                              "X-RateLimit-Limit": "60",
+                              "X-RateLimit-Remaining": "0",
+                              "X-RateLimit-Reset": str(int(time.time()) + 60)
+                          }
+                      )
+                  
+                  response = await call_next(request)
+                  
+                  # Add rate limit headers
+                  remaining = await self.rate_limiter.get_remaining_requests(client_ip, endpoint)
+                  response.headers["X-RateLimit-Limit"] = "60"
+                  response.headers["X-RateLimit-Remaining"] = str(remaining)
+                  response.headers["X-RateLimit-Reset"] = str(int(time.time()) + 60)
+                  
+                  return response
           
           class AuthMiddleware:
-              """Authentication middleware"""
+              """Authentication middleware with service discovery and rate limiting"""
               
               def __init__(self, providers: List[AuthProvider]):
                   self.providers = providers
                   self.security = HTTPBearer(auto_error=False)
               
               async def authenticate_request(self, request: Request) -> Optional[AuthContext]:
-                  """Authenticate incoming request"""
-                  # Try different authentication methods
+                  """Authenticate incoming request with comprehensive method support"""
+                  client_ip = request.client.host if request.client else None
                   
-                  # 1. API Key from header
+                  # 1. Service Token (for microservices communication)
+                  service_token = request.headers.get("X-Service-Token")
+                  if service_token:
+                      for provider in self.providers:
+                          if isinstance(provider, ServiceProvider):
+                              user = await provider.authenticate({
+                                  "service_token": service_token,
+                                  "client_ip": client_ip
+                              })
+                              if user:
+                                  return AuthContext(user, provider)
+                  
+                  # 2. API Key from header
                   api_key = request.headers.get("X-API-Key")
                   if api_key:
                       for provider in self.providers:
                           if isinstance(provider, ApiKeyProvider):
-                              user = await provider.authenticate({"api_key": api_key})
+                              user = await provider.authenticate({
+                                  "api_key": api_key,
+                                  "client_ip": client_ip
+                              })
                               if user:
                                   return AuthContext(user, provider)
                   
-                  # 2. Bearer token
+                  # 3. Bearer token (JWT)
                   auth_header = request.headers.get("Authorization")
                   if auth_header and auth_header.startswith("Bearer "):
                       token = auth_header[7:]
                       for provider in self.providers:
                           if isinstance(provider, JWTProvider):
-                              user = await provider.authenticate({"token": token})
+                              user = await provider.authenticate({
+                                  "token": token,
+                                  "client_ip": client_ip
+                              })
                               if user:
                                   return AuthContext(user, provider)
                   
-                  # 3. Basic auth (from request)
-                  # This would be handled by FastAPI's HTTPBasic if needed
-                  
                   return None
           
-          # Global auth middleware instance
+          # Global middleware instances
           auth_middleware = None
+          rate_limit_middleware = None
           
-          def init_auth_middleware(providers: List[AuthProvider]):
-              """Initialize authentication middleware"""
-              global auth_middleware
+          def init_auth_middleware(providers: List[AuthProvider], rate_limiter: RateLimiter = None):
+              """Initialize authentication and rate limiting middleware"""
+              global auth_middleware, rate_limit_middleware
               auth_middleware = AuthMiddleware(providers)
+              if rate_limiter:
+                  rate_limit_middleware = rate_limiter
           
           async def get_current_user(request: Request) -> Optional[AuthContext]:
               """Get current authenticated user (optional)"""
@@ -558,124 +856,247 @@ task:
                   )
               return auth_context
           
+          # ADDED: Service authentication dependency
+          async def require_service_auth(request: Request) -> AuthContext:
+              """Require service-to-service authentication"""
+              auth_context = await get_current_user(request)
+              if not auth_context:
+                  raise HTTPException(
+                      status_code=status.HTTP_401_UNAUTHORIZED,
+                      detail="Service authentication required",
+                      headers={"WWW-Authenticate": "Service"}
+                  )
+              
+              # Check if user is a service
+              if not auth_context.user.auth_method == "service_token":
+                  raise HTTPException(
+                      status_code=status.HTTP_403_FORBIDDEN,
+                      detail="Service authentication required"
+                  )
+              
+              return auth_context
+          
           def require_permission(
               action: PermissionAction,
               resource_type: ResourceType,
-              resource_id_param: Optional[str] = None
+              resource_id_param: Optional[str] = None,
+              service_scope: Optional[str] = None
           ) -> Callable:
-              """Require specific permission"""
-              def permission_dependency(
+              """Require specific permission with service scope support"""
+              async def permission_dependency(
                   auth_context: AuthContext = Depends(require_auth),
                   request: Request = None
               ) -> AuthContext:
-                  async def check_permission():
-                      # Extract resource ID from path if specified
-                      resource_id = None
-                      if resource_id_param and request:
-                          resource_id = request.path_params.get(resource_id_param)
-                      
-                      has_perm = await auth_context.has_permission(
-                          action,
-                          resource_type,
-                          resource_id
-                      )
-                      
-                      if not has_perm:
-                          raise HTTPException(
-                              status_code=status.HTTP_403_FORBIDDEN,
-                              detail=f"Permission denied: {action} on {resource_type}"
-                          )
-                      
-                      return auth_context
+                  # Extract resource ID from path if specified
+                  resource_id = None
+                  if resource_id_param and request:
+                      resource_id = request.path_params.get(resource_id_param)
                   
-                  # Note: This is a simplified version
-                  # In practice, you'd use async dependencies properly
+                  has_perm = await auth_context.has_permission(
+                      action,
+                      resource_type,
+                      resource_id,
+                      service_scope
+                  )
+                  
+                  if not has_perm:
+                      raise HTTPException(
+                          status_code=status.HTTP_403_FORBIDDEN,
+                          detail=f"Permission denied: {action} on {resource_type}" + 
+                                 (f" in {service_scope}" if service_scope else "")
+                      )
+                  
                   return auth_context
               
               return permission_dependency
+          
+          # ADDED: Convenience dependencies for common permission patterns
+          def require_admin() -> Callable:
+              """Require admin permission"""
+              return require_permission(PermissionAction.ADMIN, ResourceType.SYSTEM)
+          
+          def require_agent_access(action: PermissionAction = PermissionAction.READ) -> Callable:
+              """Require agent access permission"""
+              return require_permission(action, ResourceType.AGENT)
+          
+          def require_session_access(action: PermissionAction = PermissionAction.READ) -> Callable:
+              """Require session access permission"""
+              return require_permission(action, ResourceType.SESSION)
+      
+      # ADDED: Rate limiting implementation
+      - path: "services/agent-engine/src/auth/rate_limiter.py"
+        purpose: "Rate limiting implementation for API gateway"
+        exports:
+          - "RateLimiter: Rate limiting service"
+          - "RateLimitStore: Rate limit storage interface"
+          - "MemoryRateLimitStore: In-memory rate limit storage"
+          - "RedisRateLimitStore: Redis rate limit storage"
+      
+      # ADDED: Service-to-service authentication
+      - path: "services/agent-engine/src/auth/service_auth.py"
+        purpose: "Service-to-service authentication management"
+        exports:
+          - "ServiceAuthManager: Service token management"
+          - "ServiceDiscovery: Environment-aware service discovery"
+      
+      # ADDED: ADK session integration
+      - path: "services/agent-engine/src/auth/session_integration.py"
+        purpose: "ADK session management integration"
+        exports:
+          - "ADKSessionManager: ADK session integration"
+          - "SessionAuthBridge: Bridge between auth and sessions"
       
       - path: "services/agent-engine/src/auth/jwt_handler.py"
-        purpose: "JWT token handling"
+        purpose: "JWT token handling with enhanced security"
         exports:
-          - "JWTHandler: JWT token management"
+          - "JWTHandler: JWT token management with ADK integration"
       
       - path: "services/agent-engine/src/auth/api_keys.py"
-        purpose: "API key management"
+        purpose: "API key management with rate limiting"
         exports:
-          - "ApiKeyManager: API key storage and validation"
+          - "ApiKeyManager: API key storage and validation with rate limits"
       
       - path: "services/agent-engine/tests/test_auth.py"
-        purpose: "Authentication tests"
+        purpose: "Comprehensive authentication tests"
         test_categories:
-          - "API key authentication"
-          - "JWT token validation"
-          - "Permission checking"
-          - "Role-based access"
+          - "API key authentication with rate limiting"
+          - "JWT token validation with session integration"
+          - "Service-to-service authentication"
+          - "Permission checking with service scopes"
+          - "Role-based access control"
+          - "Rate limiting functionality"
           - "Middleware integration"
+          - "ADK session integration"
+          - "Environment-aware service discovery"
     
     uses_from_previous:
       - source: "r6-t01"
         component: "FastAPI dependencies"
-        usage: "Authentication integration"
+        usage: "Authentication and rate limiting integration"
       - source: "r6-t02"
         component: "WebSocket auth"
-        usage: "Secure WebSocket connections"
+        usage: "Secure WebSocket connections with session management"
+      # ADDED: ADK session integration
+      - source: "masterplan"
+        component: "ADK session management"
+        usage: "Integrate authentication with existing ADK session patterns"
     
   implementation_steps:
-    - step: "Create auth models"
+    - step: "Create auth models with microservices support"
       implementation_notes: |
-        - User, Role, Permission models
-        - API key model
-        - JWT claims structure
+        - User, Role, Permission models with service scopes
+        - API key model with rate limiting
+        - Service token model for microservices
+        - JWT claims with session integration
+        - Rate limiting models and configurations
         
-    - step: "Implement providers"
+    - step: "Implement authentication providers"
       implementation_notes: |
-        - API key provider
-        - JWT provider
-        - Basic auth provider
+        - API key provider with rate limiting
+        - JWT provider with ADK session integration
+        - Service provider for microservices communication
+        - Basic auth provider for development
+        - Environment-aware service discovery
         
-    - step: "Build middleware"
+    - step: "Build middleware with rate limiting"
       implementation_notes: |
-        - Request authentication
-        - Permission checking
-        - FastAPI integration
+        - Request authentication with multiple methods
+        - Rate limiting middleware for API gateway
+        - Permission checking with service scopes
+        - FastAPI integration with proper dependencies
+        - Service-to-service authentication flow
         
-    - step: "Add JWT handling"
+    - step: "Add JWT handling with session integration"
       implementation_notes: |
-        - Token generation
-        - Token validation
-        - Claims management
+        - Token generation with session context
+        - Token validation with ADK session management
+        - Claims management with service scopes
+        - Session bridging for authenticated users
         
-    - step: "Create API key system"
+    - step: "Create comprehensive API key system"
       implementation_notes: |
-        - Key generation
-        - Key validation
-        - Usage tracking
+        - Key generation with rate limiting
+        - Key validation with usage tracking
+        - Rate limit enforcement per key
+        - IP and origin restrictions
         
+    - step: "Implement rate limiting system"
+      implementation_notes: |
+        - In-memory and Redis rate limit stores
+        - Sliding window and fixed window algorithms
+        - Per-key, per-IP, and global rate limiting
+        - Rate limit headers and proper HTTP responses
+        
+    - step: "Add service authentication"
+      implementation_notes: |
+        - Service token generation and validation
+        - Environment-aware service discovery
+        - Service-to-service permission management
+        - Integration with existing auth flow
+        
+    - step: "Integrate with ADK session management"
+      implementation_notes: |
+        - Session context creation from auth data
+        - Bridge between authentication and ADK sessions
+        - Session state integration with user permissions
+        - Proper session lifecycle management
+
   validation:
     commands:
-      - description: "Test authentication"
-        command: "cd services/agent-engine && pytest tests/test_auth.py -v"
-        expected: "All tests pass"
+      - description: "Test authentication with rate limiting"
+        command: "cd services/agent-engine && pytest tests/test_auth.py::test_rate_limiting -v"
+        expected: "Rate limiting tests pass"
         
-      - description: "Test API key access"
+      - description: "Test service authentication"
+        command: "cd services/agent-engine && pytest tests/test_auth.py::test_service_auth -v"
+        expected: "Service authentication tests pass"
+        
+      - description: "Test API key access with rate limiting"
         command: "curl -H 'X-API-Key: tahoe_test_key' http://localhost:8001/api/v1/agents"
-        expected: "Authenticated request succeeds"
+        expected: "Authenticated request succeeds with rate limit headers"
+        
+      - description: "Test service token authentication"
+        command: "curl -H 'X-Service-Token: svc_development_test_token' http://localhost:8001/api/v1/health"
+        expected: "Service authentication succeeds"
+        
+      - description: "Test rate limit enforcement"
+        command: "for i in {1..65}; do curl -H 'X-API-Key: tahoe_test_key' http://localhost:8001/api/v1/agents; done"
+        expected: "Returns 429 Too Many Requests after limit exceeded"
         
       - description: "Test unauthorized access"
         command: "curl http://localhost:8001/api/v1/agents"
         expected: "Returns 401 Unauthorized"
         
+      - description: "Test ADK session integration"
+        command: "cd services/agent-engine && pytest tests/test_auth.py::test_adk_session_integration -v"
+        expected: "ADK session integration tests pass"
+        
     success_criteria:
-      - "API key authentication working"
-      - "JWT token validation functional"
-      - "Permission system operational"
-      - "Middleware properly integrated"
-      - "All tests pass"
+      - "API key authentication working with rate limiting"
+      - "JWT token validation functional with session integration"
+      - "Service-to-service authentication operational"
+      - "Rate limiting enforced at API gateway level"
+      - "Permission system operational with service scopes"
+      - "Middleware properly integrated with FastAPI"
+      - "ADK session management integrated"
+      - "Environment-aware service discovery working"
+      - "All comprehensive tests pass"
       
   dependencies:
     required_before:
       - task: "r6-t01"
-        reason: "Need REST API endpoints"
+        reason: "Need REST API endpoints for authentication"
       - task: "r6-t02"
-        reason: "Need WebSocket connections"
+        reason: "Need WebSocket connections for session management"
+
+# CORRECTION SUMMARY:
+# 1. ADDED service-to-service authentication for microservices architecture
+# 2. ADDED rate limiting middleware as required by API gateway in masterplan
+# 3. ADDED ADK session integration to align with existing session management
+# 4. ADDED environment-aware configuration for service discovery
+# 5. CORRECTED focus from complex user management to service-oriented authentication
+# 6. ADDED comprehensive rate limiting with multiple storage backends
+# 7. ENHANCED permission system with service scopes for microservices
+# 8. VERIFIED authentication patterns against ADK documentation
+# 9. ADDED proper middleware integration for FastAPI
+# 10. INCREASED estimated hours from 4 to 5 due to additional scope

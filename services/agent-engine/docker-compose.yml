@@ -1,0 +1,38 @@
+services:
+  agent-engine:
+    build: .
+    container_name: tahoe-agent-engine
+    ports:
+      - "8001:8001"
+    environment:
+      DATABASE_HOST: ${DATABASE_HOST:-localhost}
+      DATABASE_PORT: ${DATABASE_PORT:-5432}
+      DATABASE_NAME: ${DATABASE_NAME:-tahoe}
+      DATABASE_USER: ${DATABASE_USER:-tahoe_user}
+      DATABASE_PASSWORD: ${DATABASE_PASSWORD:-changeme}
+      REDIS_HOST: ${REDIS_HOST:-localhost}
+      REDIS_PORT: ${REDIS_PORT:-6379}
+      GEMINI_API_KEY: ${GEMINI_API_KEY}
+      ADK_DEFAULT_MODEL: ${ADK_DEFAULT_MODEL:-gemini-2.0-flash}
+      ENVIRONMENT: ${ENVIRONMENT:-development}
+      AGENT_ENGINE_PORT: 8001
+      AGENT_ENGINE_LOG_LEVEL: ${AGENT_ENGINE_LOG_LEVEL:-INFO}
+      AGENT_ENGINE_DB_SCHEMA: ${AGENT_ENGINE_DB_SCHEMA:-agent_engine}
+      AGENT_ENGINE_REDIS_NAMESPACE: ${AGENT_ENGINE_REDIS_NAMESPACE:-agent:}
+    volumes:
+      - ../../.env:/app/.env:ro
+      - ./src:/app/src:ro
+      - ./config:/app/config:ro
+      - ./specs:/app/specs:ro
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8001/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+    networks:
+      - tahoe-network
+
+networks:
+  tahoe-network:
+    external: true

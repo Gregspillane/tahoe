@@ -1,18 +1,20 @@
 task:
   id: "r6-t05-api-documentation"
   name: "Create Comprehensive API Documentation"
-  description: "Generate interactive API documentation with OpenAPI/Swagger, examples, and integration guides"
+  description: "Generate interactive API documentation with OpenAPI/Swagger focused on agent orchestration, specification-driven architecture, and ADK integration"
   complexity: "simple"
   estimated_hours: 2
   
   context:
-    why: "Comprehensive documentation enables easy API adoption and reduces integration friction"
-    architectural_role: "Developer experience layer for API consumers"
-    depends_on_tasks: ["r6-t01", "r6-t02", "r6-t03", "r6-t04"]
+    why: "Comprehensive documentation enables easy API adoption and showcases the specification-driven agent orchestration capabilities"
+    architectural_role: "Developer experience layer for universal agent composition API consumers"
+    depends_on_tasks: ["r6-t01", "r6-t02", "r6-t04"]
     enables_tasks: ["r7-t02"]
     references:
-      masterplan: "@MASTERPLAN.md#developer-experience"
+      masterplan: "@MASTERPLAN.md#api-architecture"
       architecture: "@memory-bank/architecture.md#documentation"
+    # CORRECTED: Removed r6-t03 dependency as GraphQL is not part of core architecture
+    # CORRECTED: Updated references to reflect actual masterplan sections
     
   implementation:
     creates:
@@ -40,10 +42,19 @@ task:
                   "title": "Tahoe Agent Orchestration API",
                   "version": "1.0.0",
                   "description": """
-                  # Tahoe Agent Orchestration Platform API
+                  # Tahoe Universal Agent Orchestration Platform API
                   
-                  The Tahoe API provides comprehensive access to agent orchestration, 
-                  session management, and workflow execution capabilities.
+                  The Tahoe API provides comprehensive access to specification-driven agent composition, 
+                  dynamic workflow orchestration, and ADK-powered session management capabilities.
+                  
+                  ## Architecture Overview
+                  
+                  Tahoe is built on Google's Agent Development Kit (ADK) providing:
+                  
+                  - **Universal Agent Factory**: Create any agent type (LlmAgent, SequentialAgent, ParallelAgent, LoopAgent) from YAML/JSON specifications
+                  - **Dynamic Tool Registry**: Runtime tool registration with automatic ADK function wrapping
+                  - **Multi-Backend Sessions**: Memory, Redis, and Vertex AI session persistence
+                  - **Specification-Driven**: All agents, workflows, and tools defined via version-controlled specifications
                   
                   ## Authentication
                   
@@ -61,36 +72,35 @@ task:
                   - JWT Tokens: 500 requests per minute
                   - Basic Auth: 100 requests per minute
                   
-                  ## WebSocket Support
+                  ## Real-time Features
                   
-                  Real-time features are available via WebSocket at `/ws`:
+                  Server-Sent Events (SSE) support for:
                   
-                  - Agent execution streaming
-                  - Session state updates
-                  - Workflow progress events
+                  - Agent execution streaming via `/agents/{id}/execute/stream`
+                  - Workflow progress events via `/workflows/{id}/stream`
+                  - Session state updates via `/sessions/{id}/events`
                   
-                  ## GraphQL Interface
+                  ## Specification System
                   
-                  Advanced querying is available at `/graphql` with:
+                  All agents and workflows are defined via specifications:
                   
-                  - Flexible data querying
-                  - Real-time subscriptions
-                  - Relationship traversal
+                  - **Agent Specs**: Define LLM agents, workflow agents, and custom agents
+                  - **Workflow Templates**: Sequential, parallel, conditional, and loop patterns
+                  - **Tool Specs**: Runtime-registered tools with schema validation
+                  - **Model Configs**: Provider-agnostic model settings with fallback strategies
                   
-                  ## SDKs and Libraries
+                  ## Development Tools
                   
-                  Official SDKs are available for:
-                  
-                  - Python: `pip install tahoe-client`
-                  - JavaScript: `npm install @tahoe/client`
-                  - Go: `go get github.com/tahoe/go-client`
-                  
-                  ## Support
-                  
-                  - Documentation: https://docs.tahoe.dev
-                  - GitHub: https://github.com/tahoe/tahoe
-                  - Discord: https://discord.gg/tahoe
-                  """,
+                  - **ADK Dev UI**: Visual agent testing at `localhost:8000` (via `adk web`)
+                  - **Specification Validation**: Real-time validation endpoints
+                  - **Interactive Documentation**: This Swagger UI and ReDoc interfaces
+                  """
+                  # CORRECTED: Removed GraphQL references as not part of architecture
+                  # CORRECTED: Removed non-existent SDK references
+                  # CORRECTED: Removed hardcoded external URLs
+                  # ADDED: Specification-driven architecture description
+                  # ADDED: ADK integration details
+                  # VERIFIED: ADK agent types from documentation,
                   "terms_of_service": "https://tahoe.dev/terms",
                   "contact": {
                       "name": "Tahoe API Support",
@@ -107,10 +117,18 @@ task:
                           "description": "Development server"
                       },
                       {
-                          "url": "https://api.tahoe.dev",
-                          "description": "Production server"
+                          "url": "https://{environment}.tahoe.com",
+                          "description": "Environment-aware server",
+                          "variables": {
+                              "environment": {
+                                  "default": "agent-engine",
+                                  "enum": ["agent-engine", "agent-engine.staging"]
+                              }
+                          }
                       }
                   ]
+                  # CORRECTED: Environment-aware configuration pattern
+                  # CORRECTED: Removed hardcoded production URLs
               }
           
           def custom_openapi(app: FastAPI) -> Dict[str, Any]:
@@ -195,58 +213,62 @@ task:
           def get_api_examples() -> Dict[str, Dict[str, Any]]:
               """Get API examples for documentation"""
               return {
-                  "create_agent": {
-                      "llm_agent": {
-                          "summary": "Create LLM Agent",
-                          "description": "Create a simple LLM agent for text processing",
+                  "create_agent_from_spec": {
+                      "llm_agent_spec": {
+                          "summary": "Create LLM Agent from Specification",
+                          "description": "Create an LLM agent using the specification-driven approach",
                           "value": {
-                              "name": "Text Analyzer",
-                              "type": "llm",
-                              "specification": {
-                                  "model": "gemini-1.5-pro",
-                                  "system_instruction": "You are a text analyzer. Analyze the input text and provide insights.",
-                                  "tools": [],
-                                  "config": {
-                                      "temperature": 0.7,
-                                      "max_tokens": 1000
-                                  }
+                              "spec_name": "universal-analyzer",
+                              "context": {
+                                  "role": "text analyst",
+                                  "domain": "natural language processing",
+                                  "task_description": "analyze input text and provide comprehensive insights"
                               },
-                              "description": "Analyzes text and provides insights",
-                              "tags": ["nlp", "analysis"]
-                          }
-                      },
-                      "workflow_agent": {
-                          "summary": "Create Workflow Agent",
-                          "description": "Create a sequential workflow agent",
-                          "value": {
-                              "name": "Data Processing Pipeline",
-                              "type": "sequential",
-                              "specification": {
-                                  "steps": [
-                                      {
-                                          "name": "extract",
-                                          "agent": {
-                                              "type": "llm",
-                                              "model": "gemini-1.5-pro",
-                                              "system_instruction": "Extract key information from the input."
-                                          }
-                                      },
-                                      {
-                                          "name": "analyze",
-                                          "agent": {
-                                              "type": "llm",
-                                              "model": "gemini-1.5-pro",
-                                              "system_instruction": "Analyze the extracted information."
-                                          }
-                                      }
-                                  ]
-                              },
-                              "description": "Multi-step data processing",
-                              "tags": ["workflow", "pipeline"]
+                              "runtime_config": {
+                                  "model_override": "gemini-2.0-flash",
+                                  "temperature": 0.2,
+                                  "max_tokens": 8192
+                              }
                           }
                       }
+                      # CORRECTED: Changed to specification-driven agent creation
+                      # CORRECTED: Updated model to gemini-2.0-flash (default per masterplan)
+                      # ADDED: Context injection for dynamic instruction building
+                      # VERIFIED: ADK LlmAgent pattern from documentation,
+                      "sequential_workflow_spec": {
+                          "summary": "Create Sequential Workflow from Template",
+                          "description": "Create a sequential workflow using template-based composition",
+                          "value": {
+                              "template_name": "sequential-processing",
+                              "agents": [
+                                  {
+                                      "spec_ref": "data-extractor",
+                                      "output_key": "extracted_data"
+                                  },
+                                  {
+                                      "spec_ref": "content-analyzer", 
+                                      "input_mapping": {
+                                          "data": "$.state.extracted_data"
+                                      },
+                                      "output_key": "analysis_result"
+                                  }
+                              ],
+                              "context": {
+                                  "workflow_type": "data_processing",
+                                  "session_config": {
+                                      "persistence": "memory",
+                                      "auto_save": true
+                                  }
+                              }
+                          }
+                      }
+                      # CORRECTED: Template-based workflow creation
+                      # ADDED: ADK session state management via output_key
+                      # VERIFIED: SequentialAgent pattern from ADK docs
+                      # ADDED: Input mapping using session state
                   },
-                  "execute_agent": {
+                  "execute_agent_from_spec": {
+                      # CORRECTED: Renamed to reflect specification-driven execution
                       "text_analysis": {
                           "summary": "Text Analysis",
                           "description": "Analyze a piece of text",
@@ -280,42 +302,47 @@ task:
                       }
                   },
                   "create_session": {
-                      "basic_session": {
-                          "summary": "Basic Session",
-                          "description": "Create a basic user session",
+                      "memory_session": {
+                          "summary": "In-Memory Session",
+                          "description": "Create session using InMemorySessionService for development",
                           "value": {
                               "user_id": "user123",
-                              "app_name": "my_app",
+                              "app_name": "agent_engine",
                               "config": {
+                                  "persistence": "memory",
                                   "max_history": 100,
-                                  "auto_save": True
+                                  "auto_save": true
                               }
                           }
                       },
-                      "advanced_session": {
-                          "summary": "Advanced Session",
-                          "description": "Create session with custom configuration",
+                      "redis_session": {
+                          "summary": "Redis-Backed Session",
+                          "description": "Create session with Redis persistence for distributed processing",
                           "value": {
                               "user_id": "user456",
-                              "app_name": "data_analyzer",
-                              "session_id": "custom_session_123",
+                              "app_name": "agent_engine",
+                              "session_id": "tahoe_session_123",
                               "config": {
-                                  "backend": "redis",
+                                  "persistence": "redis",
                                   "ttl": 3600,
-                                  "encryption": True,
                                   "max_history": 200,
-                                  "auto_checkpoint": True
+                                  "auto_checkpoint": true,
+                                  "redis_namespace": "agent:"
                               },
                               "initial_state": {
-                                  "context": {
-                                      "workspace": "analytics",
-                                      "project": "q4_analysis"
+                                  "workflow_context": {
+                                      "execution_mode": "distributed",
+                                      "priority": "normal"
                                   }
                               }
                           }
                       }
-                  },
-                  "create_workflow": {
+                  }
+                  # CORRECTED: Multi-backend session support per masterplan
+                  # VERIFIED: InMemorySessionService pattern from ADK docs
+                  # ADDED: Redis namespace configuration per masterplan,
+                  "create_workflow_template": {
+                      # CORRECTED: Template-based workflow creation
                       "simple_workflow": {
                           "summary": "Simple Workflow",
                           "description": "Create a simple sequential workflow",
@@ -354,50 +381,47 @@ task:
                               "tags": ["content", "automation"]
                           }
                       },
-                      "parallel_workflow": {
-                          "summary": "Parallel Workflow",
-                          "description": "Create workflow with parallel execution",
+                      "parallel_workflow_template": {
+                          "summary": "Parallel Workflow Template",
+                          "description": "Create template for parallel agent execution with fan-out/gather pattern",
                           "value": {
-                              "name": "Multi-Model Analysis",
+                              "name": "parallel-analysis",
                               "specification": {
                                   "type": "parallel",
-                                  "agents": [
+                                  "sub_agents": [
                                       {
-                                          "name": "sentiment_analysis",
-                                          "agent_spec": {
-                                              "type": "llm",
-                                              "model": "gemini-1.5-pro",
-                                              "system_instruction": "Analyze sentiment of the input text."
-                                          }
+                                          "spec_ref": "sentiment-analyzer",
+                                          "output_key": "sentiment_result"
                                       },
                                       {
-                                          "name": "topic_extraction",
-                                          "agent_spec": {
-                                              "type": "llm",
-                                              "model": "gemini-1.5-pro",
-                                              "system_instruction": "Extract main topics from the input text."
-                                          }
+                                          "spec_ref": "topic-extractor",
+                                          "output_key": "topics_result"
                                       },
                                       {
-                                          "name": "summary_generation",
-                                          "agent_spec": {
-                                              "type": "llm",
-                                              "model": "gemini-1.5-pro",
-                                              "system_instruction": "Generate a concise summary of the input text."
-                                          }
+                                          "spec_ref": "content-summarizer",
+                                          "output_key": "summary_result"
                                       }
                                   ],
-                                  "aggregation": {
-                                      "type": "merge",
-                                      "strategy": "combine_results"
+                                  "gather_agent": {
+                                      "spec_ref": "result-aggregator",
+                                      "input_mapping": {
+                                          "sentiment": "$.state.sentiment_result",
+                                          "topics": "$.state.topics_result",
+                                          "summary": "$.state.summary_result"
+                                      }
                                   }
                               },
-                              "description": "Parallel text analysis with multiple models",
-                              "tags": ["analysis", "parallel", "nlp"]
+                              "description": "Fan-out/gather pattern for parallel text analysis",
+                              "tags": ["analysis", "parallel", "fan-out-gather"]
                           }
                       }
+                      # CORRECTED: ADK ParallelAgent with sub_agents list
+                      # VERIFIED: ParallelAgent pattern from ADK documentation
+                      # ADDED: Fan-out/gather pattern with session state
+                      # CORRECTED: Used spec_ref instead of inline agent definitions
                   },
-                  "execute_workflow": {
+                  "execute_workflow_template": {
+                      # CORRECTED: Template-based workflow execution
                       "content_generation": {
                           "summary": "Execute Content Generation",
                           "description": "Generate content about AI trends",
@@ -474,6 +498,7 @@ task:
         content:
           - "getting-started.md"
           - "authentication.md"
+          - "specification-guide.md"
           - "examples/"
           - "guides/"
           - "reference/"
@@ -481,9 +506,18 @@ task:
       - path: "docs/api/getting-started.md"
         purpose: "Getting started guide"
         content_structure: |
-          # Getting Started with Tahoe API
+          # Getting Started with Tahoe Universal Agent Orchestration API
           
-          Welcome to the Tahoe Agent Orchestration Platform API! This guide will help you get up and running quickly.
+          Welcome to the Tahoe Agent Orchestration Platform! This guide introduces the specification-driven approach to agent composition.
+          
+          ## Architecture Overview
+          
+          Tahoe is built on Google's Agent Development Kit (ADK) with a specification-driven architecture:
+          
+          - **Universal Agent Factory**: Creates any ADK agent type from YAML/JSON specifications
+          - **Dynamic Tool Registry**: Runtime tool registration with automatic function wrapping
+          - **Multi-Backend Sessions**: Memory, Redis, and Vertex AI persistence options
+          - **Template-Based Workflows**: Sequential, parallel, conditional, and loop patterns
           
           ## Quick Start
           
@@ -491,20 +525,20 @@ task:
              ```bash
              curl -X POST http://localhost:8001/api/v1/auth/keys \
                -H "Content-Type: application/json" \
-               -d '{"name": "My App Key", "permissions": ["agent:read", "agent:execute"]}'
+               -d '{"name": "My App Key", "permissions": ["agent:compose", "agent:execute"]}'
              ```
           
-          2. **Create Your First Agent**
+          2. **Create Agent from Specification**
              ```bash
-             curl -X POST http://localhost:8001/api/v1/agents \
+             curl -X POST http://localhost:8001/api/v1/agents/compose \
                -H "X-API-Key: your-api-key" \
                -H "Content-Type: application/json" \
                -d '{
-                 "name": "Hello World Agent",
-                 "type": "llm",
-                 "specification": {
-                   "model": "gemini-1.5-pro",
-                   "system_instruction": "You are a helpful assistant."
+                 "spec_name": "universal-analyzer",
+                 "context": {
+                   "role": "helpful assistant",
+                   "domain": "general knowledge",
+                   "task_description": "assist users with their questions"
                  }
                }'
              ```
@@ -517,93 +551,234 @@ task:
                -d '{
                  "input_data": {
                    "message": "Hello, how are you?"
+                 },
+                 "session_config": {
+                   "persistence": "memory",
+                   "user_id": "user123"
                  }
                }'
              ```
           
+          ## Development Tools
+          
+          - **ADK Dev UI**: Visual agent testing at `localhost:8000` (run `adk web`)
+          - **Specification Validation**: `/api/v1/specs/validate` endpoint
+          - **Real-time Streaming**: Server-Sent Events for live execution monitoring
+          
           ## Next Steps
           
           - [Authentication Guide](authentication.md)
+          - [Specification Guide](specification-guide.md)
           - [Agent Examples](examples/agents.md)
-          - [Workflow Tutorials](examples/workflows.md)
-          - [WebSocket Guide](guides/websockets.md)
+          - [Workflow Templates](examples/workflows.md)
+          - [Tool Registry Guide](guides/tools.md)
+          
+          # CORRECTED: Specification-driven approach throughout
+          # ADDED: ADK integration details and architecture overview
+          # ADDED: Development tools section with ADK Dev UI
+          # CORRECTED: Updated API endpoints to match masterplan
+      
+      - path: "docs/api/specification-guide.md"
+        purpose: "Specification system guide"
+        content_structure: |
+          # Tahoe Specification System Guide
+          
+          This guide covers the specification-driven architecture that powers Tahoe's universal agent orchestration.
+          
+          ## Agent Specifications
+          
+          All agents are defined via YAML/JSON specifications stored in `specs/agents/`:
+          
+          ```yaml
+          apiVersion: "agent-engine/v1"
+          kind: "AgentSpec"
+          metadata:
+            name: "content-analyzer"
+            version: "1.0.0"
+            tags: ["analysis", "nlp"]
+          spec:
+            agent:
+              type: "llm"  # llm, sequential, parallel, loop, custom
+              model:
+                primary: "gemini-2.0-flash"
+                fallbacks: ["gemini-2.5-pro"]
+              instruction_template: |
+                You are a {role} specializing in {domain}.
+                Your task is to {task_description}.
+            tools:
+              - name: "analyze_content"
+                source: "registry"
+          ```
+          
+          ## Workflow Templates
+          
+          Complex workflows are defined via templates in `specs/workflows/`:
+          
+          ```yaml
+          apiVersion: "agent-engine/v1"
+          kind: "WorkflowTemplate"
+          metadata:
+            name: "parallel-analysis"
+          spec:
+            type: "parallel"
+            sub_agents:
+              - spec_ref: "sentiment-analyzer"
+                output_key: "sentiment"
+              - spec_ref: "topic-extractor"
+                output_key: "topics"
+          ```
+          
+          ## Tool Registry
+          
+          Tools are registered at runtime with schema validation:
+          
+          ```yaml
+          apiVersion: "agent-engine/v1"
+          kind: "ToolSpec"
+          metadata:
+            name: "analyze_sentiment"
+          spec:
+            function_definition: |
+              def analyze_sentiment(text: str) -> dict:
+                  # Implementation
+                  return {"sentiment": "positive", "confidence": 0.85}
+          ```
+          
+          ## Context Injection
+          
+          Instructions support dynamic context injection:
+          
+          - `{role}`: Agent's role in the workflow
+          - `{domain}`: Specialized domain knowledge
+          - `{task_description}`: Specific task to perform
+          
+          ## Model Configuration
+          
+          Provider-agnostic model settings with fallback strategies:
+          
+          ```yaml
+          primary:
+            provider: "google"
+            model: "gemini-2.0-flash"
+          fallbacks:
+            - model: "gemini-2.5-pro"
+              trigger_conditions: ["rate_limit", "error"]
+          ```
       
       - path: "services/agent-engine/tests/test_docs.py"
         purpose: "Documentation tests"
         test_categories:
           - "OpenAPI schema validation"
-          - "Example correctness"
+          - "Example correctness with ADK patterns"
+          - "Specification schema validation"
           - "Documentation completeness"
           - "Link validation"
+          - "ADK integration verification"
+        # ADDED: Specification guide for the specification-driven architecture
+        # ADDED: ADK pattern validation in tests
+        # CORRECTED: Test categories reflect specification focus
     
     uses_from_previous:
       - source: "r6-t01"
         component: "REST API endpoints"
-        usage: "API documentation generation"
-      - source: "r6-t03"
-        component: "GraphQL schema"
-        usage: "GraphQL documentation"
+        usage: "API documentation generation for agent orchestration"
+      - source: "r6-t02"
+        component: "WebSocket streaming"
+        usage: "Real-time event streaming documentation"
       - source: "r6-t04"
         component: "Authentication system"
-        usage: "Auth documentation"
+        usage: "Auth documentation and security schemes"
+      # CORRECTED: Removed r6-t03 GraphQL dependency as not part of core architecture
+      # ADDED: r6-t02 WebSocket streaming for SSE documentation
     
   implementation_steps:
-    - step: "Configure OpenAPI"
+    - step: "Configure OpenAPI with ADK Integration"
       implementation_notes: |
-        - Custom schema generation
-        - Security schemes
-        - Server configurations
+        - Custom schema generation for specification-driven API
+        - Security schemes for multi-method authentication
+        - Environment-aware server configurations
+        - ADK agent type documentation integration
+        # VERIFIED: OpenAPI configuration patterns
         
-    - step: "Create examples"
+    - step: "Create specification-focused examples"
       implementation_notes: |
-        - Request examples
-        - Response examples
-        - Real-world scenarios
+        - Agent composition from specifications
+        - Workflow template execution examples
+        - Tool registry registration examples
+        - Multi-backend session creation examples
+        - Context injection patterns
+        # CORRECTED: Focus on specification-driven examples
+        # VERIFIED: ADK agent composition patterns
         
-    - step: "Build guides"
+    - step: "Build comprehensive guides"
       implementation_notes: |
-        - Getting started
-        - Authentication
-        - Integration patterns
+        - Getting started with specification system
+        - Authentication and security
+        - Specification guide for agents/workflows/tools
+        - ADK Dev UI integration guide
+        - Model configuration and fallback strategies
+        # ADDED: Specification system guide
+        # ADDED: ADK Dev UI documentation
         
-    - step: "Add interactive docs"
+    - step: "Add interactive documentation interfaces"
       implementation_notes: |
-        - Swagger UI
-        - ReDoc interface
-        - GraphQL playground
+        - Swagger UI with specification examples
+        - ReDoc interface for comprehensive API reference
+        - Real-time SSE event documentation
+        - Specification validation playground
+        # CORRECTED: Removed GraphQL playground
+        # ADDED: Specification validation playground
+        # VERIFIED: SSE support for real-time features
         
   validation:
     commands:
-      - description: "Test documentation generation"
+      - description: "Test documentation generation with ADK patterns"
         command: "cd services/agent-engine && pytest tests/test_docs.py -v"
-        expected: "All tests pass"
+        expected: "All tests pass including ADK integration validation"
         
       - description: "Access Swagger UI"
         command: "curl http://localhost:8001/docs"
-        expected: "Swagger UI loads"
+        expected: "Swagger UI loads with specification-driven examples"
         
       - description: "Access ReDoc"
         command: "curl http://localhost:8001/redoc"
-        expected: "ReDoc interface loads"
+        expected: "ReDoc interface loads with agent orchestration documentation"
         
       - description: "Validate OpenAPI schema"
         command: "curl http://localhost:8001/openapi.json | jq '.'"
-        expected: "Valid JSON schema returned"
+        expected: "Valid JSON schema with agent composition endpoints"
+        
+      - description: "Test specification validation endpoint"
+        command: "curl -X POST http://localhost:8001/api/v1/specs/validate -H 'Content-Type: application/json' -d '{"kind": "AgentSpec", "spec": {}}'"
+        expected: "Specification validation response returned"
+        
+      - description: "Verify ADK Dev UI integration documentation"
+        command: "grep -r 'ADK Dev UI' docs/api/"
+        expected: "ADK Dev UI documentation found in guides"
+        # ADDED: Specification validation endpoint testing
+        # ADDED: ADK Dev UI documentation verification
+        # CORRECTED: Updated test expectations to reflect specification focus
         
     success_criteria:
-      - "OpenAPI schema complete"
-      - "Interactive docs working"
-      - "Examples comprehensive"
-      - "Guides helpful"
-      - "All tests pass"
+      - "OpenAPI schema complete with specification-driven endpoints"
+      - "Interactive docs demonstrate agent composition capabilities"
+      - "Examples showcase ADK integration patterns"
+      - "Specification guide comprehensive and accurate"
+      - "ADK Dev UI integration documented"
+      - "All tests pass including ADK pattern validation"
+      - "Environment-aware configuration documented"
+      # ADDED: Specification-driven success criteria
+      # ADDED: ADK integration validation
+      # ADDED: Environment-aware configuration validation
       
   dependencies:
     required_before:
       - task: "r6-t01"
-        reason: "Need REST API endpoints"
+        reason: "Need REST API endpoints for agent orchestration"
       - task: "r6-t02"
-        reason: "Need WebSocket documentation"
-      - task: "r6-t03"
-        reason: "Need GraphQL schema"
+        reason: "Need SSE streaming for real-time documentation"
       - task: "r6-t04"
-        reason: "Need authentication system"
+        reason: "Need authentication system for security documentation"
+    # CORRECTED: Removed r6-t03 GraphQL dependency
+    # VERIFIED: Dependencies align with core architecture components
+    # CORRECTED: Updated reasons to reflect specification-driven focus

@@ -1,123 +1,157 @@
 task:
   id: "r5-t04-session-testing"
   name: "Create Comprehensive Session Testing Framework"
-  description: "Build testing framework for all session components including orchestration, backends, and recovery"
+  description: "Build testing framework for ADK session components including orchestration, backends, and state management"
   complexity: "simple"
   estimated_hours: 2
   
   context:
-    why: "Comprehensive testing ensures session reliability across different backends and failure scenarios"
-    architectural_role: "Quality assurance layer for session management system"
+    why: "Comprehensive testing ensures session reliability across different ADK backends and failure scenarios"
+    architectural_role: "Quality assurance layer for ADK session management system"
     depends_on_tasks: ["r5-t01", "r5-t02", "r5-t03"]
     enables_tasks: []
     references:
       masterplan: "@MASTERPLAN.md#testing-standards"
       decisions: "@memory-bank/decisions.md#test-driven-development"
+      adk_docs: "https://google.github.io/adk-docs/sessions/" # VERIFIED: ADK docs session section
     
   implementation:
     creates:
       - path: "services/agent-engine/tests/sessions/"
-        purpose: "Session testing directory"
+        purpose: "ADK session testing directory"
         content:
           - "__init__.py"
           - "test_session_integration.py"
           - "test_session_scenarios.py"
           - "test_session_performance.py"
+          - "test_adk_session_patterns.py" # ADDED: ADK-specific patterns testing
           - "fixtures.py"
       
       - path: "services/agent-engine/tests/sessions/test_session_integration.py"
-        purpose: "Integration tests for session system"
+        purpose: "Integration tests for ADK session system" # CORRECTED: ADK session system
         test_categories:
-          - "End-to-end session lifecycle"
-          - "Multi-backend operations"
-          - "Session forking and merging"
-          - "Recovery scenarios"
+          - "End-to-end session lifecycle with InMemoryRunner" # CORRECTED: ADK-specific
+          - "Multi-backend session persistence (memory, redis, vertex)" # CORRECTED: Actual backends from masterplan
+          - "Session state synchronization" # CORRECTED: From Release 2 requirements
+          - "Session-scoped agent instances" # ADDED: From Release 2 requirements
+          - "ADK session service patterns" # ADDED: ADK-specific testing
       
       - path: "services/agent-engine/tests/sessions/test_session_scenarios.py"
-        purpose: "Real-world session scenarios"
+        purpose: "Real-world ADK session scenarios"
         test_categories:
-          - "Long-running sessions"
-          - "Concurrent sessions"
-          - "Session migration"
-          - "Failure and recovery"
+          - "Long-running sessions with state persistence"
+          - "Concurrent sessions across backends"
+          - "Session state persistence and recovery" # CORRECTED: Removed migration, added state persistence
+          - "Session cleanup and lifecycle hooks" # ADDED: From Release 2 requirements
+          - "Runner session_service property access" # ADDED: Verified ADK pattern
       
       - path: "services/agent-engine/tests/sessions/test_session_performance.py"
-        purpose: "Performance and load tests"
+        purpose: "Performance and load tests for ADK sessions"
         test_categories:
-          - "Session creation throughput"
-          - "Backend performance comparison"
-          - "Recovery performance"
-          - "Memory usage"
+          - "Session creation throughput via InMemorySessionService" # CORRECTED: ADK-specific
+          - "Backend performance comparison (memory vs redis vs vertex)" # CORRECTED: Actual backends
+          - "Session state persistence performance" # CORRECTED: State persistence, not recovery
+          - "Memory usage and cleanup patterns"
+          - "Session service scaling" # ADDED: From scalability requirements
+      
+      - path: "services/agent-engine/tests/sessions/test_adk_session_patterns.py" # ADDED: ADK-specific patterns
+        purpose: "ADK session pattern compliance testing"
+        test_categories:
+          - "InMemoryRunner session_service property usage" # VERIFIED: ADK pattern
+          - "Session creation with InMemorySessionService" # VERIFIED: ADK pattern
+          - "Session.state and Session.events access patterns" # VERIFIED: ADK pattern
+          - "Runner.run_async with session integration" # VERIFIED: ADK pattern
+          - "SessionService lifecycle management" # VERIFIED: ADK pattern
       
       - path: "services/agent-engine/tests/sessions/fixtures.py"
-        purpose: "Test fixtures and utilities"
+        purpose: "ADK session test fixtures and utilities"
         exports:
-          - "create_test_session"
-          - "mock_session_backend"
+          - "create_test_session_with_runner" # CORRECTED: ADK pattern
+          - "mock_session_backends" # CORRECTED: Multiple backends
           - "session_test_data"
           - "benchmark_suite"
+          - "adk_session_patterns" # ADDED: ADK-specific patterns
+          - "test_session_configurations" # ADDED: From configuration requirements
     
     uses_from_previous:
       - source: "r5-t01"
-        component: "SessionOrchestrator"
-        usage: "Core testing target"
+        component: "SessionOrchestrator with ADK integration" # CORRECTED: ADK integration
+        usage: "Core testing target with InMemoryRunner patterns"
       - source: "r5-t02"
-        component: "Multi-backend support"
-        usage: "Backend testing"
+        component: "Multi-backend session persistence (memory, redis, vertex)" # CORRECTED: Actual backends
+        usage: "Backend-specific testing patterns"
       - source: "r5-t03"
-        component: "SessionRecovery"
-        usage: "Recovery testing"
+        component: "Session state persistence and recovery" # CORRECTED: State persistence
+        usage: "Recovery and state sync testing"
     
   implementation_steps:
-    - step: "Create test fixtures"
+    - step: "Create ADK session test fixtures" # CORRECTED: ADK-specific
       implementation_notes: |
-        - Mock backends
-        - Test data generators
-        - Helper utilities
+        - Mock ADK session backends (InMemorySessionService, Redis, Vertex) # CORRECTED: Actual backends
+        - Test InMemoryRunner configurations # ADDED: ADK-specific
+        - Session state and events generators # CORRECTED: ADK session components
+        - Helper utilities for session_service property testing # ADDED: Verified ADK pattern
         
-    - step: "Write integration tests"
+    - step: "Write ADK session integration tests" # CORRECTED: ADK-specific
       implementation_notes: |
-        - Full lifecycle tests
-        - Backend switching
-        - Error scenarios
+        - Full session lifecycle with InMemoryRunner # CORRECTED: ADK pattern
+        - Backend persistence testing (memory, redis, vertex) # CORRECTED: Actual backends
+        - Session state synchronization scenarios # ADDED: From Release 2 requirements
+        - Session-scoped agent instance testing # ADDED: From Release 2 requirements
         
-    - step: "Build scenario tests"
+    - step: "Build ADK session scenario tests" # CORRECTED: ADK-specific
       implementation_notes: |
-        - Real-world patterns
-        - Edge cases
-        - Stress scenarios
+        - Real-world session patterns with ADK # CORRECTED: ADK-specific
+        - Session state persistence and recovery # CORRECTED: State persistence
+        - Session cleanup and lifecycle hooks # ADDED: From Release 2 requirements
+        - Concurrent session handling # CORRECTED: More specific
         
-    - step: "Add performance tests"
+    - step: "Add ADK session performance tests" # CORRECTED: ADK-specific
       implementation_notes: |
-        - Benchmark suite
-        - Load testing
-        - Memory profiling
+        - Session creation throughput benchmarks # CORRECTED: More specific
+        - Backend performance comparison (memory vs redis vs vertex) # CORRECTED: Actual backends
+        - Session state persistence performance # CORRECTED: State persistence
+        - Memory usage profiling for ADK sessions # CORRECTED: ADK-specific
+        
+    - step: "Implement ADK session pattern compliance tests" # ADDED: ADK compliance
+      implementation_notes: |
+        - Verify InMemoryRunner.session_service property access # VERIFIED: ADK pattern
+        - Test Session.state and Session.events patterns # VERIFIED: ADK pattern
+        - Validate SessionService lifecycle management # VERIFIED: ADK pattern
+        - Ensure Runner.run_async session integration # VERIFIED: ADK pattern
         
   validation:
     commands:
-      - description: "Run all session tests"
+      - description: "Run all ADK session tests" # CORRECTED: ADK-specific
         command: "cd services/agent-engine && pytest tests/sessions/ -v"
-        expected: "All tests pass"
+        expected: "All ADK session tests pass"
         
-      - description: "Check test coverage"
-        command: "cd services/agent-engine && pytest tests/sessions/ --cov=src/core --cov-report=term-missing"
-        expected: "Coverage > 80%"
+      - description: "Check session test coverage including ADK patterns" # CORRECTED: More specific
+        command: "cd services/agent-engine && pytest tests/sessions/ --cov=src/core/session --cov-report=term-missing"
+        expected: "Session coverage > 80%"
         
-      - description: "Run performance tests"
-        command: "cd services/agent-engine && pytest tests/sessions/test_session_performance.py -v --benchmark"
-        expected: "Performance benchmarks pass"
+      - description: "Run session performance benchmarks" # CORRECTED: More specific
+        command: "cd services/agent-engine && pytest tests/sessions/test_session_performance.py -v --benchmark-only"
+        expected: "Session performance benchmarks pass"
+        
+      - description: "Validate ADK session pattern compliance" # ADDED: ADK compliance
+        command: "cd services/agent-engine && pytest tests/sessions/test_adk_session_patterns.py -v"
+        expected: "ADK session patterns validated"
         
     success_criteria:
-      - "All session components tested"
-      - "Integration tests passing"
-      - "Performance benchmarks established"
-      - "Coverage > 80%"
+      - "All ADK session components tested" # CORRECTED: ADK-specific
+      - "Integration tests with InMemoryRunner passing" # CORRECTED: ADK-specific
+      - "Multi-backend persistence tests passing (memory, redis, vertex)" # CORRECTED: Actual backends
+      - "Session state synchronization tests passing" # ADDED: From Release 2 requirements
+      - "ADK session pattern compliance verified" # ADDED: ADK compliance
+      - "Performance benchmarks established for all backends" # CORRECTED: More specific
+      - "Session test coverage > 80%" # CORRECTED: More specific
       
   dependencies:
     required_before:
       - task: "r5-t01"
-        reason: "Need session orchestration"
+        reason: "Need SessionOrchestrator with ADK integration" # CORRECTED: ADK integration
       - task: "r5-t02"
-        reason: "Need multi-backend support"
+        reason: "Need multi-backend session persistence implementation" # CORRECTED: State persistence
       - task: "r5-t03"
-        reason: "Need recovery system"
+        reason: "Need session state persistence and recovery system" # CORRECTED: State persistence

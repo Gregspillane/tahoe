@@ -1,36 +1,7 @@
-version: '3.8'
-
 services:
-  # All services are peers in the Tahoe application
+  # Infrastructure services for Tahoe platform
+  # Individual services (agent-engine, auth, billing) run independently
   
-  agent-engine:
-    build: ./services/agent-engine
-    container_name: tahoe-agent-engine
-    ports:
-      - "8001:8001"
-    environment:
-      DATABASE_HOST: postgres
-      DATABASE_PORT: 5432
-      DATABASE_NAME: tahoe
-      DATABASE_USER: tahoe_user
-      DATABASE_PASSWORD: ${POSTGRES_PASSWORD:-changeme}
-      REDIS_HOST: redis
-      REDIS_PORT: 6379
-      GEMINI_API_KEY: ${GEMINI_API_KEY}
-      ADK_DEFAULT_MODEL: ${ADK_DEFAULT_MODEL:-gemini-2.0-flash}
-      ENVIRONMENT: ${ENVIRONMENT:-development}
-      AGENT_ENGINE_PORT: 8001
-      AGENT_ENGINE_LOG_LEVEL: ${AGENT_ENGINE_LOG_LEVEL:-INFO}
-    volumes:
-      - ./.env:/app/.env:ro
-      - ./services/agent-engine/src:/app/src:ro
-      - ./services/agent-engine/config:/app/config:ro
-    networks:
-      - tahoe-network
-    depends_on:
-      - postgres
-      - redis
-
   postgres:
     image: postgres:16-alpine
     container_name: tahoe-postgres
@@ -63,6 +34,7 @@ services:
 
 networks:
   tahoe-network:
+    name: tahoe-network
     driver: bridge
 
 volumes:

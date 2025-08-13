@@ -287,6 +287,73 @@
 - Easy to test and mock for unit tests
 **Impact**: Reliable database access, consistent error handling, testable code
 
+## 2025-08-13: Configuration Architecture Decisions
+
+### Decision: Database Schema Isolation vs Separate Databases
+**Choice**: Use PostgreSQL schemas for service isolation instead of separate databases
+**Alternatives Considered**:
+- Separate databases per service (rejected - resource overhead)
+- Single shared database with table prefixes (rejected - less isolation)
+- NoSQL document stores (rejected - relational data needs)
+**Rationale**:
+- Better resource utilization (shared connection pools, memory)
+- Proper service isolation with schema boundaries
+- Easier backup and maintenance operations
+- PostgreSQL schemas provide strong isolation guarantees
+**Impact**: Efficient multi-service architecture with clear boundaries
+
+### Decision: Redis Namespace Pattern for Service Isolation
+**Choice**: Use Redis namespaces (key prefixes) for service isolation
+**Alternatives Considered**:
+- Separate Redis databases (rejected - limited to 16 databases)
+- Separate Redis instances (rejected - resource overhead)
+- No isolation (rejected - key conflicts between services)
+**Rationale**:
+- Unlimited logical separation within single Redis instance
+- Clear key ownership and debugging
+- Easy to implement and maintain
+- Supports complex namespace hierarchies
+**Impact**: Clean service isolation with efficient resource usage
+
+### Decision: Hierarchical Configuration System
+**Choice**: Three-level configuration hierarchy (base → environment → runtime)
+**Alternatives Considered**:
+- Single configuration file (rejected - not environment-flexible)
+- Database-stored configuration (rejected - bootstrap problems)
+- Code-based configuration (rejected - requires rebuilds)
+**Rationale**:
+- Environment-specific deployment patterns
+- Runtime configuration changes without code deployment
+- Clear precedence rules for configuration values
+- Supports both development and production workflows
+**Impact**: Flexible configuration management with clear override patterns
+
+### Decision: Service Discovery URL Generation
+**Choice**: Environment-aware service URL generation in configuration
+**Alternatives Considered**:
+- Hardcoded service URLs (rejected - not environment-flexible)
+- External service discovery (rejected - adds complexity)
+- DNS-based discovery only (rejected - development issues)
+**Rationale**:
+- Supports development (localhost), staging, and production patterns
+- Simple implementation with clear patterns
+- Easy to test and debug
+- Follows environment isolation principles
+**Impact**: Seamless service communication across all environments
+
+### Decision: Configuration Security Pattern
+**Choice**: Sensitive value masking by default in all APIs and exports
+**Alternatives Considered**:
+- No masking (rejected - security risk)
+- Opt-in masking (rejected - likely to be forgotten)
+- Complete hiding (rejected - debugging difficulties)
+**Rationale**:
+- Security by default approach
+- Debugging still possible with explicit flags
+- Consistent across all configuration endpoints
+- Prevents accidental exposure in logs and exports
+**Impact**: Secure configuration management with debugging capabilities
+
 ## Future Decisions Needed
 
 ### Pending: CI/CD Pipeline

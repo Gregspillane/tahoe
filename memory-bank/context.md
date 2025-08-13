@@ -1,16 +1,50 @@
 # Project Tahoe - Session Context
 
-## Last Updated
-- **Date**: 2025-08-13 22:30 PST
-- **Session Focus**: ✅ Successfully Implemented R1-T05 Configuration Loader System (Corrected)
-- **Session Duration**: ~90 minutes
-- **Result**: Complete hierarchical configuration system with environment overrides, database schema isolation, Redis namespacing, and service discovery
+## Last Updated  
+- **Date**: 2025-08-13 15:05 PST
+- **Session Focus**: ✅ R1 Foundation Complete + Docker Architecture Fixed
+- **Session Duration**: ~2 hours
+- **Result**: Complete R1 Foundation validation (8/8 tests passed) + Fixed Docker service architecture for independent agent-engine deployment
 
 ## Current State
 
 ### What Was Accomplished
 
-#### R1-T05 Configuration Loader System Implementation - **COMPLETED** ✅
+#### R1 Foundation Comprehensive Validation - **COMPLETED** ✅
+
+**Validation Results**: 8/8 tests passed (100%)
+- ✅ R1-T01: Project Setup validation
+- ✅ R1-T02: ADK Component Verification  
+- ✅ R1-T03: Specification System validation
+- ✅ R1-T04: Database Setup (corrected) validation
+- ✅ R1-T05: Configuration Loader (corrected) validation
+- ✅ Integration: Component integration testing
+- ✅ API: Endpoint definitions validation
+- ✅ ADK: Pattern compliance verification
+
+#### Docker Architecture Fix - **COMPLETED** ✅
+
+**Issue Identified**: Agent-engine was running nested within tahoe project container instead of as independent service
+
+**Corrections Applied**:
+1. **Independent Service Architecture**:
+   - ✅ Created separate `docker-compose.yml` for agent-engine service
+   - ✅ Updated root `docker-compose.yml` to infrastructure-only (postgres, redis)
+   - ✅ Configured named network `tahoe-network` for service communication
+   - ✅ Updated Makefiles for independent service management
+
+2. **Service Startup Sequence**:
+   - ✅ Infrastructure: `make up` (starts postgres + redis)
+   - ✅ Services: `cd services/agent-engine && make docker-up`
+   - ✅ Clear container hierarchy: tahoe-postgres, tahoe-redis, tahoe-agent-engine
+
+3. **Architecture Validation**:
+   - ✅ Created comprehensive validation script
+   - ✅ 3/3 Docker architecture tests passed
+   - ✅ Verified independent service deployment
+   - ✅ Documented new architecture in `DOCKER_ARCHITECTURE.md`
+
+#### Previous R1-T05 Configuration Loader System Implementation - **COMPLETED** ✅
 
 1. **Hierarchical Configuration System**:
    - ✅ Implemented corrected configuration loader using project root paths
@@ -339,14 +373,57 @@
   - R1-T04: ✅ Database Setup with Prisma (Complete with full CRUD operations)
   - R1-T05: ✅ Configuration Loader System (Complete with corrected implementation)
 
+#### R2-T00: ADK Dev UI Integration - **CREATED AND VALIDATED** ✅
+
+**Task Created**: Comprehensive ADK Dev UI integration specification for visual agent development
+
+**Key Features**:
+1. **Visual Development Interface**:
+   - ✅ Browser-based agent interaction and testing
+   - ✅ Real-time debugging with Events tab and trace logs  
+   - ✅ Multi-agent selection via dropdown interface
+   - ✅ Integration with existing agent examples and specifications
+
+2. **Architecture Integration**:
+   - ✅ 8-step detailed implementation plan
+   - ✅ DevUILauncher service with agent discovery
+   - ✅ Integration with existing R1 Foundation components
+   - ✅ Docker workflow support with port 8000 exposure
+
+3. **Development Workflow**:
+   - ✅ One-command setup via `make dev-ui`
+   - ✅ Automatic agent discovery from specs/agents/ directory
+   - ✅ Environment-aware configuration using existing hierarchy
+   - ✅ Visual testing foundation for R2 Composition development
+
+4. **Validation Complete**:
+   - ✅ 3/3 specification validation tests passed
+   - ✅ Proper task dependencies integrated (R2-T01, R2-T02 updated)
+   - ✅ 8 implementation steps with code patterns defined
+   - ✅ Complete test cases and success criteria
+
+5. **MASTERPLAN.md Documentation Update** ✅ **NEW**:
+   - ✅ Updated to v2.2 with comprehensive Dev UI integration documentation
+   - ✅ Added Dev UI to Core Capabilities (7th capability)
+   - ✅ Integrated into Release 2 roadmap as Visual Development Foundation
+   - ✅ Complete Dev UI section with 9 subsections covering architecture, workflow, configuration
+   - ✅ Updated Development Commands with `make dev-ui`, `make dev-ui-setup`, `make dev-ui-docker`
+   - ✅ Architecture integration with DevUILauncher, AgentDiscovery, DevUIConfiguration classes
+   - ✅ 3/3 MASTERPLAN validation tests passed - documentation complete and consistent
+
 ## Next Steps
 
-### **IMMEDIATE** - Implementation Phase (Next Session)
-1. **Begin R2 Composition Implementation** 🎯 Ready to implement
-   - R2-T01: Agent Factory Base (foundation for dynamic composition)
-   - R2-T02: LLM Agent Builder (builds on specification system)
-   - Leverage completed configuration system for agent settings
-   - Use completed database for execution tracking
+### **IMMEDIATE** - R2 Composition Phase (Next Session)
+1. **Implement R2-T00: ADK Dev UI Integration** 🎯 Ready to implement
+   - Visual agent development and testing interface
+   - Foundation for all R2 Composition visual validation
+   - Estimated effort: 4-6 hours
+   - Enables real-time agent debugging and interaction
+
+2. **Then Begin R2-T01: Agent Factory Base**
+   - Universal agent factory for dynamic composition
+   - Leverage Dev UI for visual testing of factory output
+   - Build on completed specification system and configuration
 
 2. **Configuration System Enhancements** (Optional)
    - Integration with specification versioning for config rollback
@@ -376,19 +453,20 @@
 
 ## Environment Status
 - Working directory: `/Users/gregspillane/Documents/Projects/tahoe`
-- Git status: Enhanced project structure with validated ADK patterns and database
-- Python environment: ✅ Python 3.12 venv with Prisma ORM
+- Git status: Enhanced project structure with complete R1 foundation
+- Python environment: ✅ Python 3.12 venv with Prisma ORM and pydantic-settings
 - ADK: ✅ Validated and compliant (google-adk 1.10.0)
-- FastAPI: ✅ Running with centralized config (port 8001)
-- Database: ✅ PostgreSQL with Prisma schema and migrations
+- FastAPI: ✅ Running with hierarchical config system (port 8001)
+- Database: ✅ PostgreSQL with schema isolation and complete CRUD API
+- Configuration: ✅ Hierarchical config system with environment overrides and service discovery
 - Docker: ✅ Multi-service setup with persistent volumes
-- Configuration: ✅ Centralized .env system with DATABASE_URL
+- APIs: ✅ 20+ endpoints covering specs, database, and configuration
 
 ## Session Notes
-- **Database Integration**: Complete persistence layer with all CRUD operations and audit capabilities
-- **API Consistency**: Database endpoints follow same patterns as specification APIs
-- **Prisma ORM**: Provides type-safe database access with automatic migrations
-- **Infrastructure Patterns**: Docker Compose setup supports both development and production
-- **Testing Foundation**: Comprehensive test coverage for database operations
-- **R1 Foundation**: 4/5 tasks complete - only configuration loader extensions remain
-- **Next Focus**: R1-T05 (Configuration Loader), then R2 Composition tasks
+- **Configuration System**: Complete hierarchical configuration with corrected database schema and Redis namespace patterns
+- **Service Isolation**: Database schemas and Redis namespaces enable clean multi-service architecture
+- **API Integration**: Configuration endpoints provide runtime management and health monitoring
+- **Environment Awareness**: Development/staging/production configuration patterns established
+- **Security Patterns**: Sensitive value masking and validation implemented
+- **R1 Foundation**: 5/5 tasks complete - foundation ready for R2 Composition implementation
+- **Next Focus**: R2-T01 (Agent Factory Base), leveraging complete configuration and specification systems

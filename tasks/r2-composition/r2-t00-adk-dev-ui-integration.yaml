@@ -1,0 +1,420 @@
+apiVersion: "agent-engine/v1"
+kind: "TaskSpecification"
+metadata:
+  name: "r2-t00-adk-dev-ui-integration"
+  version: "1.0.0"
+  description: "Integrate Google ADK Dev UI for visual agent development and testing"
+  priority: "high"
+  tags: ["r2-composition", "development-tools", "adk", "ui", "testing"]
+  created: "2025-08-13"
+  dependencies:
+    - "r1-t01-project-setup"
+    - "r1-t02-adk-verification" 
+    - "r1-t03-specification-system"
+    - "r1-t04-database-setup"
+    - "r1-t05-configuration-loader"
+
+spec:
+  phase: "R2 Composition"
+  task_number: "R2-T00"
+  title: "ADK Dev UI Integration"
+  
+  overview: |
+    Integrate Google ADK Dev UI into the Tahoe platform to provide visual agent 
+    development, testing, and debugging capabilities. This foundational task sets up
+    the development infrastructure needed for the R2 Composition phase.
+    
+    The Dev UI will enable real-time agent interaction, visual debugging of tool 
+    execution, and immediate validation of agent specifications - accelerating
+    development of the dynamic composition system.
+
+  objectives:
+    primary:
+      - "Integrate ADK Dev UI with Tahoe platform architecture"
+      - "Enable visual testing of existing agent examples"
+      - "Create foundation for specification-driven agent testing"
+      - "Establish development workflow for R2 Composition tasks"
+    
+    secondary:
+      - "Document Dev UI usage patterns for team development"
+      - "Create automated Dev UI setup and configuration"
+      - "Integrate Dev UI with Docker development environment"
+      - "Establish patterns for multi-agent testing and validation"
+
+  requirements:
+    functional:
+      - "Launch ADK Dev UI with Tahoe-specific configuration"
+      - "Load and display existing agent examples in Dev UI"
+      - "Enable real-time interaction with agents via browser interface"
+      - "Visual debugging of agent tool execution and responses"
+      - "Integration with Tahoe configuration and environment system"
+      - "Support for multiple agent selection and testing"
+      
+    technical:
+      - "ADK Dev UI accessible via `adk web` command"
+      - "Integration with existing agent-engine service"
+      - "Proper environment variable and API key configuration"
+      - "Docker port exposure for Dev UI access (port 8002)"
+      - "Makefile commands for easy Dev UI management"
+      - "Documentation for development team usage"
+      
+    integration:
+      - "Works with existing R1 Foundation components"
+      - "Compatible with agent-engine Docker architecture"
+      - "Integrates with specification system for agent discovery"
+      - "Uses centralized configuration for API keys and settings"
+
+  implementation:
+    architecture:
+      components:
+        - name: "DevUILauncher"
+          type: "service"
+          description: "Service to configure and launch ADK Dev UI with Tahoe agents"
+          location: "src/services/dev_ui.py"
+          
+        - name: "AgentDiscovery"
+          type: "utility"
+          description: "Discovers and loads agents from specifications for Dev UI"
+          location: "src/utils/agent_discovery.py"
+          
+        - name: "DevUIConfiguration"
+          type: "configuration"
+          description: "Environment-specific Dev UI configuration"
+          location: "src/config/dev_ui.py"
+          
+        - name: "DevUICommands"
+          type: "scripts"
+          description: "Makefile and script commands for Dev UI management"
+          location: "Makefile, scripts/launch_dev_ui.py"
+
+      patterns:
+        - "Use existing UniversalAgentFactory for agent creation"
+        - "Leverage SpecificationParser for dynamic agent loading"
+        - "Follow existing configuration hierarchy patterns"
+        - "Maintain service independence and Docker architecture"
+
+    design_decisions:
+      dev_ui_integration:
+        approach: "Enhanced wrapper around standard `adk web` command"
+        rationale: "Provides Tahoe-specific configuration while leveraging native ADK functionality"
+        
+      agent_discovery:
+        approach: "Automatic discovery from specs/agents/ directory"
+        rationale: "Enables dynamic agent loading as specifications are added"
+        
+      configuration:
+        approach: "Use existing hierarchical configuration system"
+        rationale: "Consistent with platform patterns and environment management"
+        
+      docker_integration:
+        approach: "Optional Dev UI service in docker-compose"
+        rationale: "Supports both local development and containerized workflows"
+
+    file_structure:
+      - path: "services/agent-engine/src/services/dev_ui.py"
+        description: "Core Dev UI integration service"
+        
+      - path: "services/agent-engine/src/utils/agent_discovery.py"
+        description: "Agent specification discovery and loading utilities"
+        
+      - path: "services/agent-engine/src/config/dev_ui.py"
+        description: "Dev UI specific configuration management"
+        
+      - path: "services/agent-engine/scripts/launch_dev_ui.py"
+        description: "Standalone Dev UI launcher script"
+        
+      - path: "services/agent-engine/scripts/setup_dev_ui.py"
+        description: "Dev UI environment setup and validation"
+        
+      - path: "docs/development/dev-ui-guide.md"
+        description: "Comprehensive Dev UI usage documentation"
+
+  detailed_implementation:
+    step_01_dev_ui_service:
+      title: "Create Dev UI Service"
+      description: "Implement core Dev UI integration service"
+      files:
+        - "src/services/dev_ui.py"
+      code_patterns:
+        - pattern: "DevUILauncher class with configuration management"
+          example: |
+            class DevUILauncher:
+                def __init__(self, config: DevUIConfig):
+                    self.config = config
+                    self.agent_factory = UniversalAgentFactory()
+                    self.spec_parser = SpecificationParser()
+                
+                def discover_agents(self) -> List[AgentInfo]:
+                    """Discover available agents from specifications."""
+                    
+                def setup_environment(self):
+                    """Configure environment for Dev UI launch."""
+                    
+                def launch(self, port: int = 8002):
+                    """Launch ADK Dev UI with Tahoe configuration."""
+        
+        - pattern: "Integration with existing configuration system"
+          example: |
+            def load_dev_ui_config(self) -> DevUIConfig:
+                """Load Dev UI configuration from environment."""
+                base_config = load_config()
+                return DevUIConfig(
+                    port=base_config.get("DEV_UI_PORT", 8002),
+                    gemini_api_key=base_config.get("GEMINI_API_KEY"),
+                    model=base_config.get("ADK_DEFAULT_MODEL"),
+                    agent_specs_path=base_config.get("AGENT_SPECS_PATH")
+                )
+
+    step_02_agent_discovery:
+      title: "Implement Agent Discovery"
+      description: "Create utilities to discover and load agents from specifications"
+      files:
+        - "src/utils/agent_discovery.py"
+      code_patterns:
+        - pattern: "Specification-based agent discovery"
+          example: |
+            class AgentDiscovery:
+                def discover_from_specs(self, specs_path: Path) -> List[AgentSpec]:
+                    """Discover agent specifications from directory."""
+                    
+                def load_agents_for_dev_ui(self, specs: List[AgentSpec]) -> List[BaseAgent]:
+                    """Load agent instances for Dev UI."""
+                    
+                def create_dev_ui_config(self, agents: List[BaseAgent]) -> dict:
+                    """Create Dev UI configuration with discovered agents."""
+
+    step_03_dev_ui_configuration:
+      title: "Create Dev UI Configuration"
+      description: "Implement Dev UI specific configuration management"
+      files:
+        - "src/config/dev_ui.py"
+      code_patterns:
+        - pattern: "Pydantic configuration model"
+          example: |
+            class DevUIConfig(BaseModel):
+                port: int = Field(default=8002, description="Dev UI port")
+                host: str = Field(default="localhost", description="Dev UI host")
+                gemini_api_key: Optional[str] = Field(description="Gemini API key")
+                default_model: str = Field(default="gemini-2.0-flash")
+                agent_specs_path: Path = Field(description="Path to agent specifications")
+                auto_reload: bool = Field(default=True, description="Auto-reload agents")
+
+    step_04_launcher_scripts:
+      title: "Create Launcher Scripts"
+      description: "Implement Dev UI launcher and setup scripts"
+      files:
+        - "scripts/launch_dev_ui.py"
+        - "scripts/setup_dev_ui.py"
+      code_patterns:
+        - pattern: "Standalone launcher script"
+          example: |
+            def main():
+                """Launch Dev UI with Tahoe configuration."""
+                config = load_dev_ui_config()
+                launcher = DevUILauncher(config)
+                
+                # Discover and load agents
+                agents = launcher.discover_agents()
+                
+                # Setup environment
+                launcher.setup_environment()
+                
+                # Launch Dev UI
+                launcher.launch()
+
+    step_05_makefile_integration:
+      title: "Integrate with Build System"
+      description: "Add Dev UI commands to Makefile"
+      files:
+        - "Makefile"
+      code_patterns:
+        - pattern: "Makefile Dev UI commands"
+          example: |
+            dev-ui:
+            	python scripts/launch_dev_ui.py
+            
+            dev-ui-setup:
+            	python scripts/setup_dev_ui.py
+            
+            dev-ui-docker:
+            	docker-compose up dev-ui
+
+    step_06_docker_integration:
+      title: "Docker Development Integration"
+      description: "Add optional Dev UI service to Docker setup"
+      files:
+        - "docker-compose.yml"
+        - "docker-compose.dev.yml"
+      code_patterns:
+        - pattern: "Optional Dev UI service"
+          example: |
+            # docker-compose.dev.yml
+            services:
+              dev-ui:
+                build: .
+                container_name: tahoe-dev-ui
+                ports:
+                  - "8002:8002"
+                environment:
+                  - GEMINI_API_KEY=${GEMINI_API_KEY}
+                command: python scripts/launch_dev_ui.py
+                networks:
+                  - tahoe-network
+
+    step_07_testing_validation:
+      title: "Create Dev UI Validation"
+      description: "Implement testing and validation for Dev UI integration"
+      files:
+        - "tests/test_dev_ui.py"
+        - "scripts/validate_dev_ui.py"
+      code_patterns:
+        - pattern: "Dev UI validation tests"
+          example: |
+            def test_dev_ui_launcher():
+                """Test Dev UI launcher functionality."""
+                
+            def test_agent_discovery():
+                """Test agent discovery from specifications."""
+                
+            def test_dev_ui_configuration():
+                """Test Dev UI configuration loading."""
+
+    step_08_documentation:
+      title: "Create Development Documentation"
+      description: "Document Dev UI usage and workflows"
+      files:
+        - "docs/development/dev-ui-guide.md"
+        - "README.md updates"
+
+  validation:
+    success_criteria:
+      - "ADK Dev UI launches successfully with `make dev-ui` command"
+      - "Existing agent examples visible and interactive in Dev UI"
+      - "Real-time agent interaction works via browser interface"
+      - "Agent tool execution visible in Events tab"
+      - "Dev UI integrates with Docker development workflow"
+      - "Documentation enables team adoption of Dev UI"
+      
+    test_cases:
+      - name: "Basic Dev UI Launch"
+        description: "Verify Dev UI launches with default configuration"
+        steps:
+          - "Run `make dev-ui`"
+          - "Verify Dev UI accessible at http://localhost:8002"
+          - "Confirm agent dropdown populated with examples"
+        
+      - name: "Agent Interaction"
+        description: "Test real-time agent interaction"
+        steps:
+          - "Select agent from dropdown"
+          - "Send test message to agent"
+          - "Verify response received and displayed"
+          - "Check Events tab for execution details"
+        
+      - name: "Tool Execution Debugging"
+        description: "Verify tool execution visualization"
+        steps:
+          - "Select agent with tools (tool_equipped_assistant)"
+          - "Request tool usage (word count, calculator)"
+          - "Verify tool execution in Events tab"
+          - "Confirm latency and response data visible"
+        
+      - name: "Configuration Integration"
+        description: "Test configuration loading and environment setup"
+        steps:
+          - "Verify GEMINI_API_KEY loaded from environment"
+          - "Confirm default model configuration applied"
+          - "Test custom configuration overrides"
+        
+      - name: "Docker Integration"
+        description: "Verify Docker-based Dev UI workflow"
+        steps:
+          - "Run `make dev-ui-docker`"
+          - "Verify Dev UI accessible from host"
+          - "Test agent interaction in containerized environment"
+
+  integration_points:
+    with_r1_foundation:
+      - "Uses R1-T01 project structure and Python environment"
+      - "Leverages R1-T02 ADK verification and patterns"
+      - "Integrates with R1-T03 specification system for agent discovery"
+      - "Uses R1-T05 configuration hierarchy for Dev UI settings"
+      
+    with_r2_composition:
+      - "Provides testing foundation for R2-T01 Agent Factory"
+      - "Enables visual validation of R2-T02 LLM Agent Builder"
+      - "Supports R2-T03 Workflow Agent debugging"
+      - "Facilitates R2-T06 Composition Tests development"
+
+  deliverables:
+    code_components:
+      - "DevUILauncher service with agent discovery"
+      - "Agent specification discovery utilities"
+      - "Dev UI configuration management"
+      - "Launcher scripts and Makefile integration"
+      - "Docker development workflow support"
+      
+    documentation:
+      - "Comprehensive Dev UI usage guide"
+      - "Team development workflow documentation"
+      - "Troubleshooting and configuration reference"
+      - "Integration patterns for future development"
+      
+    validation:
+      - "Complete test suite for Dev UI functionality"
+      - "Validation scripts for environment setup"
+      - "Integration testing with existing R1 components"
+
+  timeline:
+    estimated_effort: "4-6 hours"
+    complexity: "medium"
+    
+    breakdown:
+      planning_design: "1 hour"
+      implementation: "3-4 hours"
+      testing_validation: "1 hour"
+      documentation: "30 minutes"
+
+  risks_and_mitigations:
+    risks:
+      - risk: "ADK Dev UI version compatibility"
+        impact: "medium"
+        mitigation: "Test with current ADK version, document requirements"
+        
+      - risk: "Environment configuration complexity"
+        impact: "low"
+        mitigation: "Use existing configuration patterns, provide setup script"
+        
+      - risk: "Docker port conflicts"
+        impact: "low"
+        mitigation: "Use configurable ports, document port usage"
+
+  success_metrics:
+    technical:
+      - "Dev UI launches without errors"
+      - "All example agents accessible and functional"
+      - "Real-time interaction response time < 2 seconds"
+      - "Tool execution debugging provides complete trace information"
+      
+    usability:
+      - "One-command Dev UI setup (`make dev-ui`)"
+      - "Clear documentation enables immediate team adoption"
+      - "Visual debugging reduces agent development time by 30%"
+      
+    integration:
+      - "No conflicts with existing R1 Foundation components"
+      - "Seamless integration with Docker development workflow"
+      - "Ready foundation for R2 Composition visual testing"
+
+notes:
+  implementation_notes:
+    - "Build on existing R1 Foundation - no architectural changes needed"
+    - "Use standard ADK patterns - enhance rather than replace"
+    - "Maintain service independence - Dev UI as optional development tool"
+    - "Focus on development experience - visual testing and debugging"
+    
+  future_enhancements:
+    - "R2 Integration: Dynamic agent loading from specifications"
+    - "R3 Integration: Visual tool registry and testing"
+    - "R4 Integration: Workflow visualization and debugging"
+    - "Team Features: Multi-user development, shared configurations"

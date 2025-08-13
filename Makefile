@@ -2,22 +2,30 @@
 .PHONY: help up down logs ps clean
 
 help:
-	@echo "Tahoe Application"
-	@echo "================"
+	@echo "Tahoe Platform"
+	@echo "=============="
 	@echo ""
-	@echo "  make up     - Start all services (agent-engine, postgres, redis)"
-	@echo "  make down   - Stop all services"
-	@echo "  make logs   - View logs from all services"
-	@echo "  make ps     - Show running services"
+	@echo "Infrastructure Services:"
+	@echo "  make up     - Start infrastructure (postgres, redis)"
+	@echo "  make down   - Stop infrastructure services"
+	@echo "  make logs   - View logs from infrastructure"
+	@echo "  make ps     - Show running infrastructure"
 	@echo "  make clean  - Remove containers and volumes"
+	@echo ""
+	@echo "Individual Services:"
+	@echo "  cd services/agent-engine && make docker-up"
+	@echo "  cd services/auth && make up          (future)"
+	@echo "  cd services/billing && make up       (future)"
 
 up:
 	docker-compose up -d
 	@echo ""
-	@echo "Services running:"
-	@echo "  Agent Engine: http://localhost:8001"
+	@echo "Infrastructure running:"
 	@echo "  PostgreSQL:   localhost:5432"
 	@echo "  Redis:        localhost:6379"
+	@echo ""
+	@echo "Start individual services:"
+	@echo "  cd services/agent-engine && make docker-up"
 
 down:
 	docker-compose down

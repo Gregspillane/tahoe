@@ -8,7 +8,7 @@ task:
   context:
     why: "LlmAgent is the primary agent type for LLM interactions and needs a dedicated builder for specification-driven creation"
     architectural_role: "Core builder that creates LLM agents with tools, sub-agents, and dynamic instructions from specifications"
-    depends_on_tasks: ["r2-t01"]
+    depends_on_tasks: ["r2-t00-adk-dev-ui-integration", "r2-t01"]
     enables_tasks: ["r2-t05", "r2-t06"]
     references:
       masterplan: "@MASTERPLAN.md#universal-agent-factory"

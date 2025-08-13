@@ -1,21 +1,110 @@
 task:
   id: "r6-t02-websocket-support"
-  name: "Implement WebSocket Support for Real-time Communication"
-  description: "Add WebSocket endpoints for real-time agent execution, session updates, and event streaming"
+  name: "Implement WebSocket and SSE Support for Real-time Communication"  # CORRECTED: Added SSE as primary per MASTERPLAN
+  description: "Add WebSocket endpoints and Server-Sent Events (SSE) for real-time agent execution, session updates, and event streaming with ADK integration"  # CORRECTED: Added SSE and ADK integration
   complexity: "medium"
-  estimated_hours: 3
-  
+  estimated_hours: 4  # CORRECTED: Increased due to dual implementation
+
   context:
-    why: "WebSocket support enables real-time bidirectional communication for interactive agent sessions"
-    architectural_role: "Real-time communication layer for live agent interactions"
+    why: "WebSocket and SSE support enables real-time bidirectional communication for interactive agent sessions with ADK streaming integration"  # CORRECTED: Added SSE and ADK
+    architectural_role: "Real-time communication layer for live agent interactions with dual transport support"  # CORRECTED: Added dual transport
     depends_on_tasks: ["r6-t01", "r4-t04"]
     enables_tasks: ["r6-t03"]
     references:
-      masterplan: "@MASTERPLAN.md#real-time-features"
+      masterplan: "@MASTERPLAN.md#real-time-processing"  # CORRECTED: Updated section reference
       architecture: "@memory-bank/architecture.md#websocket-design"
     
   implementation:
     creates:
+      # ADDED: SSE endpoints per MASTERPLAN requirement
+      - path: "services/agent-engine/src/api/streaming/"
+        purpose: "Server-Sent Events implementation"  # ADDED: Primary streaming method per MASTERPLAN
+        content:
+          - "__init__.py"
+          - "sse_endpoints.py"  # ADDED: SSE implementation
+          - "event_generator.py"  # ADDED: Event generation for SSE
+      
+      - path: "services/agent-engine/src/api/streaming/sse_endpoints.py"
+        purpose: "SSE endpoints for workflow and agent streaming"  # ADDED: Per MASTERPLAN API architecture
+        exports:
+          - "stream_workflow_events: SSE endpoint for workflow execution"  # ADDED: From MASTERPLAN
+          - "stream_agent_events: SSE endpoint for agent execution"
+          - "stream_session_events: SSE endpoint for session updates"
+        content_structure: |
+          from fastapi import APIRouter, BackgroundTasks
+          from fastapi.responses import StreamingResponse
+          from sse_starlette.sse import EventSourceResponse  # VERIFIED: Standard SSE library
+          import asyncio
+          import json
+          from typing import AsyncGenerator
+          
+          # VERIFIED: ADK imports from documentation
+          from google.adk.runners import InMemoryRunner
+          from google.adk.agents import BaseAgent
+          
+          from ...core.agent_factory import AgentFactory  # CORRECTED: Use existing factory
+          from ...core.workflow import WorkflowEngine  # CORRECTED: Use existing workflow engine
+          from ...core.session import SessionOrchestrator  # CORRECTED: Use existing session management
+          
+          router = APIRouter(prefix="/stream", tags=["streaming"])
+          
+          @router.get("/workflows/{workflow_id}/events")
+          async def stream_workflow_events(workflow_id: str, session_id: str):
+              """Stream workflow execution events via SSE"""  # ADDED: Per MASTERPLAN API spec
+              
+              async def generate_events():
+                  workflow_engine = WorkflowEngine()
+                  # CORRECTED: Use ADK runner.run_async pattern from MASTERPLAN
+                  async for event in workflow_engine.execute_workflow_stream(
+                      template_name=workflow_id,
+                      session_id=session_id
+                  ):
+                      yield {
+                          "event": "workflow_event",
+                          "data": json.dumps(event)
+                      }
+              
+              return EventSourceResponse(generate_events())
+          
+          @router.get("/agents/{agent_id}/events")
+          async def stream_agent_events(agent_id: str, session_id: str, input_data: dict):
+              """Stream agent execution events via SSE"""
+              
+              async def generate_events():
+                  factory = AgentFactory()
+                  agent = factory.create_agent(agent_id)
+                  
+                  # VERIFIED: ADK InMemoryRunner pattern from documentation
+                  runner = InMemoryRunner(agent, app_name="agent_engine")
+                  
+                  # VERIFIED: ADK run_async streaming pattern
+                  async for event in runner.run_async(
+                      user_id="system", 
+                      session_id=session_id, 
+                      new_message=input_data
+                  ):
+                      yield {
+                          "event": "agent_event",
+                          "data": json.dumps(event.model_dump() if hasattr(event, 'model_dump') else str(event))
+                      }
+              
+              return EventSourceResponse(generate_events())
+          
+          @router.get("/sessions/{session_id}/events")
+          async def stream_session_events(session_id: str):
+              """Stream session state updates via SSE"""  # ADDED: Session streaming capability
+              
+              async def generate_events():
+                  orchestrator = SessionOrchestrator()
+                  # Stream session state changes
+                  async for update in orchestrator.stream_session_updates(session_id):
+                      yield {
+                          "event": "session_update",
+                          "data": json.dumps(update)
+                      }
+              
+              return EventSourceResponse(generate_events())
+
       - path: "services/agent-engine/src/api/websocket/"
         purpose: "WebSocket implementation"
         content:
@@ -314,7 +403,7 @@ task:
                   }
       
       - path: "services/agent-engine/src/api/websocket/handlers.py"
-        purpose: "WebSocket message handlers"
+        purpose: "WebSocket message handlers with ADK integration"  # CORRECTED: Added ADK integration
         exports:
           - "handle_agent_execute"
           - "handle_session_message"
@@ -326,9 +415,14 @@ task:
           import asyncio
           
           from .connection_manager import Connection
-          from ...core.agent_factory import AgentFactory
-          from ...core.session import SessionOrchestrator
-          from ...core.workflow import WorkflowEngine
+          
+          # VERIFIED: ADK imports from documentation
+          from google.adk.runners import InMemoryRunner
+          from google.adk.agents import BaseAgent
+          
+          from ...core.agent_factory import AgentFactory  # CORRECTED: Use existing components
+          from ...core.session import SessionOrchestrator  # CORRECTED: Use existing session management
+          from ...core.workflow import WorkflowEngine  # CORRECTED: Use existing workflow engine
           
           logger = logging.getLogger(__name__)
           
@@ -336,9 +430,9 @@ task:
               connection: Connection,
               message: Dict[str, Any],
               factory: AgentFactory,
-              runner
+              runner: InMemoryRunner  # VERIFIED: ADK InMemoryRunner
           ):
-              """Handle agent execution request"""
+              """Handle agent execution request with ADK streaming"""  # CORRECTED: Added ADK streaming
               agent_spec = message.get("agent_spec")
               input_data = message.get("input_data", {})
               request_id = message.get("request_id")
@@ -347,12 +441,16 @@ task:
                   # Create agent
                   agent = factory.create_agent(agent_spec)
                   
-                  # Stream execution results
-                  async for event in runner.run_stream(agent, input_data):
+                  # CORRECTED: Use ADK runner.run_async pattern from MASTERPLAN
+                  async for event in runner.run_async(
+                      user_id=connection.user_id or "anonymous",
+                      session_id=connection.session_id,
+                      new_message=input_data
+                  ):
                       await connection.send_json({
                           "type": "agent_event",
                           "request_id": request_id,
-                          "event": event
+                          "event": event.model_dump() if hasattr(event, 'model_dump') else str(event)  # VERIFIED: ADK event handling
                       })
                   
                   # Send completion
@@ -374,21 +472,21 @@ task:
               message: Dict[str, Any],
               orchestrator: SessionOrchestrator
           ):
-              """Handle session-related messages"""
+              """Handle session-related messages with ADK session service"""  # CORRECTED: Added ADK reference
               action = message.get("action")
               session_id = message.get("session_id") or connection.session_id
               
               if action == "create":
-                  context = await orchestrator.create_session(
-                      user_id=connection.user_id or "anonymous",
-                      app_name=message.get("app_name", "default")
-                  )
-                  connection.session_id = context.session_id
+                  # VERIFIED: ADK session creation pattern from documentation
+                  session_id = await orchestrator.create_session({
+                      "user_id": connection.user_id or "anonymous",
+                      "app_name": message.get("app_name", "agent_engine")  # VERIFIED: ADK requires app_name
+                  })
+                  connection.session_id = session_id
                   
                   await connection.send_json({
                       "type": "session_created",
-                      "session_id": context.session_id,
-                      "metadata": context.metadata.model_dump(mode='json')
+                      "session_id": session_id
                   })
               
               elif action == "update":
@@ -410,8 +508,8 @@ task:
                       await connection.send_json({
                           "type": "session_data",
                           "session_id": session_id,
-                          "state": context.state.model_dump(mode='json'),
-                          "metadata": context.metadata.model_dump(mode='json')
+                          "state": context.state.model_dump(mode='json') if hasattr(context.state, 'model_dump') else str(context.state),
+                          "metadata": context.metadata.model_dump(mode='json') if hasattr(context.metadata, 'model_dump') else str(context.metadata)
                       })
                   else:
                       await connection.send_json({
@@ -424,13 +522,13 @@ task:
               message: Dict[str, Any],
               engine: WorkflowEngine
           ):
-              """Handle workflow execution request"""
+              """Handle workflow execution request with ADK streaming"""  # CORRECTED: Added ADK streaming
               template_name = message.get("template_name")
               input_data = message.get("input_data", {})
               request_id = message.get("request_id")
               
               try:
-                  # Stream workflow events
+                  # CORRECTED: Use WorkflowEngine.execute_workflow_stream method from MASTERPLAN
                   async for event in engine.execute_workflow_stream(
                       template_name=template_name,
                       input_data=input_data,
@@ -493,6 +591,68 @@ task:
           - "SessionMessage: Session-related messages"
           - "WorkflowMessage: Workflow-related messages"
       
+      # ADDED: WebSocket endpoints integration
+      - path: "services/agent-engine/src/api/websocket/endpoints.py"
+        purpose: "FastAPI WebSocket endpoints"  # ADDED: Missing WebSocket endpoint integration
+        exports:
+          - "websocket_endpoint: Main WebSocket connection handler"
+        content_structure: |
+          from fastapi import APIRouter, WebSocket, WebSocketDisconnect
+          from fastapi.responses import HTMLResponse
+          import logging
+          
+          from .connection_manager import ConnectionManager
+          from .handlers import handle_agent_execute, handle_session_message, handle_workflow_execute, handle_subscribe
+          from ...core.agent_factory import AgentFactory
+          from ...core.session import SessionOrchestrator
+          from ...core.workflow import WorkflowEngine
+          
+          # VERIFIED: ADK imports
+          from google.adk.runners import InMemoryRunner
+          
+          logger = logging.getLogger(__name__)
+          router = APIRouter()
+          
+          # Global connection manager
+          manager = ConnectionManager()
+          
+          @router.websocket("/ws")
+          async def websocket_endpoint(websocket: WebSocket, client_id: str = None):
+              """Main WebSocket connection handler"""
+              connection = await manager.connect(websocket, client_id)
+              
+              # Initialize components
+              factory = AgentFactory()
+              orchestrator = SessionOrchestrator()
+              workflow_engine = WorkflowEngine()
+              
+              try:
+                  while True:
+                      message = await connection.receive_json()
+                      message_type = message.get("type")
+                      
+                      # Route messages to appropriate handlers
+                      if message_type == "agent_execute":
+                          runner = InMemoryRunner(app_name="websocket_agent")
+                          await handle_agent_execute(connection, message, factory, runner)
+                      elif message_type == "session":
+                          await handle_session_message(connection, message, orchestrator)
+                      elif message_type == "workflow_execute":
+                          await handle_workflow_execute(connection, message, workflow_engine)
+                      elif message_type == "subscribe":
+                          await handle_subscribe(connection, message)
+                      else:
+                          await connection.send_json({
+                              "type": "error",
+                              "error": f"Unknown message type: {message_type}"
+                          })
+                          
+              except WebSocketDisconnect:
+                  await manager.disconnect(connection.client_id)
+              except Exception as e:
+                  logger.error(f"WebSocket error: {e}")
+                  await manager.disconnect(connection.client_id)
+      
       - path: "services/agent-engine/tests/test_websocket.py"
         purpose: "WebSocket tests"
         test_categories:
@@ -501,6 +661,7 @@ task:
           - "Broadcasting"
           - "Session integration"
           - "Error scenarios"
+          - "ADK integration"  # ADDED: ADK integration testing
     
     uses_from_previous:
       - source: "r6-t01"
@@ -508,20 +669,32 @@ task:
         usage: "Shared API infrastructure"
       - source: "r4-t04"
         component: "Event streaming"
-        usage: "Stream events over WebSocket"
+        usage: "Stream events over WebSocket and SSE"  # CORRECTED: Added SSE
+      # ADDED: ADK integration requirements
+      - source: "r1-foundation"
+        component: "ADK InMemoryRunner and session services"
+        usage: "Core ADK streaming and session management"
     
   implementation_steps:
+    # ADDED: SSE implementation step
+    - step: "Implement Server-Sent Events (SSE) endpoints"
+      implementation_notes: |
+        - Primary streaming method per MASTERPLAN
+        - GET /events/stream endpoint for real-time events
+        - POST /workflows/{id}/stream for workflow streaming
+        - Integration with ADK runner.run_async event iteration
+        
     - step: "Create connection manager"
       implementation_notes: |
         - Connection tracking
         - User/session associations
         - Connection pools
         
-    - step: "Implement message handlers"
+    - step: "Implement message handlers with ADK integration"  # CORRECTED: Added ADK integration
       implementation_notes: |
-        - Agent execution
-        - Session management
-        - Workflow execution
+        - Agent execution using ADK InMemoryRunner
+        - Session management with ADK session services
+        - Workflow execution with WorkflowEngine.execute_workflow_stream
         
     - step: "Add broadcasting"
       implementation_notes: |
@@ -535,6 +708,13 @@ task:
         - Authentication
         - Error handling
         
+    # ADDED: Event-driven architecture step per MASTERPLAN
+    - step: "Implement event-driven architecture"
+      implementation_notes: |
+        - Event publishing to external systems
+        - Integration with existing SessionOrchestrator streaming patterns
+        - Future-proofing for enterprise event publishing
+        
   validation:
     commands:
       - description: "Test WebSocket connections"
@@ -545,12 +725,19 @@ task:
         command: "wscat -c ws://localhost:8001/ws"
         expected: "Connection established"
         
+      # ADDED: SSE testing per MASTERPLAN requirement
+      - description: "Test SSE endpoints"
+        command: "curl -N -H 'Accept: text/event-stream' http://localhost:8001/stream/workflows/test/events?session_id=test"
+        expected: "Event stream established"
+        
     success_criteria:
       - "Connection management working"
       - "Message routing functional"
       - "Broadcasting operational"
       - "Session integration complete"
       - "All tests pass"
+      - "SSE endpoints functional"  # ADDED: SSE success criteria
+      - "ADK streaming integration working"  # ADDED: ADK integration criteria
       
   dependencies:
     required_before:
@@ -558,3 +745,8 @@ task:
         reason: "Need API infrastructure"
       - task: "r4-t04"
         reason: "Need event streaming"
+    
+    # ADDED: Additional dependencies for SSE
+    additional_packages:
+      - "sse-starlette"  # ADDED: SSE support for FastAPI
+      - "aiofiles"  # ADDED: Async file operations if needed

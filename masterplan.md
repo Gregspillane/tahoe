@@ -1,4 +1,4 @@
-# Project Tahoe - Agent Engine Architectural Blueprint v2.1
+# Project Tahoe - Agent Engine Architectural Blueprint v2.2
 
 **Universal Agent Orchestration Platform**
 
@@ -32,6 +32,7 @@ This document has been validated against the official Google Agent Development K
 4. **Model Abstraction**: Transparent model switching with fallback strategies
 5. **Session Management**: Full ADK session capabilities with multiple persistence options
 6. **Real-time Orchestration**: Streaming execution with event-driven architecture
+7. **Visual Development Interface**: ADK Dev UI integration for real-time agent testing and debugging ✅ **NEW**
 
 ## Configuration Management
 
@@ -715,6 +716,13 @@ from google.adk.evaluations import AgentEvaluator
 
 ### Release 2: Dynamic Composition Engine
 
+**Visual Development Foundation** ✅ **NEW**
+- Integrate ADK Dev UI with Tahoe platform architecture
+- Implement DevUILauncher with automatic agent discovery
+- Create visual testing interface for real-time agent interaction
+- Enable browser-based debugging with Events tab and trace logs
+- Establish development workflow foundation for composition testing
+
 **Agent Specification System**
 - Design and implement agent specification schema
 - Create agent factory supporting all ADK agent types
@@ -1190,9 +1198,128 @@ pytest tests/ -v --cov=src
 # Validate specifications
 python scripts/validate_specs.py
 
+# Launch ADK Dev UI for visual agent testing ✅ NEW
+make dev-ui
+
+# Setup Dev UI environment
+make dev-ui-setup
+
+# Launch Dev UI in Docker
+make dev-ui-docker
+
 # Deploy (future)
 kubectl apply -f k8s/
 ```
+
+### ADK Dev UI Integration ✅ **NEW**
+
+**Purpose**: Visual agent development, testing, and debugging interface integrated with Tahoe platform
+
+**What is ADK Dev UI?**
+- Browser-based development interface for real-time agent interaction
+- Visual debugging with Events tab showing function calls and traces
+- Multi-agent dropdown selection for testing different agents
+- Native voice/audio support with compatible models
+- Launched via `adk web` command (typically on `localhost:8002`)
+
+**Tahoe Integration Features:**
+```bash
+# Launch Dev UI with Tahoe agents
+make dev-ui
+
+# Launch Dev UI in Docker environment  
+make dev-ui-docker
+
+# Setup Dev UI environment
+make dev-ui-setup
+```
+
+**Development Workflow:**
+1. **Agent Discovery**: Automatically loads agents from `specs/agents/` directory
+2. **Real-time Testing**: Interactive chat interface with any Tahoe agent
+3. **Visual Debugging**: Events tab shows tool execution, latency, and responses
+4. **Configuration Integration**: Uses existing hierarchical configuration system
+5. **Multi-agent Testing**: Dropdown selection of all available agents
+
+**Architecture Integration:**
+```python
+# Core Dev UI integration components
+class DevUILauncher:
+    """Launch ADK Dev UI with Tahoe-specific configuration."""
+    
+    def discover_agents(self) -> List[BaseAgent]:
+        """Auto-discover agents from specifications."""
+        # Uses AgentDiscovery utility
+        # Leverages SpecificationParser
+        # Applies DevUIConfiguration settings
+        
+    def launch(self, port: int = 8002):
+        """Launch Dev UI with discovered agents."""
+        # Configure environment variables
+        # Set up GEMINI_API_KEY
+        # Launch adk web with agents
+
+class AgentDiscovery:
+    """Utility for discovering agents from specifications."""
+    
+    def discover_from_specs(self, specs_path: Path) -> List[AgentSpec]:
+        """Discover agent specifications from directory."""
+        
+    def load_agents_for_dev_ui(self, specs: List[AgentSpec]) -> List[BaseAgent]:
+        """Load agent instances for Dev UI."""
+
+class DevUIConfiguration:
+    """Dev UI specific configuration management."""
+    port: int = 8002
+    host: str = "localhost"
+    auto_reload: bool = True
+    agent_specs_path: Path
+```
+
+**Key Benefits for Development:**
+- **Visual Testing**: Real-time agent interaction without writing test scripts
+- **Debug Workflows**: See sequential/parallel agent execution visually  
+- **Tool Validation**: Immediate feedback on tool integration and performance
+- **Team Collaboration**: Non-technical stakeholders can interact with agents
+- **Rapid Iteration**: Test specification changes immediately
+
+**Integration Points:**
+- **R1 Foundation**: Uses existing configuration, specifications, and agent examples
+- **R2 Composition**: Visual testing of dynamic agent factory outputs
+- **R3 Tools**: Interactive tool debugging and validation
+- **R4 Workflows**: Visual workflow execution and state monitoring
+
+**Configuration:**
+```yaml
+# Dev UI specific configuration
+DEV_UI_PORT: 8002
+DEV_UI_HOST: localhost
+DEV_UI_AUTO_RELOAD: true
+AGENT_SPECS_PATH: ./specs/agents/
+```
+
+**Docker Integration:**
+```yaml
+# Optional Dev UI service
+services:
+  dev-ui:
+    build: .
+    container_name: tahoe-dev-ui
+    ports:
+      - "8002:8002"
+    environment:
+      - GEMINI_API_KEY=${GEMINI_API_KEY}
+    command: python scripts/launch_dev_ui.py
+    networks:
+      - tahoe-network
+```
+
+**Future Enhancements:**
+- Dynamic agent reloading on specification changes
+- Multi-user development sessions
+- Visual workflow composition and editing
+- Agent performance analytics and metrics
+- Integration with CI/CD for automated agent validation
 
 ### ADK Best Practices
 1. **Use appropriate agent types** - LlmAgent for reasoning, SequentialAgent/ParallelAgent/LoopAgent for workflows

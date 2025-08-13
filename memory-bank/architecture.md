@@ -53,6 +53,31 @@ class UniversalAgentFactory:
 - Inline: Function definitions in specs
 - Import: Module-based tools
 
+### 5. Hierarchical Configuration Management ✅ **NEW**
+**Pattern**: Multi-level configuration with environment-specific overrides
+**Implementation**:
+- Base `.env` file (project root)
+- Environment-specific overrides (`config/development.env`, etc.)
+- Runtime specification overrides (`specs/config/`)
+- Pydantic-settings with validation
+**Benefits**:
+- Environment-aware deployment patterns
+- Runtime configuration changes without code deployment
+- Service isolation via database schemas and Redis namespaces
+- Sensitive value masking for security
+
+### 6. Service Isolation Architecture ✅ **NEW**
+**Pattern**: Multi-service sharing with logical isolation
+**Implementation**:
+- **Database**: PostgreSQL schemas (`agent_engine`, `auth_service`, etc.)
+- **Redis**: Namespaced keys (`agent:key`, `auth:key`, etc.)
+- **Configuration**: Service-prefixed environment variables
+- **Service Discovery**: Environment-aware URL generation
+**Benefits**:
+- Resource efficiency (shared infrastructure)
+- Clear service boundaries
+- Environment-specific deployment patterns
+
 ## ADK Integration Points
 
 ### Validated ADK Patterns ✅
@@ -134,6 +159,12 @@ User Request → API Gateway → Specification Loader → Agent Factory
 - Session/Execution → Many AuditLogs (optional foreign keys)
 - All entities use UUID primary keys with proper indexing
 
+### Database Service Isolation ✅ **NEW**
+- **Schema-Based Isolation**: PostgreSQL schemas for service separation (`agent_engine`, `auth_service`, etc.)
+- **Connection String Pattern**: `postgresql://user:pass@host:port/postgres?schema=service_name`
+- **Resource Sharing**: Multiple services share database instance while maintaining isolation
+- **Migration Management**: Each service manages its own schema migrations
+
 ### Database Service Patterns
 - **Connection Management**: Singleton service with connection pooling
 - **CRUD Operations**: Type-safe operations via Prisma client
@@ -150,9 +181,10 @@ User Request → API Gateway → Specification Loader → Agent Factory
 
 ### Endpoint Categories ✅ **IMPLEMENTED**
 1. **Core**: Health, metrics, config
-2. **Specifications**: Agent/workflow/tool specs, validation, composition
-3. **Database**: Sessions, executions, results, audit logs, tools, configurations
-4. **Health**: ADK verification, database health, service statistics
+2. **Specifications**: Agent/workflow/tool specs, validation, composition (15 endpoints)
+3. **Database**: Sessions, executions, results, audit logs, tools, configurations (15 endpoints)
+4. **Configuration**: Hierarchical config management, runtime overrides, health (6 endpoints)
+5. **Health**: ADK verification, database health, service statistics
 
 ## Security Architecture
 
@@ -215,12 +247,12 @@ User Request → API Gateway → Specification Loader → Agent Factory
 
 ### Language & Framework ✅ **IMPLEMENTED**
 - **Python 3.12**: Using latest stable Python (ADK requires 3.9+)
-- **FastAPI**: Async REST API framework with centralized configuration
-- **Prisma ORM**: Type-safe database access with automatic migrations
-- **PostgreSQL 15**: Primary database with Docker container setup
-- **Redis**: Caching and sessions (Docker container ready)
+- **FastAPI**: Async REST API framework with hierarchical configuration
+- **Prisma ORM**: Type-safe database access with schema isolation
+- **PostgreSQL 15**: Primary database with schema-based service isolation
+- **Redis**: Caching and sessions with namespace-based isolation
 - **Google ADK 1.10.0**: Core agent framework (validated and compliant)
-- **Pydantic Settings**: Environment-aware configuration management
+- **Pydantic Settings**: Environment-aware hierarchical configuration management
 
 ### ADK Choices (Validated ✅)
 - **InMemoryRunner**: Primary runner (not custom)
