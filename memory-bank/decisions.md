@@ -1,5 +1,28 @@
 # Project Tahoe - Key Decisions Log
 
+## 2025-08-13: ADK Compliance and Code Remediation (Late Evening - Session 9)
+
+### Decision: Align with Official ADK Documentation Patterns
+**Context**: Discovered our implementation uses incorrect ADK patterns based on assumptions
+**Decision**: Update all code to match official Google ADK documentation exactly
+**Rationale**:
+- LlmAgent is the correct class, not generic Agent
+- Runner pattern is required for proper agent execution
+- FunctionTool wrapper needed, not @tool decorator
+- InMemorySessionService provides proper session management
+- Following official patterns ensures future compatibility
+**Impact**: Need R2-T5 remediation task to fix existing implementation
+
+### Decision: Create Remediation Task Before Moving Forward
+**Context**: Multiple ADK pattern violations found in current implementation
+**Decision**: Add R2-T5 task to fix all issues before proceeding to R3
+**Rationale**:
+- Foundation must be correct before building specialist agents
+- Fixing now prevents propagating incorrect patterns
+- Ensures all components work with proper ADK integration
+- Creates documented reference for correct patterns
+**Impact**: One additional session needed but ensures solid foundation
+
 ## 2025-08-13: Centralized Configuration Management (Evening - Session 8 continued)
 
 ### Decision: Centralized .env at Monorepo Root

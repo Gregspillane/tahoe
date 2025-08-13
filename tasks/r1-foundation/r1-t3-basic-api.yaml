@@ -14,9 +14,10 @@ task:
   build_spec:
     creates:
       - "services/agent-engine/src/orchestrator.py (skeleton)"
-      - "services/agent-engine/src/auth.py"
+      - "services/agent-engine/src/auth.py (with verify_service_token and AuthContext)"
       - "services/agent-engine/src/models/api.py"
-      - "services/agent-engine/src/services/health.py"
+      - "services/agent-engine/src/services/health.py (HealthChecker class)"
+      - "services/agent-engine/src/services/monitoring.py (MetricsCollector class)"
       - "services/agent-engine/tests/test_api.py"
       - "services/agent-engine/tests/fixtures/sample_interaction.json"
     modifies:
@@ -39,11 +40,14 @@ task:
       - "GET /metrics for service monitoring"
       - "CRUD endpoints for agents/templates"
       - "CRUD endpoints for scorecards"
-      - "Service token authentication middleware"
+      - "Service token authentication middleware (verify_service_token function)"
+      - "AuthContext dependency for protected endpoints"
       - "TahoeOrchestrator skeleton class"
       - "Redis connection with session caching"
       - "Cache warmup on startup"
-      - "Comprehensive error handling"
+      - "Comprehensive error handling with exception handlers"
+      - "HealthChecker class with postgres/redis dependency checks"
+      - "MetricsCollector class with basic request/error counters"
     connects_to:
       - "PostgreSQL via Prisma client"
       - "Redis for session management"
@@ -89,10 +93,12 @@ task:
   implementation_checklist:
     - "Complete main.py with all endpoints"
     - "Create API request/response models"
-    - "Implement service token authentication"
+    - "Implement auth.py with verify_service_token and AuthContext"
     - "Build orchestrator skeleton class"
     - "Connect Redis for future use"
-    - "Add health check service"
+    - "Add HealthChecker class with dependency checks"
+    - "Add MetricsCollector class with counters"
+    - "Add exception handlers for ValueError and general exceptions"
     - "Create sample interaction fixture"
     - "Write basic API tests"
     - "Verify all endpoints with curl"
@@ -121,3 +127,18 @@ task:
       # analyze_interaction method creates DB record
       # Returns mock AnalysisResult for now
       # Real implementation in R2
+    
+    auth_implementation: |
+      # verify_service_token checks Bearer token against SERVICE_TOKEN env var
+      # AuthContext holds authenticated service information
+      # Depends() injection for FastAPI endpoints
+    
+    health_checker: |
+      # HealthChecker.check_all() tests postgres and redis connections
+      # Returns overall_status and component statuses
+    
+    metrics_collector: |
+      # MetricsCollector tracks analysis_requests_total counter
+      # Tracks analysis_errors_total counter
+      # Tracks analysis_duration_seconds histogram
+      # get_current_metrics() returns current values

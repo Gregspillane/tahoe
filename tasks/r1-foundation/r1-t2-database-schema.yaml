@@ -95,5 +95,9 @@ task:
     portfolios:
       - "test_portfolio with basic config"
     model_providers:
-      - "gemini provider config"
-      - "openai provider config (optional)"
+      - "gemini provider with models: gemini-2.0-flash, gemini-1.5-pro"
+      - "openai provider with models: gpt-4-turbo, gpt-4o"
+      - "anthropic provider with models: claude-3-opus, claude-3-sonnet"
+    tools:
+      - "regulatory_lookup tool configuration"
+      - "validation_check tool configuration"

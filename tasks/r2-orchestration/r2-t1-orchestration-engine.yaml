@@ -23,7 +23,7 @@ task:
       - "src/models/api.py (add AnalysisResult model)"
       - "requirements.txt (ensure google-adk included)"  # CORRECTED: ADK needed from start
     uses:
-      - "Google ADK for agent framework"  # ADDED: Per masterplan line 309
+      - "Google ADK (LlmAgent, Runner, FunctionTool)"  # VERIFIED: Core ADK components per docs
       - "Asyncio for parallel execution"
       - "Redis for session management"
       - "Prisma for state persistence"
@@ -38,9 +38,12 @@ task:
       - "Session management in Redis"
       - "Error handling and recovery"
       - "Phase tracking and status updates"
-    imports_required:  # ADDED: Section for proper imports
-      - "from google.adk.agents import Agent, ParallelAgent, SequentialAgent"
-      - "from google.adk.tools import tool"
+    imports_required:  # VERIFIED: ADK docs confirm these imports
+      - "from google.adk.agents import LlmAgent"  # CORRECTED: Use LlmAgent not Agent per ADK docs
+      - "from google.adk.agents.workflow import ParallelAgent, SequentialAgent"  # VERIFIED: Workflow agents
+      - "from google.adk.tools import FunctionTool"  # CORRECTED: Use FunctionTool not @tool decorator
+      - "from google.adk.runner import Runner"  # ADDED: Required for agent execution per ADK docs
+      - "from google.adk.sessions import InMemorySessionService"  # ADDED: For session management
       - "import redis.asyncio as redis"
       - "from prisma import Prisma"
     helper_methods:  # ADDED: Required helper methods from masterplan
@@ -91,7 +94,7 @@ task:
       - "Error handling patterns"
 
   implementation_checklist:
-    - "Import ADK classes even if using mocks"  # ADDED
+    - "Import ADK classes (LlmAgent, Runner, FunctionTool)"  # VERIFIED: Core ADK imports
     - "Complete analyze_interaction workflow"
     - "Implement analyze_content method"
     - "Build select_agents with trigger rules"
@@ -103,8 +106,8 @@ task:
     - "Add _execute_single_agent helper"  # ADDED
     - "Add Redis session management"
     - "Create ContentAnalyzer service"
-    - "Create AgentFactory stub class"  # ADDED
-    - "Create ResultAggregator stub class"  # ADDED
+    - "Create AgentFactory stub (with TahoeAgent wrapper)"  # VERIFIED: Matches masterplan pattern
+    - "Create ResultAggregator stub (with AnalysisResult)"  # VERIFIED: Returns proper result class
     - "Write comprehensive tests"
     - "Add fixture for FDCPA violation"
 
@@ -150,27 +153,44 @@ task:
       - "Clear Redis session"
       - "Return results"
 
-  stub_implementations:  # CORRECTED: Changed from mock to stub implementations
+  stub_implementations:  # VERIFIED: ADK-compliant stub implementations
     agent_factory_stub: |
-      # src/agents/factory.py - Stub implementation
+      # src/agents/factory.py - ADK-compliant stub implementation
+      from google.adk.agents import LlmAgent  # VERIFIED: Correct ADK import
+      from google.adk.tools import FunctionTool  # VERIFIED: For tool wrapping
+      from prisma import Prisma
+      import redis.asyncio as redis
+      
       class AgentFactory:
+          """Factory for creating ADK agents from database templates"""
+          
           def __init__(self):
-              self.db = None  # Will be Prisma()
-              self.cache = None  # Will be redis.Redis()
+              self.db = Prisma()
+              self.cache = redis.Redis()
+              self.model_registry = None  # Will be ModelRegistry()
+              self.tool_registry = None  # Will be ToolRegistry()
               
           async def create_agent(self, template: dict):
-              # Mock agent that returns test data
-              class MockAgent:
+              """Create a stub agent for testing orchestration"""
+              # Return a TahoeAgent wrapper with mock behavior
+              class TahoeAgent:
+                  def __init__(self):
+                      self.template = template
+                      
                   async def analyze(self, input_data: dict):
+                      # Mock analysis result matching ADK patterns
                       return {
                           "agent_name": template["name"],
-                          "score": 85.0,
+                          "agent_version": template.get("version", 1),
+                          "result": {"mock": "result"},
+                          "events": [],  # Would contain ADK events
                           "confidence": 0.9,
-                          "violations": [],
-                          "recommendations": [],
-                          "execution_time": 1.5
+                          "execution_time": 1.5,
+                          "model_used": template.get("model", "gemini-2.0-flash"),
+                          "trace_id": input_data.get("trace_id")
                       }
-              return MockAgent()
+              
+              return TahoeAgent()
     
     result_aggregator_stub: |
       # src/services/aggregation.py - Stub implementation  

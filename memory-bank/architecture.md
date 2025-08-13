@@ -29,8 +29,11 @@
 - Redis for transient caching and sessions
 - All state externalized and recoverable
 
-#### Agent Framework (Updated 2025-08-13 Evening)
-- Google ADK as core agent framework with LlmAgent class
+#### Agent Framework (Updated 2025-08-13 Late Evening - ADK Verified)
+- **Core Classes**: LlmAgent (not Agent), ParallelAgent, SequentialAgent
+- **Execution Pattern**: Runner with InMemorySessionService for agent execution
+- **Tool Integration**: FunctionTool wrapper (not @tool decorator)
+- **Event Processing**: Extract results from runner.run_async() events
 - AgentFactory pattern for dynamic agent instantiation from database templates
 - TahoeAgent wrapper providing standardized AgentResult format
 - Real-time template loading with Redis caching (5-minute TTL)

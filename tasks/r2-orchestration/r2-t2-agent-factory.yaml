@@ -39,6 +39,7 @@ task:
       - "Implement ModelRegistry as configuration manager (not API integrator)"  # CORRECTED: Configuration only
       - "Implement ToolRegistry with basic load_tools method"
       - "Create ADK LlmAgent instances with proper parameters"  # VERIFIED: LlmAgent from ADK docs
+      - "Use Runner and InMemorySessionService for execution"  # ADDED: Required per ADK docs
       - "Wrap in TahoeAgent for standardization"
       - "Implement _calculate_confidence with basic logic"  # ADDED: Implementation guidance
       - "Add comprehensive error handling for template loading and agent creation"  # ADDED: Error handling
@@ -113,9 +114,9 @@ task:
       - "adk_agent - ADK LlmAgent instance"  # VERIFIED: Correct ADK class
       - "template - configuration from DB"
       - "factory - reference to factory"
-      - "analyze(input) - execute with proper input/system prompts"  # ADDED: Prompt details
+      - "analyze(input) - execute using Runner.run_async()"  # CORRECTED: Use Runner per ADK docs
       - "_build_user_prompt() - format prompt with template variables"
-      - "_process_result() - standardize output to AgentResult format"
+      - "_process_events_result(events) - extract result from ADK events"  # CORRECTED: Process events not result
       - "_calculate_confidence(result) - basic heuristic (0.85 default)"  # ADDED: Implementation detail
     
     ModelRegistry:
@@ -124,8 +125,9 @@ task:
       - "PROVIDERS - static config dict with model parameters"  # CORRECTED: Static config only
     
     ToolRegistry:
-      - "load_tools(tool_ids) - returns list of placeholder tools"  # CORRECTED: Placeholder approach
-      - "get_tool(tool_id) - returns single tool or None"
+      - "load_tools(tool_names) - returns List[FunctionTool]"  # CORRECTED: Return FunctionTool instances
+      - "_get_tool_function(tool_name) - returns function to wrap"
+      - "Note: Wrap functions with FunctionTool(func=tool_func)"  # ADDED: ADK pattern
     
     BaseSpecialistAgent:
       - "analyze() - abstract method"
@@ -164,14 +166,25 @@ task:
     adk_imports: |
       # VERIFIED: Correct Google ADK imports per documentation
       from google.adk.agents import LlmAgent  # VERIFIED: Primary agent class
-      from google.adk.tools import tool
+      from google.adk.tools import FunctionTool  # CORRECTED: Use FunctionTool not @tool
+      from google.adk.runner import Runner  # ADDED: Required for agent execution
+      from google.adk.sessions import InMemorySessionService  # ADDED: For session management
       # Fallback imports with try/except for development
       try:
           from google.adk.agents import LlmAgent
+          from google.adk.tools import FunctionTool
+          from google.adk.runner import Runner
+          from google.adk.sessions import InMemorySessionService
       except ImportError:
           # Development fallback - will be replaced with real ADK
           class LlmAgent:
               def __init__(self, **kwargs): pass
+          class FunctionTool:
+              def __init__(self, func): pass
+          class Runner:
+              def __init__(self, **kwargs): pass
+          class InMemorySessionService:
+              def __init__(self): pass
     
     model_config: |
       from dataclasses import dataclass
@@ -207,10 +220,27 @@ task:
           name=template["name"],
           model=model_config.model_string,
           description=template.get("description", ""),
-          instruction=template.get("systemPrompt", ""),
-          tools=tools,
-          **model_config.parameters
+          instruction=template.get("systemPrompt", ""),  # System instructions
+          tools=tools  # List of FunctionTool instances
+          # Note: Model parameters handled through model string, not kwargs
       )
+      
+      # ADDED: ADK execution pattern with Runner
+      # For agent execution in TahoeAgent.analyze():
+      session_service = InMemorySessionService()
+      runner = Runner(
+          agent=adk_agent,
+          session_service=session_service
+      )
+      
+      # Execute with runner.run_async()
+      events = []
+      async for event in runner.run_async(
+          user_id=trace_id,
+          session_id=f"analysis_{trace_id}",
+          new_message=user_prompt
+      ):
+          events.append(event)
       
     error_handling_patterns: |
       # Comprehensive error handling per MASTERPLAN requirements

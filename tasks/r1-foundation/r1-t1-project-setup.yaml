@@ -33,12 +33,12 @@ task:
     start_with: "Create services/agent-engine directory structure"
     core_logic:
       - "Basic FastAPI app with health endpoint"
-      - "Configuration management via pydantic BaseSettings"
+      - "Configuration management via pydantic_settings BaseSettings (v2)"
       - "Docker Compose with postgres, redis, and app services"
       - "Environment variable management"
     connects_to:
-      - "PostgreSQL on port 5435"
-      - "Redis on port 6382"
+      - "PostgreSQL on host port 5435 (container port 5432)"
+      - "Redis on host port 6382 (container port 6379)"
       - "API on port 8001"
     keeps_simple:
       - "No authentication yet - just basic setup"
@@ -67,9 +67,11 @@ task:
       - "Configuration via environment variables"
     remember_for_later:
       - "Port 8001 for API"
-      - "Port 5435 for PostgreSQL"
-      - "Port 6382 for Redis"
+      - "Port 5435 for PostgreSQL (host) -> 5432 (container)"
+      - "Port 6382 for Redis (host) -> 6379 (container)"
       - "Service name: agent-engine"
+      - "DATABASE_URL uses container port: postgresql://tahoe:tahoe@postgres:5432/tahoe"
+      - "REDIS_URL uses container port: redis://redis:6379"
 
   implementation_checklist:
     - "Create directory structure under services/agent-engine"

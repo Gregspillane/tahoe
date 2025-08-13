@@ -1,5 +1,39 @@
 # Session Context - Project Tahoe
 
+## Current Session
+**Date/Time**: 2025-08-13 Late Evening (Session 9)  
+**Focus**: ADK Compliance Verification and Code Remediation Planning
+
+## What Was Accomplished (Session 9)
+1. **ADK Documentation Verification**
+   - Researched official Google ADK documentation at google.github.io/adk-docs/
+   - Verified correct class names: `LlmAgent` (not `Agent`), `FunctionTool` (not `@tool`)
+   - Discovered Runner pattern required for agent execution
+   - Confirmed InMemorySessionService for session management
+   - Identified workflow agents: ParallelAgent, SequentialAgent
+
+2. **Task YAML Corrections**
+   - **R1 Foundation Tasks**: Fixed port mappings (5435->5432, 6382->6379), Pydantic v2 imports
+   - **R2-T1 Orchestration**: Corrected ADK imports, added Runner/Session patterns
+   - **R2-T2 Agent Factory**: Updated for LlmAgent, Runner execution, FunctionTool wrapping
+   - **R2-T3 Model Registry**: No ADK changes needed (configuration only)
+   - **R2-T4 Result Aggregation**: Aligned with TahoeAgent dict output format
+
+3. **Code Remediation Task Created (R2-T5)**
+   - Comprehensive remediation task to fix existing implementation
+   - Identified critical issues in current code:
+     - orchestrator.py uses `Agent` instead of `LlmAgent`
+     - factory.py imports `tool` instead of `FunctionTool`
+     - Missing Runner and InMemorySessionService imports
+     - Likely not using Runner pattern for execution
+   - Created validation checklists for all components
+   - Documented exact patterns to fix with before/after examples
+
+4. **Documentation Created**
+   - `ADK_COMPLIANCE_VERIFICATION.md`: Complete ADK pattern reference
+   - `R2_REMEDIATION_FINDINGS.md`: Initial code scan results
+   - `r2-t5-code-remediation.yaml`: Comprehensive remediation task
+
 ## Previous Session
 **Date/Time**: 2025-08-13 Evening (Session 8)  
 **Focus**: R2-T4 Result Aggregation + Centralized Configuration - COMPLETED
@@ -124,18 +158,36 @@
 - Service config: Loads from root ✅
 ```
 
-## Next Session Focus
+## Next Session Focus: R2-T5 Code Remediation
 
-### Immediate Next Steps
-1. **Start R3 Specialist Agents**
-   - R3-T1: Compliance Specialist Agent with real Gemini
-   - R3-T2: Quality Assessment Agent
-   - R3-T3: Enhanced Content Analyzer
-   
-2. **Or Test Full Pipeline**
-   - Run complete orchestration test with mock data
-   - Create sample scorecards and agent templates
-   - Test end-to-end analysis workflow
+### Critical Issues to Fix
+1. **Import Corrections** (Foundation for everything)
+   - Fix orchestrator.py: Use LlmAgent not Agent
+   - Fix factory.py: Use FunctionTool not tool
+   - Add Runner and InMemorySessionService imports
+
+2. **Execution Pattern Implementation**
+   - Implement Runner pattern in TahoeAgent.analyze()
+   - Use runner.run_async() for agent execution
+   - Process events to extract results
+
+3. **Tool Integration Fixes**
+   - Wrap all tools with FunctionTool
+   - Return List[FunctionTool] from ToolRegistry
+   - Remove any @tool decorators
+
+4. **Result Processing Alignment**
+   - Ensure aggregator processes dict format
+   - Verify AnalysisResult structure
+   - Check scorecard weight calculations
+
+### Key Files Modified (Session 9)
+- `tasks/r1-foundation/*.yaml` - Fixed port mappings and Pydantic imports
+- `tasks/r2-orchestration/r2-t1-orchestration-engine.yaml` - Corrected ADK patterns
+- `tasks/r2-orchestration/r2-t2-agent-factory.yaml` - Updated for Runner pattern
+- `tasks/r2-orchestration/r2-t5-code-remediation.yaml` - NEW: Remediation task
+- `tasks/ADK_COMPLIANCE_VERIFICATION.md` - ADK pattern reference
+- `tasks/r2-orchestration/R2_REMEDIATION_FINDINGS.md` - Code scan results
 
 ### Key Files Modified (Session 8)
 - `src/services/aggregation.py` - Complete ResultAggregator implementation
