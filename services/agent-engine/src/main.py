@@ -3,6 +3,9 @@ from fastapi.middleware.cors import CORSMiddleware
 from typing import Dict, Any
 from config import settings
 
+# Import API routers
+from .api.specifications import router as specifications_router
+
 app = FastAPI(
     title=settings.agent_engine.title,
     description=settings.agent_engine.description,
@@ -16,6 +19,9 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"]
 )
+
+# Include API routers
+app.include_router(specifications_router, prefix="/api")
 
 @app.get("/health")
 async def health():

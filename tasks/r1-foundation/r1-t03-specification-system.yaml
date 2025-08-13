@@ -1,56 +1,73 @@
 task:
   id: "r1-t03-specification-system"
-  name: "Build Specification Parser and Validator"
-  description: "Create YAML/JSON specification system for agents, workflows, and tools"
+  name: "Build Specification Parser and Validator with Agent Factory Integration"  # CORRECTED: Added integration focus
+  description: "Create YAML/JSON specification system for agents, workflows, tools, and models with direct integration to agent composition"  # CORRECTED: Added models and integration
   complexity: "complex"
-  estimated_hours: 3
+  estimated_hours: 4  # CORRECTED: Increased from 3 to account for integration
   
   context:
     why: "Enable configuration-driven agent composition without code changes"
-    architectural_role: "Core system for defining all agents and workflows via specifications"
-    depends_on_tasks: ["r1-t01"]
+    architectural_role: "Core system for defining all agents and workflows via specifications that feeds directly into AgentCompositionService"  # CORRECTED: Added integration role
+    depends_on_tasks: ["r1-t01", "r1-t02"]  # ADDED: r1-t02 for ADK patterns
     enables_tasks: ["r2-t01", "r2-t02", "r4-t01"]
     references:
       masterplan: "@MASTERPLAN.md#configuration-storage"
       adk_docs: 
         - "https://google.github.io/adk-docs/agents#configuration"
         - "https://google.github.io/adk-docs/tools#specification"
-      verification_notes: "Specification format designed to map directly to ADK component parameters"
+      verification_notes: "Specification format designed to map directly to ADK component parameters and integrate with UniversalAgentFactory"  # CORRECTED: Added factory integration
     
   adk_components:
     imports_needed:
       - "import yaml"
       - "import json"
+      - "from pathlib import Path"  # ADDED: For path handling
+      - "from datetime import datetime"  # ADDED: For versioning
       - "from pydantic import BaseModel, Field, validator"
       - "from typing import Dict, Any, List, Optional, Union"
       - "from enum import Enum"
+      - "from jsonschema import validate, ValidationError"  # ADDED: For JSON schema validation
     verified_patterns:
       - pattern: "Map specifications to ADK agent parameters"
         doc_ref: "https://google.github.io/adk-docs/agents#parameters"
       - pattern: "Validate against ADK requirements"
         doc_ref: "https://google.github.io/adk-docs/agents#validation"
+      - pattern: "Session service is a property not method"  # ADDED: Critical ADK pattern
+        doc_ref: "MASTERPLAN.md#validated-adk-patterns"
     avoid_antipatterns:
       - "Don't create custom agent configuration formats"
       - "Don't bypass ADK parameter validation"
       - "Don't hardcode specification paths"
+      - "Don't use runner.session_service() - it's a property"  # ADDED: Critical anti-pattern
     
   implementation:
     creates:
       - path: "services/agent-engine/src/core/specifications.py"
-        purpose: "Specification models and parser"
+        purpose: "Specification models and parser with agent factory integration"  # CORRECTED: Added integration
         exports:
           - "class SpecificationParser"
           - "class SpecificationValidator"
           - "class AgentSpec"
           - "class WorkflowSpec"
           - "class ToolSpec"
+          - "class ModelSpec"  # ADDED: Model specification
+      - path: "services/agent-engine/src/core/composition.py"  # ADDED: Critical integration file
+        purpose: "Agent composition service that uses specifications"
+        exports:
+          - "class AgentCompositionService"
+          - "class UniversalAgentFactory"
       - path: "services/agent-engine/src/models/specifications.py"
-        purpose: "Pydantic models for specifications"
+        purpose: "Pydantic models for all specification types"  # CORRECTED: All types
         exports:
           - "class AgentSpecification"
           - "class WorkflowTemplate"
           - "class ToolSpecification"
           - "class ModelConfiguration"
+      - path: "services/agent-engine/src/services/configuration_version.py"  # ADDED: Version tracking
+        purpose: "Configuration version tracking"
+        exports:
+          - "class ConfigurationVersionService"
+          - "track_specification_version()"
       - path: "services/agent-engine/src/utils/parser.py"
         purpose: "YAML/JSON parsing utilities"
         exports:
@@ -63,36 +80,55 @@ task:
           - "validate_agent_spec()"
           - "validate_workflow_spec()"
           - "validate_tool_spec()"
+          - "validate_model_spec()"  # ADDED: Model validation
+      # Example specifications for all types
       - path: "services/agent-engine/specs/agents/examples/analyzer.yaml"
         purpose: "Example agent specification"
       - path: "services/agent-engine/specs/workflows/examples/sequential-process.yaml"
         purpose: "Example workflow specification"
+      - path: "services/agent-engine/specs/workflows/examples/conditional-routing.yaml"  # ADDED: Conditional workflow
+        purpose: "Example conditional workflow"
       - path: "services/agent-engine/specs/tools/examples/text-analyzer.yaml"
-        purpose: "Example tool specification"
+        purpose: "Example tool specification with dependencies"  # CORRECTED: Added dependencies
+      - path: "services/agent-engine/specs/models/development.yaml"  # ADDED: Model config
+        purpose: "Development model configuration"
+      - path: "services/agent-engine/specs/models/production.yaml"  # ADDED: Model config
+        purpose: "Production model configuration"
+      # JSON schemas for validation
       - path: "services/agent-engine/specs/schemas/agent-spec.json"
         purpose: "JSON Schema for agent specifications"
+      - path: "services/agent-engine/specs/schemas/workflow-spec.json"  # ADDED: Workflow schema
+        purpose: "JSON Schema for workflow specifications"
+      - path: "services/agent-engine/specs/schemas/tool-spec.json"  # ADDED: Tool schema
+        purpose: "JSON Schema for tool specifications"
+      - path: "services/agent-engine/specs/schemas/model-spec.json"  # ADDED: Model schema
+        purpose: "JSON Schema for model configurations"
       - path: "services/agent-engine/tests/test_specifications.py"
         purpose: "Specification system tests"
+      - path: "services/agent-engine/tests/test_composition_integration.py"  # ADDED: Integration tests
+        purpose: "Test specification to agent composition integration"
         
     modifies:
       - path: "services/agent-engine/src/main.py"
-        changes: ["Add specification validation endpoint"]
+        changes: ["Add specification validation endpoint", "Add specification listing endpoints"]  # CORRECTED: Added listing
+      - path: "services/agent-engine/src/api/agents.py"  # ADDED: API integration
+        changes: ["Add POST /agents/compose endpoint that uses specifications"]
         
     uses_from_previous:
       - component: "Project structure"
         from_task: "r1-t01"
         usage: "Add specification directories"
-      - component: "ADK imports"
+      - component: "ADK imports and patterns"  # CORRECTED: Added patterns
         from_task: "r1-t02"
-        usage: "Validate against ADK requirements"
+        usage: "Validate against ADK requirements and use correct patterns"
     
   implementation_steps:
-    - step: "Create specification models"
+    - step: "Create specification models for all types"  # CORRECTED: All types
       focus:
-        - "Define Pydantic models for all spec types"
-        - "Add validation rules"
+        - "Define Pydantic models for agent, workflow, tool, and model specs"  # CORRECTED: All types
+        - "Add validation rules matching MASTERPLAN structure"
         - "Support all ADK agent parameters"
-        - "Enable extensibility"
+        - "Enable extensibility and versioning"  # ADDED: Versioning
       code_template: |
         from pydantic import BaseModel, Field, validator
         from typing import Dict, Any, List, Optional, Union
@@ -121,10 +157,34 @@ task:
             source: str = "registry"  # registry, inline, import
             definition: Optional[str] = None
             module: Optional[str] = None
+            function: Optional[str] = None  # ADDED: Function name for imports
         
         class SubAgentReference(BaseModel):
             spec_ref: str
             condition: Optional[str] = None
+        
+        # ADDED: Workflow step model
+        class WorkflowStep(BaseModel):
+            id: str
+            type: Optional[str] = None
+            agent_spec: Optional[str] = None
+            outputs: Optional[List[str]] = None
+            conditions: Optional[List[Dict[str, Any]]] = None
+            depends_on: Optional[List[str]] = None
+        
+        # ADDED: Tool specification with full structure
+        class ToolSpecification(BaseModel):
+            apiVersion: str = "agent-engine/v1"
+            kind: str = "ToolSpec"
+            metadata: Dict[str, Any]
+            spec: Dict[str, Any]  # Includes dependencies, categories, schemas
+            
+        # ADDED: Model configuration specification
+        class ModelConfiguration(BaseModel):
+            apiVersion: str = "agent-engine/v1"
+            kind: str = "ModelConfig"
+            metadata: Dict[str, Any]
+            spec: Dict[str, Any]  # Includes fallbacks, load balancing
         
         class AgentSpecification(BaseModel):
             apiVersion: str = "agent-engine/v1"
@@ -144,33 +204,52 @@ task:
                 if v not in valid_kinds:
                     raise ValueError(f"Invalid kind: {v}")
                 return v
+                
+            @validator("metadata")
+            def validate_metadata(cls, v):
+                # ADDED: Ensure name uses underscores per ADK requirements
+                if "name" in v and "-" in v["name"]:
+                    raise ValueError("Agent names must use underscores, not hyphens (ADK requirement)")
+                return v
     
-    - step: "Create specification parser"
+    - step: "Create specification parser with reference resolution"  # CORRECTED: Added reference resolution
       focus:
         - "Parse YAML and JSON files"
         - "Handle template variables"
         - "Support includes and references"
         - "Error handling and reporting"
+        - "Integration with agent factory"  # ADDED: Factory integration
       code_template: |
         import yaml
         import json
         from pathlib import Path
-        from typing import Dict, Any
+        from typing import Dict, Any, Optional
+        from datetime import datetime  # ADDED: For versioning
         
         class SpecificationParser:
             def __init__(self, base_path: str = "specs"):
                 self.base_path = Path(base_path)
+                self.loaded_specs = {}  # ADDED: Cache for loaded specs
             
             def load_spec(self, spec_path: str) -> Dict[str, Any]:
                 """Load specification from file."""
+                # Check cache first
+                if spec_path in self.loaded_specs:
+                    return self.loaded_specs[spec_path]
+                    
                 full_path = self.base_path / spec_path
                 
                 if full_path.suffix == ".yaml" or full_path.suffix == ".yml":
-                    return self._load_yaml(full_path)
+                    spec = self._load_yaml(full_path)
                 elif full_path.suffix == ".json":
-                    return self._load_json(full_path)
+                    spec = self._load_json(full_path)
                 else:
                     raise ValueError(f"Unsupported file format: {full_path.suffix}")
+                
+                # Resolve references and cache
+                spec = self.resolve_references(spec)
+                self.loaded_specs[spec_path] = spec
+                return spec
             
             def _load_yaml(self, path: Path) -> Dict[str, Any]:
                 """Load YAML specification."""
@@ -202,15 +281,41 @@ task:
                         ]
                 
                 return spec
+            
+            # ADDED: Method to load agent spec for factory
+            def load_agent_spec(self, spec_name: str) -> Dict[str, Any]:
+                """Load agent specification for factory use."""
+                spec_path = f"agents/{spec_name}.yaml"
+                return self.load_spec(spec_path)
+            
+            # ADDED: Method to load workflow template
+            def load_workflow_template(self, template_name: str) -> Dict[str, Any]:
+                """Load workflow template."""
+                spec_path = f"workflows/{template_name}.yaml"
+                return self.load_spec(spec_path)
+            
+            # ADDED: Method to load tool spec
+            def load_tool_spec(self, tool_name: str) -> Dict[str, Any]:
+                """Load tool specification."""
+                spec_path = f"tools/{tool_name}.yaml"
+                return self.load_spec(spec_path)
+            
+            # ADDED: Method to load model config
+            def load_model_config(self, config_name: str) -> Dict[str, Any]:
+                """Load model configuration."""
+                spec_path = f"models/{config_name}.yaml"
+                return self.load_spec(spec_path)
       
-    - step: "Create specification validator"
+    - step: "Create specification validator with ADK compliance"  # CORRECTED: Added ADK compliance
       focus:
         - "Validate against JSON schemas"
-        - "Check ADK compatibility"
+        - "Check ADK compatibility and patterns"  # CORRECTED: Added patterns
         - "Verify references exist"
         - "Validate template variables"
+        - "Check for ADK anti-patterns"  # ADDED: Anti-pattern checking
       code_template: |
         from jsonschema import validate, ValidationError
+        import re
         
         class SpecificationValidator:
             def __init__(self):
@@ -233,9 +338,14 @@ task:
                     raise ValueError(f"Specification validation failed: {e.message}")
             
             def validate_agent_spec(self, spec: Dict[str, Any]) -> bool:
-                """Validate agent specification."""
+                """Validate agent specification with ADK compliance."""
                 # Validate general structure
                 self.validate_spec(spec)
+                
+                # ADDED: Check agent name for ADK compliance
+                agent_name = spec.get("metadata", {}).get("name", "")
+                if "-" in agent_name:
+                    raise ValueError("Agent names must use underscores, not hyphens (ADK requirement)")
                 
                 # Validate ADK compatibility
                 agent_type = spec["spec"]["agent"]["type"]
@@ -243,6 +353,8 @@ task:
                     self._validate_llm_agent(spec["spec"]["agent"])
                 elif agent_type in ["sequential", "parallel"]:
                     self._validate_workflow_agent(spec["spec"]["agent"])
+                elif agent_type == "loop":
+                    self._validate_loop_agent(spec["spec"]["agent"])  # ADDED: Loop validation
                 
                 return True
             
@@ -252,19 +364,239 @@ task:
                 for field in required:
                     if field not in agent_config:
                         raise ValueError(f"Missing required field for LLM agent: {field}")
+            
+            # ADDED: Validate workflow specifications
+            def validate_workflow_spec(self, spec: Dict[str, Any]) -> bool:
+                """Validate workflow specification."""
+                self.validate_spec(spec)
+                
+                # Check workflow type
+                workflow_type = spec["spec"].get("type")
+                if workflow_type not in ["sequential", "parallel", "conditional", "loop"]:
+                    raise ValueError(f"Invalid workflow type: {workflow_type}")
+                
+                # Validate steps
+                steps = spec["spec"].get("steps", [])
+                if not steps:
+                    raise ValueError("Workflow must have at least one step")
+                
+                return True
+            
+            # ADDED: Validate tool specifications  
+            def validate_tool_spec(self, spec: Dict[str, Any]) -> bool:
+                """Validate tool specification."""
+                self.validate_spec(spec)
+                
+                tool_spec = spec["spec"]
+                
+                # Check required fields
+                if "function_definition" not in tool_spec:
+                    raise ValueError("Tool spec must include function_definition")
+                
+                # Validate dependencies and categories exist
+                if "dependencies" in tool_spec and not isinstance(tool_spec["dependencies"], list):
+                    raise ValueError("Tool dependencies must be a list")
+                    
+                if "categories" in tool_spec and not isinstance(tool_spec["categories"], list):
+                    raise ValueError("Tool categories must be a list")
+                
+                return True
+            
+            # ADDED: Validate model configurations
+            def validate_model_spec(self, spec: Dict[str, Any]) -> bool:
+                """Validate model configuration."""
+                self.validate_spec(spec)
+                
+                model_spec = spec["spec"]
+                
+                # Check primary model
+                if "primary" not in model_spec:
+                    raise ValueError("Model config must specify primary model")
+                
+                # Validate fallback structure
+                if "fallbacks" in model_spec:
+                    for fallback in model_spec["fallbacks"]:
+                        if "model" not in fallback:
+                            raise ValueError("Each fallback must specify a model")
+                
+                return True
+            
+            # ADDED: Validate loop agent
+            def _validate_loop_agent(self, agent_config: Dict[str, Any]):
+                """Validate loop agent configuration."""
+                # Per ADK patterns, LoopAgent uses sub_agents as list
+                if "sub_agents" not in agent_config:
+                    raise ValueError("LoopAgent requires 'sub_agents' parameter")
+                if not isinstance(agent_config["sub_agents"], list):
+                    raise ValueError("LoopAgent 'sub_agents' must be a list")
+            
+            def _validate_workflow_agent(self, agent_config: Dict[str, Any]):
+                """Validate workflow agent configuration."""
+                # Check for sub_agents
+                if "sub_agents" not in agent_config:
+                    raise ValueError("Workflow agents require sub_agents")
     
-    - step: "Create example specifications"
+    - step: "Create AgentCompositionService integration"  # ADDED: Critical integration
+      focus:
+        - "Bridge specifications to agent creation"
+        - "Use UniversalAgentFactory pattern from MASTERPLAN"
+        - "Support all agent types"
+        - "Handle tool loading and sub-agents"
+      code_template: |
+        from google.adk.agents import LlmAgent, SequentialAgent, ParallelAgent, LoopAgent, BaseAgent
+        from google.adk.tools import FunctionTool
+        from typing import Dict, Any, List, Optional
+        
+        class AgentCompositionService:
+            """Service to compose agents from specifications."""
+            
+            def __init__(self):
+                self.parser = SpecificationParser()
+                self.validator = SpecificationValidator()
+                self.tool_registry = None  # Will be injected
+            
+            def build_agent_from_spec(self, spec_name: str, context: dict = None) -> BaseAgent:
+                """Build any agent type from specification."""
+                spec = self.parser.load_agent_spec(spec_name)
+                self.validator.validate_agent_spec(spec)
+                
+                agent_type = spec["spec"]["agent"]["type"]
+                
+                if agent_type == "llm":
+                    return self._build_llm_agent(spec, context)
+                elif agent_type == "sequential":
+                    return self._build_sequential_agent(spec, context)
+                elif agent_type == "parallel":
+                    return self._build_parallel_agent(spec, context)
+                elif agent_type == "loop":
+                    return self._build_loop_agent(spec, context)
+                else:
+                    return self._build_custom_agent(spec, context)
+            
+            def _build_llm_agent(self, spec: dict, context: dict = None) -> LlmAgent:
+                """Build LLM agent with dynamic configuration."""
+                agent_spec = spec["spec"]["agent"]
+                tools = self._load_tools(spec["spec"].get("tools", []))
+                sub_agents = self._build_sub_agents(spec["spec"].get("sub_agents", []), context)
+                
+                # Dynamic instruction building with context injection
+                instruction = self._build_instruction(agent_spec["instruction_template"], context)
+                
+                # Use underscores in name per ADK requirements
+                agent_name = spec["metadata"]["name"].replace("-", "_")
+                
+                return LlmAgent(
+                    name=agent_name,
+                    model=agent_spec["model"]["primary"],
+                    instruction=instruction,
+                    description=spec["metadata"].get("description", ""),
+                    tools=tools,
+                    sub_agents=sub_agents,
+                    **agent_spec.get("parameters", {})
+                )
+            
+            def _build_sequential_agent(self, spec: dict, context: dict = None) -> SequentialAgent:
+                """Build sequential workflow agent."""
+                sub_agents = self._build_sub_agents(spec["spec"].get("sub_agents", []), context)
+                agent_name = spec["metadata"]["name"].replace("-", "_")
+                
+                return SequentialAgent(
+                    name=agent_name,
+                    sub_agents=sub_agents,
+                    description=spec["metadata"].get("description", "")
+                )
+            
+            def _build_parallel_agent(self, spec: dict, context: dict = None) -> ParallelAgent:
+                """Build parallel workflow agent."""
+                sub_agents = self._build_sub_agents(spec["spec"].get("sub_agents", []), context)
+                agent_name = spec["metadata"]["name"].replace("-", "_")
+                
+                return ParallelAgent(
+                    name=agent_name,
+                    sub_agents=sub_agents,
+                    description=spec["metadata"].get("description", "")
+                )
+            
+            def _build_loop_agent(self, spec: dict, context: dict = None) -> LoopAgent:
+                """Build loop agent."""
+                sub_agents = self._build_sub_agents(spec["spec"].get("sub_agents", []), context)
+                agent_name = spec["metadata"]["name"].replace("-", "_")
+                
+                return LoopAgent(
+                    name=agent_name,
+                    sub_agents=sub_agents,  # List per ADK requirements
+                    description=spec["metadata"].get("description", "")
+                )
+            
+            def _load_tools(self, tool_refs: List[Dict[str, Any]]) -> List:
+                """Load tools from references."""
+                tools = []
+                for tool_ref in tool_refs:
+                    if tool_ref["source"] == "registry":
+                        # Load from tool registry
+                        tool = self.tool_registry.get_tool(tool_ref["name"])
+                        tools.append(tool)
+                    elif tool_ref["source"] == "inline":
+                        # Create function from inline definition
+                        exec(tool_ref["definition"])
+                        # Get the function name from definition
+                        func_name = tool_ref["definition"].split("def ")[1].split("(")[0]
+                        tools.append(locals()[func_name])
+                    elif tool_ref["source"] == "import":
+                        # Import from module
+                        module = __import__(tool_ref["module"])
+                        func = getattr(module, tool_ref.get("function", tool_ref["name"]))
+                        tools.append(func)
+                return tools
+            
+            def _build_sub_agents(self, sub_agent_refs: List[Dict[str, Any]], context: dict = None) -> List[BaseAgent]:
+                """Build sub-agents from references."""
+                sub_agents = []
+                for ref in sub_agent_refs:
+                    # Check condition if present
+                    if "condition" in ref:
+                        if not self._evaluate_condition(ref["condition"], context):
+                            continue
+                    # Recursively build sub-agent
+                    sub_agent = self.build_agent_from_spec(ref["spec_ref"], context)
+                    sub_agents.append(sub_agent)
+                return sub_agents
+            
+            def _build_instruction(self, template: str, context: dict = None) -> str:
+                """Build instruction from template with context."""
+                if not context:
+                    return template
+                # Simple template substitution
+                instruction = template
+                for key, value in context.items():
+                    instruction = instruction.replace(f"{{{key}}}", str(value))
+                return instruction
+            
+            def _evaluate_condition(self, condition: str, context: dict = None) -> bool:
+                """Evaluate condition expression."""
+                if condition == "true":
+                    return True
+                if condition == "false":
+                    return False
+                # Safe evaluation with context
+                try:
+                    return eval(condition, {"__builtins__": {}}, context or {})
+                except:
+                    return False
+    
+    - step: "Create example specifications for all types"  # CORRECTED: All types
       focus:
         - "Create agent specification examples"
-        - "Create workflow template examples"
-        - "Create tool specification examples"
+        - "Create workflow template examples (sequential, parallel, conditional)"  # CORRECTED: All workflow types
+        - "Create tool specification examples with dependencies and categories"  # CORRECTED: Full tool spec
+        - "Create model configuration examples"  # ADDED: Model configs
         - "Include all supported patterns"
       yaml_template: |
         # Agent Specification Example
         apiVersion: agent-engine/v1
         kind: AgentSpec
         metadata:
-          name: content-analyzer
+          name: content_analyzer  # CORRECTED: Using underscores per ADK requirements
           version: 1.0.0
           description: Analyzes content using configurable strategies
           tags: [analysis, configurable]
@@ -299,7 +631,7 @@ task:
                     return 0.85
           
           sub_agents:
-            - spec_ref: detail-extractor
+            - spec_ref: detail_extractor  # CORRECTED: Using underscores
               condition: input.get('detailed', False)
           
           validation:
@@ -311,27 +643,161 @@ task:
                 options:
                   type: object
               required: [content]
+              
+        ---
+        # ADDED: Workflow Template Example
+        apiVersion: agent-engine/v1
+        kind: WorkflowTemplate
+        metadata:
+          name: adaptive_processing  # CORRECTED: Using underscores
+          version: 1.0.0
+        spec:
+          type: conditional
+          parameters:
+            input_schema:
+              type: object
+              properties:
+                content: {type: string}
+                mode: {type: string}
+            output_schema:
+              type: object
+              properties:
+                result: {type: string}
+                metadata: {type: object}
+          steps:
+            - id: intake
+              agent_spec: content_classifier
+              outputs: [content_type, complexity]
+            - id: processing
+              type: conditional
+              conditions:
+                - if: content_type == 'analysis'
+                  then:
+                    type: parallel
+                    agents: [analyzer_a, analyzer_b]
+                - if: content_type == 'generation'
+                  then: content_generator
+            - id: synthesis
+              agent_spec: result_synthesizer
+              depends_on: [processing]
+              
+        ---
+        # ADDED: Tool Specification Example with full structure
+        apiVersion: agent-engine/v1
+        kind: ToolSpec
+        metadata:
+          name: analyze_sentiment
+          version: 1.0.0
+        spec:
+          description: Analyzes sentiment of text
+          function_definition: |
+            def analyze_sentiment(text: str, model: str = "default") -> dict:
+                # Implementation here
+                return {"sentiment": "positive", "confidence": 0.85}
+          dependencies: [nltk, transformers]  # ADDED: Dependencies
+          categories: [analysis, nlp]  # ADDED: Categories
+          input_schema:
+            type: object
+            properties:
+              text: {type: string}
+              model: {type: string, default: default}
+          output_schema:
+            type: object
+            properties:
+              sentiment: {type: string}
+              confidence: {type: number}
+              
+        ---
+        # ADDED: Model Configuration Example
+        apiVersion: agent-engine/v1
+        kind: ModelConfig
+        metadata:
+          name: production_config  # CORRECTED: Using underscores
+          version: 1.0.0
+        spec:
+          primary:
+            provider: google
+            model: gemini-2.0-flash
+            parameters:
+              temperature: 0.2
+              max_tokens: 8192
+          fallbacks:
+            - provider: google
+              model: gemini-2.5-pro
+              trigger_conditions: [rate_limit, error]
+            - provider: google
+              model: gemini-2.5-flash
+              trigger_conditions: [error]
+          load_balancing:
+            strategy: round_robin
+            health_check_interval: 30
     
-    - step: "Create JSON schemas"
+    - step: "Create JSON schemas for all specification types"  # CORRECTED: All types
       focus:
-        - "Define JSON Schema for each specification type"
+        - "Define JSON Schema for agent specifications"
+        - "Define JSON Schema for workflow templates"  # ADDED
+        - "Define JSON Schema for tool specifications"  # ADDED
+        - "Define JSON Schema for model configurations"  # ADDED
         - "Include all required fields"
         - "Add validation rules"
         - "Document schema properties"
     
-    - step: "Add validation endpoint"
+    - step: "Add API endpoints for specifications"  # CORRECTED: Multiple endpoints
       focus:
-        - "Add /specs/validate endpoint"
-        - "Accept specification upload"
-        - "Return validation results"
-        - "Provide helpful error messages"
+        - "Add POST /specs/validate endpoint"
+        - "Add GET /specs/agents endpoint"  # ADDED: List agents
+        - "Add GET /specs/workflows endpoint"  # ADDED: List workflows
+        - "Add GET /specs/tools endpoint"  # ADDED: List tools
+        - "Add GET /specs/models endpoint"  # ADDED: List models
+        - "Add POST /agents/compose endpoint"  # ADDED: Compose from spec
+        - "Return validation results with helpful errors"
+    
+    - step: "Create configuration version tracking"  # ADDED: Version tracking
+      focus:
+        - "Track versions of all specifications"
+        - "Enable rollback and change tracking"
+        - "Link executions to specific config versions"
+      code_template: |
+        from datetime import datetime
+        from typing import Dict, Any, Optional
+        
+        class ConfigurationVersionService:
+            """Service to track configuration versions."""
+            
+            def __init__(self, db_session):
+                self.db = db_session
+            
+            def track_specification_version(self, spec: Dict[str, Any]) -> str:
+                """Track a new version of a specification."""
+                version_record = {
+                    "kind": spec["kind"],
+                    "name": spec["metadata"]["name"],
+                    "version": spec["metadata"].get("version", "1.0.0"),
+                    "content": spec,
+                    "created_at": datetime.utcnow(),
+                    "checksum": self._calculate_checksum(spec)
+                }
+                
+                # Store in database (implementation depends on Prisma setup)
+                # self.db.configuration_version.create(data=version_record)
+                
+                return version_record["checksum"]
+            
+            def _calculate_checksum(self, spec: Dict[str, Any]) -> str:
+                """Calculate checksum for specification."""
+                import hashlib
+                import json
+                spec_string = json.dumps(spec, sort_keys=True)
+                return hashlib.sha256(spec_string.encode()).hexdigest()
     
     - step: "Create comprehensive tests"
       focus:
         - "Test parsing various formats"
-        - "Test validation rules"
+        - "Test validation rules and ADK compliance"  # CORRECTED: ADK compliance
         - "Test reference resolution"
+        - "Test agent composition from specs"  # ADDED: Integration test
         - "Test error handling"
+        - "Test version tracking"  # ADDED: Version test
     
   validation:
     commands:
@@ -343,8 +809,16 @@ task:
         run: "python -c 'from core.specifications import SpecificationValidator; validator = SpecificationValidator(); print(\"Validator OK\")'"
         expects: "Validator OK"
         
+      - desc: "Test agent composition service"  # ADDED: Integration test
+        run: "python -c 'from core.composition import AgentCompositionService; service = AgentCompositionService(); print(\"Composition OK\")'"
+        expects: "Composition OK"
+        
       - desc: "Run specification tests"
         run: "pytest services/agent-engine/tests/test_specifications.py -v"
+        expects: "All tests pass"
+        
+      - desc: "Run composition integration tests"  # ADDED: Integration tests
+        run: "pytest services/agent-engine/tests/test_composition_integration.py -v"
         expects: "All tests pass"
         
       - desc: "Validate example specifications"
@@ -355,29 +829,51 @@ task:
         run: "curl -X POST localhost:8001/specs/validate -d @specs/agents/examples/analyzer.yaml"
         expects: '{"valid": true}'
         
+      - desc: "Test agent composition endpoint"  # ADDED: Composition endpoint test
+        run: "curl -X POST localhost:8001/agents/compose -d '{\"spec_name\": \"analyzer\"}'"
+        expects: '{"agent_id":'
+        
     endpoints:
       - method: "POST"
         path: "/specs/validate"
         body: "@specs/agents/examples/analyzer.yaml"
         expects: '{"valid": true, "kind": "AgentSpec"}'
+      
+      - method: "GET"  # ADDED: List agents
+        path: "/specs/agents"
+        expects: '{"agents": ['
+        
+      - method: "GET"  # ADDED: List workflows
+        path: "/specs/workflows"
+        expects: '{"workflows": ['
+        
+      - method: "POST"  # ADDED: Compose agent
+        path: "/agents/compose"
+        body: '{"spec_name": "content_analyzer", "context": {"role": "analyst"}}'
+        expects: '{"agent_id":'
         
     integration:
-      - desc: "Complete specification system test"
+      - desc: "Complete specification to agent pipeline test"  # CORRECTED: Full pipeline
         steps:
           - "Parse YAML specification"
-          - "Validate against schema"
+          - "Validate against schema and ADK requirements"
           - "Resolve references"
-          - "Check ADK compatibility"
+          - "Create agent via AgentCompositionService"
+          - "Verify agent has correct ADK structure"
+          - "Track configuration version"
     
   success_criteria:
     - "Specification parser handles YAML and JSON"
-    - "Validator checks against schemas"
+    - "Validator checks against schemas and ADK patterns"  # CORRECTED: ADK patterns
     - "Reference resolution works"
     - "Template variables supported"
-    - "Example specifications validate"
+    - "Example specifications for all types validate"  # CORRECTED: All types
+    - "Agent composition from specifications works"  # ADDED: Integration
+    - "Configuration versions tracked"  # ADDED: Versioning
     - "Tests achieve 85% coverage"
-    - "Validation endpoint functional"
+    - "All API endpoints functional"  # CORRECTED: All endpoints
     - "Error messages are helpful"
+    - "ADK anti-patterns detected and prevented"  # ADDED: Anti-pattern prevention
     
   session_notes:
     decisions_made:
@@ -385,13 +881,18 @@ task:
       - "Pydantic for model validation"
       - "JSON Schema for specification validation"
       - "Support template variables for reusability"
+      - "Integrate directly with AgentCompositionService"  # ADDED: Integration decision
+      - "Use underscores in names per ADK requirements"  # ADDED: ADK compliance
     patterns_established:
       - "Specification structure (apiVersion, kind, metadata, spec)"
       - "Reference resolution pattern"
-      - "Validation pipeline"
+      - "Validation pipeline with ADK compliance"  # CORRECTED: ADK compliance
       - "Error reporting format"
+      - "Specification to agent composition flow"  # ADDED: Composition flow
+      - "Version tracking for all specifications"  # ADDED: Version tracking
     context_for_next:
-      - "Specification system ready for use"
-      - "Validation pipeline established"
-      - "Example specifications available"
-      - "Ready for database setup"
+      - "Specification system ready for use with agent composition"  # CORRECTED: Integration ready
+      - "Validation pipeline established with ADK compliance"
+      - "Example specifications available for all types"
+      - "API endpoints ready for specification management"
+      - "Ready for database setup to store versions"  # ADDED: Database dependency

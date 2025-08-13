@@ -13,7 +13,7 @@ task:
     references:
       masterplan: "@MASTERPLAN.md#universal-agent-factory"
       adk_docs: 
-        - "https://google.github.io/adk-docs/agents/llm-agent"
+        - "https://google.github.io/adk-docs/agents/llm-agents"
         - "https://google.github.io/adk-docs/agents/tools"
       project_context: "@tasks/project-context.md#llm-agents"
       adk_patterns: "@tasks/adk-patterns.md#llm-agent-creation"
@@ -21,7 +21,7 @@ task:
   adk_components:
     imports_needed:
       - "from google.adk.agents import LlmAgent, Agent"
-      - "from google.adk.tools import FunctionTool"
+      - "from google.adk.tools import FunctionTool, google_search"  # ADDED: google_search built-in tool
       - "from typing import List, Dict, Any, Optional, Callable"
       - "import inspect"
       - "import re"
@@ -33,11 +33,14 @@ task:
         doc_ref: "https://google.github.io/adk-docs/agents/tools"
       - pattern: "Sub-agents enable hierarchical composition"
         doc_ref: "https://google.github.io/adk-docs/agents/composition"
+      - pattern: "runner.session_service is a property, not a method"  # CORRECTED: Added verification
+        doc_ref: "https://google.github.io/adk-docs/sessions/session"
     avoid_antipatterns:
       - "Don't wrap simple functions unnecessarily with FunctionTool"
       - "Don't hardcode model names or parameters"
       - "Don't ignore tool validation errors"
       - "Don't create agents without instructions"
+      - "Don't use eval() for condition evaluation - security risk"  # ADDED: Security warning
     
   implementation:
     creates:
@@ -45,55 +48,21 @@ task:
         purpose: "LLM agent builder implementation"
         exports:
           - "LlmAgentBuilder: Builder for LlmAgent instances"
-          - "InstructionBuilder: Builds dynamic instructions"
-          - "ToolLoader: Loads and validates tools"
+          - "ToolLoader: Loads and validates tools"  # CORRECTED: Removed InstructionBuilder
         content_structure: |
           from google.adk.agents import LlmAgent, Agent
-          from google.adk.tools import FunctionTool
+          from google.adk.tools import FunctionTool, google_search  # CORRECTED: Added google_search
           from typing import List, Dict, Any, Optional, Callable
           import inspect
           import re
           from string import Template
           import logging
+          from datetime import datetime  # ADDED: For tool registry timestamps
           
           from ..composition import AgentBuilder, AgentSpec, AgentContext
           from ..specification import SpecificationError
           
           logger = logging.getLogger(__name__)
-          
-          class InstructionBuilder:
-              """Builds dynamic instructions from templates"""
-              
-              def build(self, template: str, context: AgentContext) -> str:
-                  """Build instruction from template with context variables"""
-                  if not template:
-                      raise ValueError("Instruction template cannot be empty")
-                  
-                  # Extract variables from template
-                  variables = self._extract_variables(template)
-                  
-                  # Prepare substitution dict
-                  substitutions = {}
-                  for var in variables:
-                      if var in context.variables:
-                          substitutions[var] = context.variables[var]
-                      else:
-                          logger.warning(f"Variable {var} not found in context, using placeholder")
-                          substitutions[var] = f"[{var}]"
-                  
-                  # Perform substitution
-                  try:
-                      instruction = Template(template).safe_substitute(**substitutions)
-                      return instruction.strip()
-                  except Exception as e:
-                      raise SpecificationError(f"Error building instruction: {e}")
-              
-              def _extract_variables(self, template: str) -> List[str]:
-                  """Extract variable names from template"""
-                  # Match ${var} and $var patterns
-                  pattern = r'\$\{?(\w+)\}?'
-                  matches = re.findall(pattern, template)
-                  return list(set(matches))
           
           class ToolLoader:
               """Loads and validates tools for agents"""
@@ -141,12 +110,12 @@ task:
               
               def _load_built_in(self, name: str) -> Optional[Callable]:
                   """Load built-in ADK tool"""
+                  # CORRECTED: Proper handling of google_search
                   if name == "google_search":
                       try:
-                          from google.adk.tools import google_search
                           return google_search
-                      except ImportError:
-                          logger.error("google_search tool not available")
+                      except Exception as e:
+                          logger.error(f"google_search tool not available: {e}")
                           return None
                   
                   return self.built_in_tools.get(name)
@@ -187,7 +156,11 @@ task:
               def _load_built_in_tools(self) -> Dict[str, Callable]:
                   """Load available built-in tools"""
                   tools = {}
-                  # Add built-in tools as they become available
+                  # ADDED: Include google_search in built-in tools
+                  try:
+                      tools['google_search'] = google_search
+                  except Exception:
+                      pass  # google_search may not be available in all environments
                   return tools
               
               def validate_tool(self, tool: Callable) -> bool:
@@ -203,7 +176,6 @@ task:
               """Builder for LlmAgent instances"""
               
               def __init__(self, tool_registry=None):
-                  self.instruction_builder = InstructionBuilder()
                   self.tool_loader = ToolLoader(tool_registry)
                   self.sub_agent_factory = None  # Will be set by factory
               
@@ -246,8 +218,8 @@ task:
                   agent_spec = spec.spec.get("agent", {})
                   metadata = spec.metadata
                   
-                  # Build instruction from template
-                  instruction = self.instruction_builder.build(
+                  # CORRECTED: Build instruction inline without separate class
+                  instruction = self._build_instruction(
                       agent_spec["instruction_template"],
                       context
                   )
@@ -262,12 +234,19 @@ task:
                   if "sub_agents" in spec.spec and self.sub_agent_factory:
                       sub_agents = self._build_sub_agents(spec.spec["sub_agents"], context)
                   
-                  # Get model configuration
+                  # Get model configuration with fallback support
                   model_config = agent_spec.get("model", {})
                   model = model_config.get("primary", "gemini-2.0-flash")
                   
+                  # ADDED: Prepare fallback models
+                  fallbacks = model_config.get("fallbacks", [])
+                  
                   # Get additional parameters
                   parameters = agent_spec.get("parameters", {})
+                  
+                  # ADDED: Include fallback models in parameters if available
+                  if fallbacks:
+                      parameters['fallback_models'] = fallbacks
                   
                   # Create LlmAgent
                   try:
@@ -287,12 +266,44 @@ task:
                   except Exception as e:
                       raise SpecificationError(f"Error creating LLM agent: {e}")
               
+              def _build_instruction(self, template: str, context: AgentContext) -> str:
+                  """Build instruction from template with context variables"""
+                  # CORRECTED: Integrated from masterplan pattern
+                  if not template:
+                      raise ValueError("Instruction template cannot be empty")
+                  
+                  # Extract variables from template
+                  variables = self._extract_variables(template)
+                  
+                  # Prepare substitution dict
+                  substitutions = {}
+                  for var in variables:
+                      if var in context.variables:
+                          substitutions[var] = context.variables[var]
+                      else:
+                          logger.warning(f"Variable {var} not found in context, using placeholder")
+                          substitutions[var] = f"[{var}]"
+                  
+                  # Perform substitution
+                  try:
+                      instruction = Template(template).safe_substitute(**substitutions)
+                      return instruction.strip()
+                  except Exception as e:
+                      raise SpecificationError(f"Error building instruction: {e}")
+              
+              def _extract_variables(self, template: str) -> List[str]:
+                  """Extract variable names from template"""
+                  # Match ${var} and $var patterns
+                  pattern = r'\$\{?(\w+)\}?'
+                  matches = re.findall(pattern, template)
+                  return list(set(matches))
+              
               def _build_sub_agents(self, sub_agent_specs: List[Dict], context: AgentContext) -> List:
                   """Build sub-agents from specifications"""
                   sub_agents = []
                   
                   for sub_spec in sub_agent_specs:
-                      # Check condition
+                      # CORRECTED: Safer condition evaluation without eval()
                       condition = sub_spec.get("condition", "true")
                       if not self._evaluate_condition(condition, context):
                           continue
@@ -313,16 +324,29 @@ task:
                   return sub_agents
               
               def _evaluate_condition(self, condition: str, context: AgentContext) -> bool:
-                  """Evaluate condition expression"""
+                  """Evaluate condition expression safely"""
+                  # CORRECTED: Remove eval() for security, use safe evaluation
                   if condition == "true":
                       return True
                   if condition == "false":
                       return False
                   
+                  # Safe evaluation of simple conditions
                   try:
-                      # Simple evaluation with context variables
-                      namespace = {"context": context, "input": context.variables}
-                      return eval(condition, namespace)
+                      # Parse simple attribute access patterns like "input.requires_a"
+                      if "." in condition:
+                          parts = condition.split(".")
+                          if parts[0] == "input" and len(parts) == 2:
+                              return context.variables.get(parts[1], False)
+                      
+                      # Check if condition is a simple variable name
+                      if condition in context.variables:
+                          return bool(context.variables[condition])
+                      
+                      # For complex conditions, log warning and default to False
+                      logger.warning(f"Complex condition '{condition}' not supported, defaulting to False")
+                      return False
+                      
                   except Exception as e:
                       logger.warning(f"Error evaluating condition '{condition}': {e}")
                       return False
@@ -330,129 +354,37 @@ task:
       - path: "services/agent-engine/src/core/builders/__init__.py"
         purpose: "Builders module initialization"
         content: |
-          from .llm_builder import LlmAgentBuilder, InstructionBuilder, ToolLoader
+          from .llm_builder import LlmAgentBuilder, ToolLoader  # CORRECTED: Removed InstructionBuilder
           
           __all__ = [
               'LlmAgentBuilder',
-              'InstructionBuilder',
-              'ToolLoader'
+              'ToolLoader'  # CORRECTED: Removed InstructionBuilder
           ]
           
       - path: "services/agent-engine/tests/test_llm_builder.py"
         purpose: "Unit tests for LLM agent builder"
         test_categories:
           - "Builder initialization"
-          - "Instruction building"
+          - "Instruction building"  # CORRECTED: Now testing internal method
           - "Tool loading"
           - "Agent creation"
           - "Sub-agent composition"
           - "Error handling"
+          - "Fallback model configuration"  # ADDED: Test fallback models
         content_structure: |
           import pytest
           from unittest.mock import Mock, patch, MagicMock
           from google.adk.agents import LlmAgent
           
           from src.core.builders.llm_builder import (
-              LlmAgentBuilder, InstructionBuilder, ToolLoader
+              LlmAgentBuilder, ToolLoader
           )
           from src.core.composition import AgentSpec, AgentContext
-          
-          class TestInstructionBuilder:
-              def test_simple_instruction(self):
-                  """Test building simple instruction without variables"""
-                  builder = InstructionBuilder()
-                  context = AgentContext()
-                  
-                  instruction = builder.build("You are a helpful assistant.", context)
-                  assert instruction == "You are a helpful assistant."
-              
-              def test_instruction_with_variables(self):
-                  """Test building instruction with variable substitution"""
-                  builder = InstructionBuilder()
-                  context = AgentContext(variables={"role": "analyst", "domain": "finance"})
-                  
-                  template = "You are a ${role} specializing in ${domain}."
-                  instruction = builder.build(template, context)
-                  assert instruction == "You are a analyst specializing in finance."
-              
-              def test_missing_variable_placeholder(self):
-                  """Test missing variables get placeholders"""
-                  builder = InstructionBuilder()
-                  context = AgentContext(variables={"role": "analyst"})
-                  
-                  template = "You are a ${role} in ${domain}."
-                  instruction = builder.build(template, context)
-                  assert instruction == "You are a analyst in [domain]."
-              
-              def test_empty_template_error(self):
-                  """Test error on empty template"""
-                  builder = InstructionBuilder()
-                  context = AgentContext()
-                  
-                  with pytest.raises(ValueError, match="cannot be empty"):
-                      builder.build("", context)
-          
-          class TestToolLoader:
-              def test_loader_initialization(self):
-                  """Test tool loader initializes correctly"""
-                  loader = ToolLoader()
-                  assert loader.tool_registry is None
-                  assert loader.built_in_tools == {}
-              
-              def test_load_inline_tool(self):
-                  """Test loading inline tool definition"""
-                  loader = ToolLoader()
-                  spec = {
-                      "name": "test_tool",
-                      "source": "inline",
-                      "definition": "def test_tool(x): return x * 2"
-                  }
-                  
-                  tool = loader._load_single_tool(spec)
-                  assert tool is not None
-                  assert callable(tool)
-                  assert tool(5) == 10
-              
-              def test_load_from_registry(self):
-                  """Test loading tool from registry"""
-                  mock_registry = Mock()
-                  mock_tool = Mock()
-                  mock_registry.get_tool.return_value = mock_tool
-                  
-                  loader = ToolLoader(tool_registry=mock_registry)
-                  spec = {"name": "registered_tool", "source": "registry"}
-                  
-                  tool = loader._load_single_tool(spec)
-                  assert tool == mock_tool
-                  mock_registry.get_tool.assert_called_once_with("registered_tool")
-              
-              def test_validate_tool(self):
-                  """Test tool validation"""
-                  loader = ToolLoader()
-                  
-                  def valid_tool(x, y):
-                      return x + y
-                  
-                  assert loader.validate_tool(valid_tool) == True
-                  assert loader.validate_tool("not_a_function") == False
-              
-              def test_load_multiple_tools(self):
-                  """Test loading multiple tools"""
-                  loader = ToolLoader()
-                  specs = [
-                      {"name": "tool1", "source": "inline", "definition": "def tool1(x): return x"},
-                      {"name": "tool2", "source": "inline", "definition": "def tool2(x): return x * 2"}
-                  ]
-                  
-                  tools = loader.load_tools(specs)
-                  assert len(tools) == 2
-                  assert all(callable(tool) for tool in tools)
           
           class TestLlmAgentBuilder:
               def test_builder_initialization(self):
                   """Test LLM agent builder initializes correctly"""
                   builder = LlmAgentBuilder()
-                  assert builder.instruction_builder is not None
                   assert builder.tool_loader is not None
                   assert builder.sub_agent_factory is None
               
@@ -462,6 +394,33 @@ task:
                   assert builder.can_build("llm") == True
                   assert builder.can_build("agent") == True
                   assert builder.can_build("sequential") == False
+              
+              def test_build_instruction(self):
+                  """Test instruction building with variable substitution"""
+                  # CORRECTED: Test internal method
+                  builder = LlmAgentBuilder()
+                  context = AgentContext(variables={"role": "analyst", "domain": "finance"})
+                  
+                  template = "You are a ${role} specializing in ${domain}."
+                  instruction = builder._build_instruction(template, context)
+                  assert instruction == "You are a analyst specializing in finance."
+              
+              def test_missing_variable_placeholder(self):
+                  """Test missing variables get placeholders"""
+                  builder = LlmAgentBuilder()
+                  context = AgentContext(variables={"role": "analyst"})
+                  
+                  template = "You are a ${role} in ${domain}."
+                  instruction = builder._build_instruction(template, context)
+                  assert instruction == "You are a analyst in [domain]."
+              
+              def test_empty_template_error(self):
+                  """Test error on empty template"""
+                  builder = LlmAgentBuilder()
+                  context = AgentContext()
+                  
+                  with pytest.raises(ValueError, match="cannot be empty"):
+                      builder._build_instruction("", context)
               
               def test_validate_spec_valid(self):
                   """Test validation of valid specification"""
@@ -528,15 +487,115 @@ task:
                   assert call_args.kwargs['instruction'] == "You are a helpful assistant."
                   assert call_args.kwargs['temperature'] == 0.2
               
-              def test_evaluate_condition(self):
-                  """Test condition evaluation"""
+              @patch('src.core.builders.llm_builder.LlmAgent')
+              def test_build_agent_with_fallbacks(self, mock_llm_agent):
+                  """Test building agent with fallback models"""
+                  # ADDED: Test for fallback model configuration
                   builder = LlmAgentBuilder()
-                  context = AgentContext(variables={"requires_analysis": True})
+                  spec = AgentSpec(
+                      api_version="agent-engine/v1",
+                      kind="AgentSpec",
+                      metadata={"name": "test_agent", "version": "1.0.0"},
+                      spec={
+                          "agent": {
+                              "type": "llm",
+                              "instruction_template": "Test instruction",
+                              "model": {
+                                  "primary": "gemini-2.0-flash",
+                                  "fallbacks": ["gemini-2.5-pro", "gemini-2.5-flash"]
+                              }
+                          }
+                      }
+                  )
+                  context = AgentContext()
+                  
+                  mock_agent_instance = Mock()
+                  mock_llm_agent.return_value = mock_agent_instance
+                  
+                  agent = builder.build(spec, context)
+                  
+                  call_args = mock_llm_agent.call_args
+                  assert call_args.kwargs['model'] == "gemini-2.0-flash"
+                  assert call_args.kwargs.get('fallback_models') == ["gemini-2.5-pro", "gemini-2.5-flash"]
+              
+              def test_evaluate_condition(self):
+                  """Test safe condition evaluation"""
+                  # CORRECTED: Test safe evaluation without eval()
+                  builder = LlmAgentBuilder()
+                  context = AgentContext(variables={"requires_analysis": True, "skip_validation": False})
                   
                   assert builder._evaluate_condition("true", context) == True
                   assert builder._evaluate_condition("false", context) == False
                   assert builder._evaluate_condition("input.requires_analysis", context) == True
-                  assert builder._evaluate_condition("invalid syntax!", context) == False
+                  assert builder._evaluate_condition("input.skip_validation", context) == False
+                  assert builder._evaluate_condition("requires_analysis", context) == True
+                  assert builder._evaluate_condition("invalid_condition!", context) == False
+          
+          class TestToolLoader:
+              def test_loader_initialization(self):
+                  """Test tool loader initializes correctly"""
+                  loader = ToolLoader()
+                  assert loader.tool_registry is None
+                  assert isinstance(loader.built_in_tools, dict)
+              
+              def test_load_inline_tool(self):
+                  """Test loading inline tool definition"""
+                  loader = ToolLoader()
+                  spec = {
+                      "name": "test_tool",
+                      "source": "inline",
+                      "definition": "def test_tool(x): return x * 2"
+                  }
+                  
+                  tool = loader._load_single_tool(spec)
+                  assert tool is not None
+                  assert callable(tool)
+                  assert tool(5) == 10
+              
+              def test_load_from_registry(self):
+                  """Test loading tool from registry"""
+                  mock_registry = Mock()
+                  mock_tool = Mock()
+                  mock_registry.get_tool.return_value = mock_tool
+                  
+                  loader = ToolLoader(tool_registry=mock_registry)
+                  spec = {"name": "registered_tool", "source": "registry"}
+                  
+                  tool = loader._load_single_tool(spec)
+                  assert tool == mock_tool
+                  mock_registry.get_tool.assert_called_once_with("registered_tool")
+              
+              @patch('src.core.builders.llm_builder.google_search')
+              def test_load_google_search(self, mock_google_search):
+                  """Test loading google_search built-in tool"""
+                  # ADDED: Test for google_search tool
+                  loader = ToolLoader()
+                  spec = {"name": "google_search", "source": "builtin"}
+                  
+                  tool = loader._load_single_tool(spec)
+                  assert tool == mock_google_search
+              
+              def test_validate_tool(self):
+                  """Test tool validation"""
+                  loader = ToolLoader()
+                  
+                  def valid_tool(x, y):
+                      return x + y
+                  
+                  assert loader.validate_tool(valid_tool) == True
+                  assert loader.validate_tool("not_a_function") == False
+              
+              def test_load_multiple_tools(self):
+                  """Test loading multiple tools"""
+                  loader = ToolLoader()
+                  specs = [
+                      {"name": "tool1", "source": "inline", "definition": "def tool1(x): return x"},
+                      {"name": "tool2", "source": "inline", "definition": "def tool2(x): return x * 2"}
+                  ]
+                  
+                  tools = loader.load_tools(specs)
+                  assert len(tools) == 2
+                  assert all(callable(tool) for tool in tools)
         
     modifies:
       - path: "services/agent-engine/src/core/composition.py"
@@ -559,38 +618,32 @@ task:
         - "Directory structure exists"
         - "Module is importable"
         
-    - step: "Implement InstructionBuilder"
-      implementation_notes: |
-        - Parse template for variables
-        - Support ${var} and $var syntax
-        - Handle missing variables gracefully
-        - Return clean instruction string
-      validates:
-        - "Variable substitution works"
-        - "Missing variables handled"
-        
-    - step: "Create ToolLoader"
+    - step: "Implement ToolLoader"
       implementation_notes: |
         - Support multiple tool sources
         - Handle inline tool definitions
         - Load from registry when available
         - Import tools from modules
         - Validate tool signatures
+        - Include google_search built-in tool support  # ADDED
       validates:
         - "Tools load from different sources"
         - "Invalid tools rejected"
+        - "Built-in tools accessible"  # ADDED
         
     - step: "Implement LlmAgentBuilder"
       implementation_notes: |
         - Extend AgentBuilder abstract class
         - Validate LLM-specific requirements
-        - Build instruction from template
+        - Build instruction from template inline  # CORRECTED: No separate class
         - Load and attach tools
         - Support sub-agent composition
-        - Handle model configuration
+        - Handle model configuration with fallback support  # ADDED
+        - Use safe condition evaluation without eval()  # CORRECTED
       validates:
         - "Builder creates LlmAgent instances"
         - "All specification fields processed"
+        - "Fallback models configured"  # ADDED
         
     - step: "Register builder with factory"
       implementation_notes: |
@@ -604,10 +657,12 @@ task:
     - step: "Write comprehensive tests"
       implementation_notes: |
         - Test instruction building
-        - Test tool loading
+        - Test tool loading including built-in tools  # ADDED
         - Test agent creation
         - Test error conditions
         - Test sub-agent composition
+        - Test fallback model configuration  # ADDED
+        - Test safe condition evaluation  # CORRECTED
       validates:
         - "pytest tests/test_llm_builder.py passes"
         - "Coverage > 80%"
@@ -619,6 +674,7 @@ task:
         - Create analyzer.yaml example
         - Include tools and sub-agents
         - Show variable substitution
+        - Include fallback models example  # ADDED
       validates:
         - "Example specification valid"
         - "Can create agent from example"
@@ -636,7 +692,7 @@ task:
       - description: "Verify imports"
         command: |
           cd services/agent-engine && python -c "
-          from src.core.builders.llm_builder import LlmAgentBuilder, InstructionBuilder, ToolLoader
+          from src.core.builders.llm_builder import LlmAgentBuilder, ToolLoader
           print('All imports successful')
           "
         expected: "All imports successful"
@@ -656,22 +712,27 @@ task:
                   'agent': {
                       'type': 'llm',
                       'instruction_template': 'Test instruction',
-                      'model': {'primary': 'gemini-2.0-flash'}
+                      'model': {
+                          'primary': 'gemini-2.0-flash',
+                          'fallbacks': ['gemini-2.5-pro']  # ADDED: Test fallback
+                      }
                   }
               }
           )
           context = AgentContext()
           
           # Note: This will fail without actual ADK, but shows structure
-          print('LlmAgentBuilder ready')
+          print('LlmAgentBuilder ready with fallback support')
           "
-        expected: "LlmAgentBuilder ready"
+        expected: "LlmAgentBuilder ready with fallback support"  # CORRECTED
         
     success_criteria:
       - "LlmAgentBuilder class complete and functional"
-      - "InstructionBuilder handles template variables"
-      - "ToolLoader loads tools from multiple sources"
+      - "Instruction building integrated properly"  # CORRECTED
+      - "ToolLoader loads tools from multiple sources including built-in"  # ADDED
       - "Agent creation from specifications works"
+      - "Fallback model configuration supported"  # ADDED
+      - "Safe condition evaluation without eval()"  # CORRECTED
       - "All unit tests pass"
       - "Code coverage > 80%"
       
@@ -688,18 +749,23 @@ task:
         
   notes:
     key_decisions:
-      - "Support multiple tool sources (registry, inline, import)"
+      - "Support multiple tool sources (registry, inline, import, builtin)"  # CORRECTED
       - "Use Template for variable substitution"
       - "Enable sub-agent composition recursively"
       - "Validate specifications before building"
+      - "Integrate instruction building into main builder"  # CORRECTED
+      - "Safe condition evaluation without eval()"  # ADDED
+      - "Support fallback model configuration"  # ADDED
       
     future_enhancements:
       - "Add tool caching for performance"
       - "Support async tool loading"
       - "Add instruction validation"
       - "Enable tool versioning"
+      - "Enhanced condition evaluation engine"  # ADDED
       
     technical_debt:
       - "Consider adding instruction templating engine"
       - "May need tool dependency resolution"
       - "Could benefit from agent pooling"
+      - "Complex condition evaluation needs improvement"  # ADDED

@@ -13,25 +13,37 @@ task:
     references:
       masterplan: "@MASTERPLAN.md#universal-agent-factory"
       adk_docs: 
-        - "https://google.github.io/adk-docs/agents/base-agent"
-        - "https://google.github.io/adk-docs/agents/composition"
+        - "https://google.github.io/adk-docs/agents/"
+        - "https://google.github.io/adk-docs/agents/custom-agents/"
+        - "https://google.github.io/adk-docs/sessions/session/"
       project_context: "@tasks/project-context.md#agent-composition"
       adk_patterns: "@tasks/adk-patterns.md#agent-creation"
     
   adk_components:
     imports_needed:
-      - "from google.adk.agents import BaseAgent"
-      - "from typing import Dict, Any, Optional, List"
+      # CORRECTED: Added all required ADK imports per MASTERPLAN lines 371-372, 653-657
+      - "from google.adk.agents import LlmAgent, SequentialAgent, ParallelAgent, LoopAgent, BaseAgent"
+      - "from google.adk.tools import FunctionTool"
+      - "from google.adk.runners import InMemoryRunner"  # ADDED: For session testing
+      - "from google.adk.sessions import InMemorySessionService"  # ADDED: For session management
+      - "from typing import Dict, Any, Optional, List, Type"
       - "from pydantic import BaseModel, Field, validator"
       - "import yaml"
       - "import json"
       - "from pathlib import Path"
       - "from abc import ABC, abstractmethod"
+      - "from datetime import datetime"  # ADDED: For timestamp tracking
+      - "import logging"
     verified_patterns:
+      # VERIFIED: ADK documentation confirms these patterns
       - pattern: "All ADK agents inherit from BaseAgent"
-        doc_ref: "https://google.github.io/adk-docs/api-reference/python/agents#baseagent"
+        doc_ref: "https://google.github.io/adk-docs/agents/custom-agents/"
+      - pattern: "session_service is a property, not a method"
+        doc_ref: "https://google.github.io/adk-docs/sessions/session/"
+      - pattern: "LlmAgent uses 'name' parameter as unique identifier"
+        doc_ref: "https://google.github.io/adk-docs/agents/llm-agents/"
       - pattern: "Agent specifications should define type, model, and configuration"
-        doc_ref: "Project architectural decision"
+        doc_ref: "@MASTERPLAN.md#agent-specifications"
       - pattern: "Factory pattern for dynamic agent creation"
         doc_ref: "@MASTERPLAN.md#universal-agent-factory"
     avoid_antipatterns:
@@ -39,6 +51,10 @@ task:
       - "Don't create agents without validation"
       - "Don't mix specification parsing with agent creation"
       - "Don't ignore specification version compatibility"
+      # ADDED: Critical ADK antipatterns from validation
+      - "Don't call session_service() as a method - it's a property"
+      - "Don't use hyphens in agent names - use underscores"
+      - "Don't forget to handle model configuration with primary/fallbacks"
     
   implementation:
     creates:
@@ -49,11 +65,14 @@ task:
           - "AgentBuilder: Abstract base for specific builders"
           - "AgentSpec: Pydantic model for specifications"
           - "AgentContext: Runtime context for agents"
+          - "ToolRegistry: Tool registry interface stub"  # ADDED
         content_structure: |
-          from google.adk.agents import BaseAgent
+          from google.adk.agents import LlmAgent, SequentialAgent, ParallelAgent, LoopAgent, BaseAgent
+          from google.adk.tools import FunctionTool
           from typing import Dict, Any, Optional, List, Type
           from abc import ABC, abstractmethod
           from pydantic import BaseModel, Field, validator
+          from datetime import datetime
           import logging
           
           logger = logging.getLogger(__name__)
@@ -103,19 +122,26 @@ task:
                   """Validate the specification for this agent type"""
                   pass
           
+          # ADDED: Stub for ToolRegistry interface per MASTERPLAN lines 504-539
+          class ToolRegistry:
+              """Tool registry interface (stub for integration)."""
+              
+              def __init__(self):
+                  self.tools: Dict[str, Any] = {}
+              
+              def get_tool(self, name: str) -> Optional[Any]:
+                  """Get tool by name."""
+                  return self.tools.get(name)
+          
           class UniversalAgentFactory:
               """Main factory for creating agents from specifications"""
               
-              def __init__(self):
-                  self.builders: Dict[str, AgentBuilder] = {}
+              def __init__(self, tool_registry: Optional[ToolRegistry] = None):
                   self.specs: Dict[str, AgentSpec] = {}
                   self.spec_loader = SpecificationLoader()
                   self.validator = SpecificationValidator()
-                  
-              def register_builder(self, agent_type: str, builder: AgentBuilder):
-                  """Register a builder for an agent type"""
-                  self.builders[agent_type] = builder
-                  logger.info(f"Registered builder for agent type: {agent_type}")
+                  # ADDED: Tool registry integration per MASTERPLAN lines 393-394, 935-936
+                  self.tool_registry = tool_registry
                   
               def build_agent(self, spec_name: str, context: Optional[AgentContext] = None) -> BaseAgent:
                   """Build an agent from specification name"""
@@ -129,17 +155,121 @@ task:
                   if not self.validator.validate(spec):
                       raise ValueError(f"Invalid specification: {spec_name}")
                   
-                  # Get agent type
+                  # CORRECTED: Direct dispatch per MASTERPLAN lines 379-388, 921-930
                   agent_type = spec.spec.get("agent", {}).get("type", "llm")
                   
-                  # Find appropriate builder
-                  builder = self.builders.get(agent_type)
-                  if not builder:
-                      raise ValueError(f"No builder registered for agent type: {agent_type}")
+                  # Direct factory dispatch without separate builders
+                  if agent_type == "llm":
+                      return self._build_llm_agent(spec, context)
+                  elif agent_type == "sequential":
+                      return self._build_sequential_agent(spec, context)
+                  elif agent_type == "parallel":
+                      return self._build_parallel_agent(spec, context)
+                  elif agent_type == "loop":
+                      return self._build_loop_agent(spec, context)
+                  elif agent_type == "custom":
+                      return self._build_custom_agent(spec, context)
+                  else:
+                      raise ValueError(f"Unknown agent type: {agent_type}")
+              
+              # ADDED: Core builder methods per MASTERPLAN lines 390-416, 932-958
+              def _build_llm_agent(self, spec: AgentSpec, context: AgentContext) -> LlmAgent:
+                  """Build LLM agent with dynamic configuration."""
+                  agent_spec = spec.spec.get("agent", {})
+                  tools = self._load_tools(spec.spec.get("tools", []))
+                  sub_agents = self._build_sub_agents(spec.spec.get("sub_agents", []), context)
                   
-                  # Build and return agent
-                  logger.info(f"Building agent {spec_name} of type {agent_type}")
-                  return builder.build(spec, context)
+                  # Dynamic instruction building with context injection
+                  instruction = self._build_instruction(
+                      agent_spec.get("instruction_template", ""),
+                      context
+                  )
+                  
+                  # CORRECTED: Handle model configuration per MASTERPLAN line 401, 943
+                  model_config = agent_spec.get("model", {})
+                  model = model_config.get("primary", "gemini-2.0-flash") if isinstance(model_config, dict) else model_config
+                  
+                  return LlmAgent(
+                      name=spec.metadata["name"].replace("-", "_"),  # CORRECTED: Ensure underscores
+                      model=model,
+                      instruction=instruction,
+                      description=spec.metadata.get("description", ""),
+                      tools=tools,
+                      sub_agents=sub_agents,
+                      **agent_spec.get("parameters", {})
+                  )
+              
+              def _build_sequential_agent(self, spec: AgentSpec, context: AgentContext) -> SequentialAgent:
+                  """Build sequential workflow agent."""
+                  sub_agents = self._build_sub_agents(spec.spec.get("sub_agents", []), context)
+                  return SequentialAgent(
+                      name=spec.metadata["name"].replace("-", "_"),
+                      sub_agents=sub_agents,
+                      description=spec.metadata.get("description", "")
+                  )
+              
+              def _build_parallel_agent(self, spec: AgentSpec, context: AgentContext) -> ParallelAgent:
+                  """Build parallel workflow agent."""
+                  sub_agents = self._build_sub_agents(spec.spec.get("sub_agents", []), context)
+                  return ParallelAgent(
+                      name=spec.metadata["name"].replace("-", "_"),
+                      sub_agents=sub_agents,
+                      description=spec.metadata.get("description", "")
+                  )
+              
+              def _build_loop_agent(self, spec: AgentSpec, context: AgentContext) -> LoopAgent:
+                  """Build loop workflow agent."""
+                  sub_agents = self._build_sub_agents(spec.spec.get("sub_agents", []), context)
+                  # Note: LoopAgent may have different constructor, adjust as needed
+                  return LoopAgent(
+                      name=spec.metadata["name"].replace("-", "_"),
+                      sub_agents=sub_agents,
+                      description=spec.metadata.get("description", "")
+                  )
+              
+              def _build_custom_agent(self, spec: AgentSpec, context: AgentContext) -> BaseAgent:
+                  """Build custom agent from specification."""
+                  # Placeholder for custom agent building logic
+                  raise NotImplementedError("Custom agent building to be implemented")
+              
+              def _build_instruction(self, template: str, context: AgentContext) -> str:
+                  """Build instruction from template with context injection."""
+                  if not template:
+                      return ""
+                  
+                  # Simple variable substitution from context
+                  instruction = template
+                  for key, value in context.variables.items():
+                      instruction = instruction.replace(f"{{{key}}}", str(value))
+                  
+                  return instruction
+              
+              def _load_tools(self, tool_specs: List[Dict]) -> List:
+                  """Load tools from specifications."""
+                  if not self.tool_registry:
+                      return []
+                  
+                  tools = []
+                  for tool_spec in tool_specs:
+                      if tool_spec.get("source") == "registry":
+                          tool = self.tool_registry.get_tool(tool_spec["name"])
+                          if tool:
+                              tools.append(tool)
+                      # Handle inline and import sources in future
+                  
+                  return tools
+              
+              def _build_sub_agents(self, sub_agent_specs: List[Dict], context: AgentContext) -> List[BaseAgent]:
+                  """Build sub-agents from specifications."""
+                  sub_agents = []
+                  for sub_spec in sub_agent_specs:
+                      spec_ref = sub_spec.get("spec_ref")
+                      if spec_ref:
+                          # Recursive agent building
+                          sub_agent = self.build_agent(spec_ref, context)
+                          sub_agents.append(sub_agent)
+                  
+                  return sub_agents
                   
               def load_spec(self, spec_name: str) -> AgentSpec:
                   """Load specification by name"""
@@ -162,16 +292,25 @@ task:
                       raise ValueError("Invalid specification dictionary")
                   
                   agent_type = spec.spec.get("agent", {}).get("type", "llm")
-                  builder = self.builders.get(agent_type)
                   
-                  if not builder:
-                      raise ValueError(f"No builder registered for agent type: {agent_type}")
+                  # Direct dispatch
+                  if agent_type == "llm":
+                      return self._build_llm_agent(spec, context)
+                  elif agent_type == "sequential":
+                      return self._build_sequential_agent(spec, context)
+                  elif agent_type == "parallel":
+                      return self._build_parallel_agent(spec, context)
+                  elif agent_type == "loop":
+                      return self._build_loop_agent(spec, context)
+                  elif agent_type == "custom":
+                      return self._build_custom_agent(spec, context)
+                  else:
+                      raise ValueError(f"Unknown agent type: {agent_type}")
                   
-                  return builder.build(spec, context)
-                  
-              def list_registered_types(self) -> List[str]:
-                  """List all registered agent types"""
-                  return list(self.builders.keys())
+              def list_supported_types(self) -> List[str]:
+                  """List all supported agent types"""
+                  # CORRECTED: Return hardcoded supported types
+                  return ["llm", "sequential", "parallel", "loop", "custom"]
                   
               def clear_cache(self):
                   """Clear cached specifications"""
@@ -302,6 +441,14 @@ task:
                       if agent_type not in self.valid_agent_types:
                           logger.error(f"Invalid agent type: {agent_type}")
                           return False
+                      
+                      # ADDED: Validate model configuration per MASTERPLAN
+                      if agent_type == "llm":
+                          model_config = spec_content.get("agent", {}).get("model")
+                          if model_config and isinstance(model_config, dict):
+                              if "primary" not in model_config:
+                                  logger.error("LLM agent missing primary model")
+                                  return False
                           
                       return True
                       
@@ -319,14 +466,25 @@ task:
       - path: "services/agent-engine/src/core/__init__.py"
         purpose: "Core module initialization"
         content: |
-          from .composition import UniversalAgentFactory, AgentBuilder, AgentSpec, AgentContext
-          from .specification import SpecificationLoader, SpecificationValidator, SpecificationError
+          from .composition import (
+              UniversalAgentFactory, 
+              AgentBuilder, 
+              AgentSpec, 
+              AgentContext,
+              ToolRegistry  # ADDED: Export ToolRegistry stub
+          )
+          from .specification import (
+              SpecificationLoader, 
+              SpecificationValidator, 
+              SpecificationError
+          )
           
           __all__ = [
               'UniversalAgentFactory',
               'AgentBuilder', 
               'AgentSpec',
               'AgentContext',
+              'ToolRegistry',  # ADDED
               'SpecificationLoader',
               'SpecificationValidator',
               'SpecificationError'
@@ -336,52 +494,59 @@ task:
         purpose: "Unit tests for agent factory"
         test_categories:
           - "Factory initialization"
-          - "Builder registration"
           - "Specification loading"
           - "Agent creation from specs"
           - "Error handling"
+          - "Session service property access"  # ADDED
         content_structure: |
           import pytest
-          from unittest.mock import Mock, patch
+          from unittest.mock import Mock, patch, MagicMock
           from pathlib import Path
           
-          from src.core.composition import UniversalAgentFactory, AgentBuilder, AgentSpec, AgentContext
-          from src.core.specification import SpecificationLoader, SpecificationValidator
+          # CORRECTED: Import all required components
+          from src.core.composition import (
+              UniversalAgentFactory, 
+              AgentBuilder, 
+              AgentSpec, 
+              AgentContext,
+              ToolRegistry
+          )
+          from src.core.specification import (
+              SpecificationLoader, 
+              SpecificationValidator
+          )
+          # ADDED: Import ADK components for testing
+          from google.adk.agents import LlmAgent, SequentialAgent, ParallelAgent
+          from google.adk.runners import InMemoryRunner
           
           class TestUniversalAgentFactory:
               def test_factory_initialization(self):
                   """Test factory initializes correctly"""
                   factory = UniversalAgentFactory()
-                  assert factory.builders == {}
                   assert factory.specs == {}
                   assert factory.spec_loader is not None
                   assert factory.validator is not None
+                  assert factory.tool_registry is None  # ADDED: Check tool registry
                   
-              def test_register_builder(self):
-                  """Test builder registration"""
+                  # Test with tool registry
+                  tool_registry = ToolRegistry()
+                  factory = UniversalAgentFactory(tool_registry=tool_registry)
+                  assert factory.tool_registry == tool_registry
+                  
+              def test_list_supported_types(self):
+                  """Test listing supported agent types"""
                   factory = UniversalAgentFactory()
-                  mock_builder = Mock(spec=AgentBuilder)
                   
-                  factory.register_builder("test_type", mock_builder)
-                  assert "test_type" in factory.builders
-                  assert factory.builders["test_type"] == mock_builder
+                  types = factory.list_supported_types()
+                  assert len(types) == 5
+                  assert "llm" in types
+                  assert "sequential" in types
+                  assert "parallel" in types
+                  assert "loop" in types
+                  assert "custom" in types
                   
-              def test_list_registered_types(self):
-                  """Test listing registered agent types"""
-                  factory = UniversalAgentFactory()
-                  mock_builder1 = Mock(spec=AgentBuilder)
-                  mock_builder2 = Mock(spec=AgentBuilder)
-                  
-                  factory.register_builder("type1", mock_builder1)
-                  factory.register_builder("type2", mock_builder2)
-                  
-                  types = factory.list_registered_types()
-                  assert len(types) == 2
-                  assert "type1" in types
-                  assert "type2" in types
-                  
-              def test_build_agent_no_builder(self):
-                  """Test error when no builder registered"""
+              def test_build_agent_unknown_type(self):
+                  """Test error when unknown agent type"""
                   factory = UniversalAgentFactory()
                   spec_dict = {
                       "api_version": "agent-engine/v1",
@@ -390,8 +555,42 @@ task:
                       "spec": {"agent": {"type": "unknown"}}
                   }
                   
-                  with pytest.raises(ValueError, match="No builder registered"):
+                  with pytest.raises(ValueError, match="Unknown agent type"):
                       factory.build_agent_from_dict(spec_dict)
+              
+              # ADDED: Test successful agent building
+              @patch('src.core.composition.LlmAgent')
+              def test_build_llm_agent(self, mock_llm_agent):
+                  """Test building LLM agent from specification"""
+                  factory = UniversalAgentFactory()
+                  spec_dict = {
+                      "api_version": "agent-engine/v1",
+                      "kind": "AgentSpec",
+                      "metadata": {"name": "test-agent", "version": "1.0.0"},
+                      "spec": {
+                          "agent": {
+                              "type": "llm",
+                              "model": {"primary": "gemini-2.0-flash"},
+                              "instruction_template": "Test instruction"
+                          }
+                      }
+                  }
+                  
+                  agent = factory.build_agent_from_dict(spec_dict)
+                  mock_llm_agent.assert_called_once()
+                  # Verify name has underscores, not hyphens
+                  call_args = mock_llm_agent.call_args
+                  assert call_args[1]['name'] == 'test_agent'
+              
+              # ADDED: Test session service property access
+              def test_session_service_property(self):
+                  """Test that session_service is accessed as property"""
+                  mock_agent = Mock(spec=LlmAgent)
+                  runner = InMemoryRunner(mock_agent, app_name="test")
+                  
+                  # CORRECTED: Access as property, not method
+                  session_service = runner.session_service
+                  assert session_service is not None
                       
               def test_clear_cache(self):
                   """Test clearing specification cache"""
@@ -449,7 +648,7 @@ task:
                       "spec": {"agent": {"type": "llm"}}
                   }
                   
-                  assert validator.validate(spec) == True
+                  assert validator.validate(spec) is True
                   
               def test_validate_missing_field(self):
                   """Test validation fails with missing field"""
@@ -461,7 +660,7 @@ task:
                       "spec": {"agent": {"type": "llm"}}
                   }
                   
-                  assert validator.validate(spec) == False
+                  assert validator.validate(spec) is False
                   
               def test_validate_invalid_agent_type(self):
                   """Test validation fails with invalid agent type"""
@@ -473,7 +672,7 @@ task:
                       "spec": {"agent": {"type": "invalid_type"}}
                   }
                   
-                  assert validator.validate(spec) == False
+                  assert validator.validate(spec) is False
         
     modifies: []
         
@@ -526,13 +725,20 @@ task:
         
     - step: "Build UniversalAgentFactory"
       implementation_notes: |
-        - Implement builder registration
-        - Create agent instantiation logic
+        # CORRECTED: Direct dispatch implementation
+        - Implement direct agent type dispatch
+        - Create all builder methods (_build_llm_agent, etc.)
+        - Add tool loading integration
+        - Add sub-agent building support
+        - Add instruction template processing
+        - Include model configuration handling
         - Add specification caching
-        - Include error handling
+        - Include comprehensive error handling
       validates:
-        - "Factory can register builders"
-        - "Factory can create agents from specs"
+        - "Factory can create all agent types"
+        - "Factory handles model configuration"
+        - "Tool loading works correctly"
+        - "Sub-agent composition works"
         - "Caching works correctly"
         
     - step: "Create SpecificationLoader"
@@ -552,18 +758,25 @@ task:
         - Check agent type validity
         - Verify metadata completeness
         - Validate specification version
+        # ADDED: Model configuration validation
+        - Validate model configuration for LLM agents
       validates:
         - "Validator catches missing fields"
         - "Invalid types are rejected"
         - "Version compatibility checked"
+        - "Model configuration validated"
         
     - step: "Write comprehensive unit tests"
       implementation_notes: |
-        - Test factory initialization
-        - Test builder registration
+        - Test factory initialization with/without tool registry
+        - Test direct agent type dispatch
         - Test specification loading
         - Test validation logic
         - Test error conditions
+        # ADDED: Critical ADK pattern tests
+        - Test session_service property access
+        - Test agent name underscore conversion
+        - Test model configuration handling
       validates:
         - "pytest tests/test_agent_factory.py passes"
         - "Coverage > 80%"
@@ -573,6 +786,9 @@ task:
         - Test complete flow from spec to agent
         - Verify all components work together
         - Test error propagation
+        # ADDED: ADK integration tests
+        - Test with actual ADK imports
+        - Verify session_service property pattern
       validates:
         - "Integration test passes"
         - "End-to-end flow works"
@@ -590,7 +806,7 @@ task:
       - description: "Verify imports"
         command: |
           cd services/agent-engine && python -c "
-          from src.core.composition import UniversalAgentFactory, AgentBuilder
+          from src.core.composition import UniversalAgentFactory, AgentBuilder, ToolRegistry
           from src.core.specification import SpecificationLoader, SpecificationValidator
           print('All imports successful')
           "
@@ -601,15 +817,22 @@ task:
           cd services/agent-engine && python -c "
           from src.core.composition import UniversalAgentFactory
           factory = UniversalAgentFactory()
-          print(f'Factory initialized with {len(factory.builders)} builders')
+          types = factory.list_supported_types()
+          print(f'Factory supports {len(types)} agent types: {types}')
           "
-        expected: "Factory initialized with 0 builders"
+        expected: "Factory supports 5 agent types: ['llm', 'sequential', 'parallel', 'loop', 'custom']"
         
     success_criteria:
       - "UniversalAgentFactory class exists and is functional"
       - "AgentBuilder abstract class defined"
       - "SpecificationLoader can load YAML and JSON"
       - "SpecificationValidator validates specifications"
+      # ADDED: Critical ADK pattern validation
+      - "All agent builder methods implemented"
+      - "Tool registry integration works"
+      - "Session service accessed as property"
+      - "Agent names use underscores"
+      - "Model configuration handled correctly"
       - "All unit tests pass"
       - "Code coverage > 80%"
       
@@ -632,7 +855,10 @@ task:
         
   notes:
     key_decisions:
-      - "Use factory pattern for extensibility"
+      # CORRECTED: Updated to reflect direct dispatch pattern
+      - "Use direct dispatch pattern instead of separate builders"
+      - "Integrate tool registry from the start"
+      - "Handle model configuration with primary/fallbacks"
       - "Separate specification loading from agent creation"
       - "Use Pydantic for specification validation"
       - "Support multiple specification formats"
@@ -640,10 +866,14 @@ task:
     future_enhancements:
       - "Add specification versioning support"
       - "Implement specification inheritance"
-      - "Add builder plugin system"
+      - "Complete custom agent building"
+      - "Add inline and import tool sources"
       - "Create specification migration tools"
       
     technical_debt:
+      - "LoopAgent constructor may need adjustment"
+      - "Custom agent building placeholder needs implementation"
+      - "Tool registry is currently a stub"
       - "Consider adding specification schema validation"
       - "May need to optimize caching strategy"
       - "Could benefit from async loading"

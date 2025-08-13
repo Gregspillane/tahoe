@@ -1,79 +1,286 @@
 task:
   id: "r2-t06-composition-tests"
   name: "Create Comprehensive Composition Tests"
-  description: "Build complete test suite for agent composition including all agent types and integration tests"
-  complexity: "simple"
-  estimated_hours: 2
+  description: "Build complete test suite for agent composition including all agent types, ADK patterns, and integration tests"
+  complexity: "moderate"  # CORRECTED: Changed from simple to moderate based on scope
+  estimated_hours: 8  # CORRECTED: Increased from 2 to 8 hours for comprehensive testing
   
   context:
-    why: "Comprehensive testing ensures all agent composition features work correctly together"
-    architectural_role: "Quality assurance for the entire composition system"
+    why: "Comprehensive testing ensures all agent composition features work correctly together with ADK patterns"
+    architectural_role: "Quality assurance for the entire composition system and ADK integration"
     depends_on_tasks: ["r2-t01", "r2-t02", "r2-t03", "r2-t04", "r2-t05"]
     enables_tasks: []
     references:
       masterplan: "@MASTERPLAN.md#testing-standards"
+      adk_docs: "https://google.github.io/adk-docs/"  # ADDED: ADK documentation reference
       project_context: "@tasks/project-context.md#testing-strategy"
     
   implementation:
     creates:
-      - path: "services/agent-engine/tests/test_composition_integration.py"
-        purpose: "Integration tests for agent composition"
+      # CORRECTED: Reorganized test files to match MASTERPLAN structure
+      - path: "services/agent-engine/tests/unit/test_composition.py"
+        purpose: "Unit tests for core composition components"
         test_categories:
-          - "End-to-end agent creation"
-          - "All agent types"
-          - "Nested compositions"
-          - "Error scenarios"
+          - "UniversalAgentFactory methods"  # CORRECTED: Proper class name
+          - "AgentCompositionService methods"  # ADDED: Alternative factory name from MASTERPLAN
+          - "Specification parsing and validation"
+          - "Context injection and template building"
+          
+      - path: "services/agent-engine/tests/unit/test_workflow_engine.py"
+        purpose: "Unit tests for workflow engine"  # ADDED: Missing from original
+        test_categories:
+          - "WorkflowEngine template loading"
+          - "Conditional workflow routing"
+          - "State management between steps"
+          - "Output schema validation"
+          
+      - path: "services/agent-engine/tests/unit/test_session_orchestrator.py"
+        purpose: "Unit tests for session management"  # ADDED: Missing from original
+        test_categories:
+          - "SessionOrchestrator backend selection"
+          - "Session creation and lifecycle"
+          - "Multi-backend support (memory, Redis, Vertex)"
+          - "Session forking and merging"
+          
+      - path: "services/agent-engine/tests/unit/test_tool_registry.py"
+        purpose: "Unit tests for tool registry"  # ADDED: Missing from original
+        test_categories:
+          - "ToolRegistry registration and validation"
+          - "Dynamic tool loading from specs"
+          - "FunctionTool wrapping (explicit and automatic)"
+          - "Built-in tool integration (google_search)"
+          
+      - path: "services/agent-engine/tests/integration/test_adk_patterns.py"
+        purpose: "Integration tests for ADK-specific patterns"  # ADDED: Critical ADK testing
+        test_categories:
+          - "InMemoryRunner usage (run and run_async)"  # VERIFIED: ADK docs confirm both methods
+          - "session_service as property access"  # VERIFIED: ADK docs confirm property pattern
+          - "Agent naming with underscores only"
+          - "LoopAgent with sub_agents list"  # VERIFIED: ADK docs confirm list parameter
+          - "Error recovery patterns"
+          - "Model fallback strategies"
+          
+      - path: "services/agent-engine/tests/integration/test_agent_types.py"
+        purpose: "Integration tests for all ADK agent types"
+        test_categories:
+          - "LlmAgent creation and execution"  # VERIFIED: ADK primary agent type
+          - "SequentialAgent workflow execution"  # VERIFIED: ADK workflow agent
+          - "ParallelAgent concurrent execution"  # VERIFIED: ADK workflow agent
+          - "LoopAgent iterative execution"  # VERIFIED: ADK workflow agent
+          - "BaseAgent custom implementations"
+          - "Nested agent compositions"
+          
+      - path: "services/agent-engine/tests/integration/test_composition_integration.py"
+        purpose: "End-to-end integration tests for complete workflows"
+        test_categories:
+          - "Full agent composition from specifications"
+          - "Workflow template execution"
+          - "Session persistence across executions"
+          - "Tool execution within agents"
+          - "Multi-agent communication"
+          - "State sharing between agents"
+          
+      - path: "services/agent-engine/tests/e2e/test_scenarios.py"
+        purpose: "End-to-end scenario tests"  # ADDED: From MASTERPLAN testing standards
+        test_categories:
+          - "Complete user workflows"
+          - "API to execution flow"
+          - "Error propagation and handling"
+          - "Performance under load"
+          - "Concurrent session handling"
+          
+      - path: "services/agent-engine/tests/performance/test_scalability.py"
+        purpose: "Performance and scalability tests"  # ADDED: From MASTERPLAN line 1135
+        test_categories:
+          - "Agent composition performance"
+          - "Workflow execution timing"
+          - "Memory usage profiling"
+          - "Concurrent agent execution"
+          - "Session scaling limits"
+          - "Tool registry performance"
+          
+      - path: "services/agent-engine/tests/validation/test_specifications.py"
+        purpose: "Specification validation tests"  # ADDED: From MASTERPLAN line 1136
+        test_categories:
+          - "YAML/JSON specification parsing"
+          - "Schema validation"
+          - "Version compatibility"
+          - "Template variable injection"
+          - "Conditional expression evaluation"
       
       - path: "services/agent-engine/tests/fixtures/agent_specs/"
         purpose: "Test specification fixtures"
         content:
-          - "simple_llm.yaml"
-          - "sequential_workflow.yaml"
-          - "parallel_workflow.yaml"
-          - "nested_agents.yaml"
+          # CORRECTED: More comprehensive fixtures
+          - "valid_specs/simple_llm.yaml"
+          - "valid_specs/sequential_workflow.yaml"
+          - "valid_specs/parallel_workflow.yaml"
+          - "valid_specs/loop_workflow.yaml"  # ADDED: LoopAgent testing
+          - "valid_specs/nested_agents.yaml"
+          - "valid_specs/conditional_workflow.yaml"  # ADDED: Conditional routing
+          - "invalid_specs/bad_agent_name.yaml"  # ADDED: Test hyphenated names
+          - "invalid_specs/wrong_session_call.yaml"  # ADDED: Test method vs property
+          - "invalid_specs/invalid_loop_params.yaml"  # ADDED: Test wrong LoopAgent params
+          
+      - path: "services/agent-engine/tests/fixtures/tool_specs/"
+        purpose: "Tool specification fixtures"  # ADDED: Tool testing fixtures
+        content:
+          - "analyze_tool.yaml"
+          - "custom_function.yaml"
+          - "explicit_wrapping.yaml"
+          
+      - path: "services/agent-engine/tests/fixtures/model_configs/"
+        purpose: "Model configuration fixtures"  # ADDED: Model config testing
+        content:
+          - "fallback_strategy.yaml"
+          - "load_balancing.yaml"
+          - "error_conditions.yaml"
     
     uses_from_previous:
+      # CORRECTED: Updated component names to match MASTERPLAN
       - source: "r2-t01"
-        component: "UniversalAgentFactory"
+        component: "UniversalAgentFactory or AgentCompositionService"  # CORRECTED: Both names from MASTERPLAN
       - source: "r2-t02"
-        component: "LlmAgentBuilder"
+        component: "LlmAgent building methods"  # CORRECTED: More accurate description
       - source: "r2-t03"
-        component: "Workflow builders"
+        component: "WorkflowEngine"  # CORRECTED: Proper class name from MASTERPLAN
       - source: "r2-t04"
-        component: "CustomAgentBuilder"
+        component: "BaseAgent custom implementations"  # CORRECTED: ADK base class
       - source: "r2-t05"
-        component: "ExecutionService"
+        component: "SessionOrchestrator and InMemoryRunner integration"  # CORRECTED: Proper components
+      # ADDED: Missing critical components
+      - source: "core"
+        component: "ToolRegistry"  # ADDED: From MASTERPLAN lines 493-539
+      - source: "core"
+        component: "Model abstraction layer"  # ADDED: From MASTERPLAN lines 295-321
     
   implementation_steps:
-    - step: "Create test fixtures"
+    - step: "Create comprehensive test fixtures"
       implementation_notes: |
-        - Sample agent specifications
-        - Mock tools and sub-agents
-        - Test data sets
+        # CORRECTED: More detailed fixture requirements
+        - Valid agent specifications for all types (LlmAgent, Sequential, Parallel, Loop)
+        - Invalid specifications to test error handling
+        - Mock tools with various signatures
+        - Sub-agent specifications for composition testing
+        - Model configuration templates with fallback strategies
+        - Workflow templates with conditional routing
+        - Session configuration fixtures for different backends
         
-    - step: "Write integration tests"
+    - step: "Implement unit tests for core components"
       implementation_notes: |
-        - Test complete composition flow
-        - Test all agent types
-        - Test error handling
+        # ADDED: Detailed unit test implementation
+        - Test UniversalAgentFactory.build_agent() for all agent types
+        - Test AgentCompositionService.build_agent_from_spec()
+        - Test WorkflowEngine.execute_workflow() with templates
+        - Test SessionOrchestrator.create_session() with all backends
+        - Test ToolRegistry.register_tool() and get_tools_for_agent()
+        - Verify proper error handling and validation
+        - Test helper methods (_build_instruction, _load_tools, etc.)
         
-    - step: "Add performance tests"
+    - step: "Implement ADK pattern tests"
       implementation_notes: |
-        - Measure composition time
-        - Test with many agents
-        - Profile memory usage
+        # ADDED: Critical ADK-specific testing
+        - Test InMemoryRunner with both run() and run_async() methods
+        - Verify session_service is accessed as property, not method
+        - Test agent names with underscores (valid) and hyphens (invalid)
+        - Test LoopAgent with sub_agents as list parameter
+        - Test automatic vs explicit FunctionTool wrapping
+        - Test error recovery and retry mechanisms
+        - Test model fallback on rate limits and errors
+        
+    - step: "Write integration tests for workflows"
+      implementation_notes: |
+        # CORRECTED: More comprehensive integration testing
+        - Test complete agent composition from YAML/JSON specs
+        - Test workflow execution with state management
+        - Test parallel agent concurrent execution
+        - Test sequential agent ordered execution
+        - Test loop agent with termination conditions
+        - Test nested agent compositions
+        - Test tool execution within agent contexts
+        - Test session persistence across workflow steps
+        
+    - step: "Add end-to-end scenario tests"
+      implementation_notes: |
+        # ADDED: E2E testing from MASTERPLAN
+        - Test complete user journeys from API to result
+        - Test multi-step workflows with conditional routing
+        - Test error propagation through the stack
+        - Test concurrent session handling
+        - Test real tool integrations (if available)
+        - Test streaming execution with SSE
+        
+    - step: "Implement performance and scalability tests"
+      implementation_notes: |
+        # ADDED: Performance testing from MASTERPLAN
+        - Measure agent composition time for various complexity levels
+        - Test workflow execution with many parallel agents
+        - Profile memory usage during large workflows
+        - Test session scaling with multiple concurrent users
+        - Benchmark tool registry with many registered tools
+        - Test specification parsing performance
+        - Identify and document performance bottlenecks
+        
+    - step: "Add specification validation tests"
+      implementation_notes: |
+        # ADDED: Specification validation from MASTERPLAN
+        - Test YAML/JSON parsing with valid and invalid formats
+        - Test schema validation for all specification types
+        - Test version compatibility checks
+        - Test template variable injection and resolution
+        - Test conditional expression evaluation
+        - Test specification inheritance and composition
+        
+    - step: "Create test documentation and coverage reports"
+      implementation_notes: |
+        # ADDED: Documentation and reporting
+        - Generate test coverage reports with pytest-cov
+        - Document test patterns and best practices
+        - Create test execution guides
+        - Set up CI/CD test automation
+        - Ensure 85%+ coverage target from MASTERPLAN
         
   validation:
     commands:
-      - description: "Run all composition tests"
-        command: "cd services/agent-engine && pytest tests/test_composition* -v"
-        expected: "All tests pass"
+      # CORRECTED: More comprehensive validation commands
+      - description: "Run all unit tests"
+        command: "cd services/agent-engine && pytest tests/unit/ -v"
+        expected: "All unit tests pass"
+        
+      - description: "Run ADK pattern tests"
+        command: "cd services/agent-engine && pytest tests/integration/test_adk_patterns.py -v"
+        expected: "All ADK patterns validated"
+        
+      - description: "Run integration tests"
+        command: "cd services/agent-engine && pytest tests/integration/ -v"
+        expected: "All integration tests pass"
+        
+      - description: "Run end-to-end tests"
+        command: "cd services/agent-engine && pytest tests/e2e/ -v"
+        expected: "All E2E scenarios pass"
+        
+      - description: "Run performance tests"
+        command: "cd services/agent-engine && pytest tests/performance/ -v --benchmark-only"
+        expected: "Performance within acceptable limits"
         
       - description: "Check test coverage"
-        command: "cd services/agent-engine && pytest tests/ --cov=src/core --cov-report=term-missing"
-        expected: "Coverage > 80%"
+        command: "cd services/agent-engine && pytest tests/ --cov=src/core --cov=src/services --cov-report=term-missing --cov-report=html"
+        expected: "Coverage >= 85%"  # CORRECTED: MASTERPLAN specifies 85%+
+        
+      - description: "Validate ADK patterns"
+        command: "cd services/agent-engine && python scripts/validate_adk_patterns.py"
+        expected: "All ADK patterns conform to documentation"
         
     success_criteria:
-      - "All agent types tested"
-      - "Integration tests pass"
-      - "Coverage > 80%"
+      # CORRECTED: More comprehensive success criteria
+      - "All agent types tested (LlmAgent, Sequential, Parallel, Loop, Custom)"
+      - "ADK patterns validated (InMemoryRunner, session_service, naming conventions)"
+      - "Unit test coverage >= 85%"  # CORRECTED: MASTERPLAN requirement
+      - "Integration tests pass for all workflows"
+      - "E2E scenarios complete successfully"
+      - "Performance benchmarks meet targets"
+      - "Specification validation comprehensive"
+      - "Error handling and recovery tested"
+      - "Session management tested for all backends"
+      - "Tool registry fully tested"
+      - "Model fallback strategies validated"

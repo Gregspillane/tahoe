@@ -1,287 +1,407 @@
 task:
   id: "r2-t04-custom-agents"
-  name: "Implement Custom Agent Support"
-  description: "Enable creation of custom agents by extending BaseAgent for domain-specific agent types"
+  name: "Extend Universal Factory for Custom Agent Support"  # CORRECTED: Changed from separate builder to extending universal factory
+  description: "Extend UniversalAgentFactory to support custom agents that inherit from BaseAgent through specification-driven configuration"  # CORRECTED: Align with universal factory pattern
   complexity: "medium"
   estimated_hours: 3
   
   context:
-    why: "Custom agents allow extending the platform with domain-specific agent types beyond built-in ADK agents"
-    architectural_role: "Extensibility point for creating specialized agents that inherit from BaseAgent"
-    depends_on_tasks: ["r2-t01"]
+    why: "Custom agents allow extending the platform with domain-specific agent types that integrate with the universal orchestration architecture"  # CORRECTED: Added integration emphasis
+    architectural_role: "Extension of UniversalAgentFactory to handle custom agent types alongside llm, sequential, parallel, and loop agents"  # CORRECTED: Part of universal factory, not separate
+    depends_on_tasks: ["r2-t01", "r2-t02"]  # ADDED: Also depends on r2-t02 for specification handling
     enables_tasks: ["r2-t05", "r2-t06"]
     references:
-      masterplan: "@MASTERPLAN.md#custom-agents"
+      masterplan: "@MASTERPLAN.md#universal-agent-factory"  # CORRECTED: Reference to universal factory section
       adk_docs: 
-        - "https://google.github.io/adk-docs/agents/base-agent"
-        - "https://google.github.io/adk-docs/agents/custom-agents"
+        - "https://google.github.io/adk-docs/agents/custom-agents/"  # VERIFIED: ADK docs section
+        - "https://google.github.io/adk-docs/agents/"
       project_context: "@tasks/project-context.md#extensibility"
     
   adk_components:
     imports_needed:
-      - "from google.adk.agents import BaseAgent"
-      - "from abc import ABC, abstractmethod"
-      - "from typing import Dict, Any, Optional, Type"
+      - "from google.adk.agents import BaseAgent"  # VERIFIED: Correct import per ADK docs
+      - "from google.adk.events import Event"  # VERIFIED: Required for _run_async_impl
+      - "from google.adk.context import InvocationContext"  # VERIFIED: Required for _run_async_impl
+      - "from typing import Dict, Any, Optional, Type, AsyncGenerator"
       - "import importlib"
       - "import inspect"
+      - "import yaml"  # ADDED: For specification loading
     verified_patterns:
       - pattern: "Custom agents must inherit from BaseAgent"
-        doc_ref: "https://google.github.io/adk-docs/agents/base-agent"
-      - pattern: "Must implement required abstract methods"
-        doc_ref: "ADK BaseAgent documentation"
+        doc_ref: "https://google.github.io/adk-docs/agents/custom-agents/"
+      - pattern: "Must implement _run_async_impl method returning AsyncGenerator[Event, None]"  # VERIFIED: Correct Python method name
+        doc_ref: "ADK Custom Agents documentation"
+      - pattern: "Pass sub_agents to super().__init__() during initialization"  # VERIFIED: Proper initialization pattern
+        doc_ref: "ADK Custom Agents documentation"
     avoid_antipatterns:
-      - "Don't bypass BaseAgent inheritance"
-      - "Don't ignore required method implementations"
-      - "Don't create agents without proper validation"
+      - "Don't create separate builder - extend UniversalAgentFactory"  # CORRECTED: Integration pattern
+      - "Don't bypass specification-driven approach"  # CORRECTED: Use specs like other agents
+      - "Don't use direct module imports - load from specifications"  # CORRECTED: Specification-based
     
   implementation:
     creates:
-      - path: "services/agent-engine/src/core/builders/custom_builder.py"
-        purpose: "Custom agent builder implementation"
-        exports:
-          - "CustomAgentBuilder: Builder for custom agent types"
-          - "CustomAgentRegistry: Registry for custom agent classes"
-          - "CustomAgentLoader: Dynamic loader for custom agents"
+      - path: "services/agent-engine/specs/agents/custom/"  # ADDED: Specification storage directory
+        purpose: "Directory for custom agent specifications"
+        
+      - path: "services/agent-engine/specs/agents/custom/example_custom.yaml"  # ADDED: Example specification
+        purpose: "Example custom agent specification"
         content_structure: |
-          from google.adk.agents import BaseAgent
-          from typing import Dict, Any, Optional, Type
-          import importlib
-          import inspect
-          import logging
-          
-          from ..composition import AgentBuilder, AgentSpec, AgentContext
-          from ..specification import SpecificationError
-          
-          logger = logging.getLogger(__name__)
-          
-          class CustomAgentRegistry:
-              """Registry for custom agent implementations"""
+          # ADDED: Custom agent specification format matching universal pattern
+          apiVersion: "agent-engine/v1"
+          kind: "AgentSpec"
+          metadata:
+            name: "domain-orchestrator"
+            version: "1.0.0"
+            tags: ["custom", "orchestration"]
+          spec:
+            agent:
+              type: "custom"  # Uses 'custom' type like other agents
+              custom_class: "DomainOrchestrator"  # Reference to registered class
+              parameters:
+                orchestration_pattern: "adaptive"
+                max_iterations: 5
+            sub_agents:
+              - spec_ref: "analyzer"
+              - spec_ref: "processor"
+            validation:
+              input_schema:
+                type: "object"
+                properties:
+                  data: {"type": "object"}
+                  
+    modifies:
+      - path: "services/agent-engine/src/core/composition.py"  # CORRECTED: Modify universal factory, not create separate builder
+        changes: "Extend UniversalAgentFactory with _build_custom_agent method"
+        content_additions: |
+          # CORRECTED: Add to existing UniversalAgentFactory class
+          class UniversalAgentFactory:
+              # ... existing methods ...
               
               def __init__(self):
-                  self.custom_agents: Dict[str, Type[BaseAgent]] = {}
+                  """Initialize factory with custom agent registry."""
+                  super().__init__()
+                  self.custom_registry: Dict[str, Type[BaseAgent]] = {}  # ADDED: Registry for custom classes
+                  self._load_custom_agents()  # ADDED: Load registered custom agents
               
-              def register(self, name: str, agent_class: Type[BaseAgent]):
-                  """Register a custom agent class"""
-                  if not issubclass(agent_class, BaseAgent):
-                      raise ValueError(f"{agent_class} must inherit from BaseAgent")
-                  self.custom_agents[name] = agent_class
-                  logger.info(f"Registered custom agent: {name}")
-              
-              def get(self, name: str) -> Optional[Type[BaseAgent]]:
-                  """Get a registered custom agent class"""
-                  return self.custom_agents.get(name)
-              
-              def list_agents(self) -> List[str]:
-                  """List all registered custom agents"""
-                  return list(self.custom_agents.keys())
-          
-          class CustomAgentLoader:
-              """Loads custom agent implementations dynamically"""
-              
-              def load_from_module(self, module_path: str, class_name: str) -> Type[BaseAgent]:
-                  """Load custom agent class from module"""
-                  try:
-                      module = importlib.import_module(module_path)
-                      agent_class = getattr(module, class_name)
-                      
-                      if not issubclass(agent_class, BaseAgent):
-                          raise SpecificationError(f"{class_name} must inherit from BaseAgent")
-                      
-                      return agent_class
-                  except Exception as e:
-                      raise SpecificationError(f"Error loading custom agent: {e}")
-              
-              def validate_agent_class(self, agent_class: Type[BaseAgent]) -> bool:
-                  """Validate custom agent class implementation"""
-                  # Check for required methods
-                  required_methods = self._get_required_methods()
+              def _build_custom_agent(self, spec: dict, context: dict = None) -> BaseAgent:
+                  """Build custom agent from specification.
                   
-                  for method in required_methods:
-                      if not hasattr(agent_class, method):
-                          logger.error(f"Missing required method: {method}")
-                          return False
+                  CORRECTED: Integrated into universal factory pattern.
+                  """
+                  agent_spec = spec["agent"]
+                  custom_class_name = agent_spec.get("custom_class")
                   
-                  return True
-              
-              def _get_required_methods(self) -> List[str]:
-                  """Get list of required methods from BaseAgent"""
-                  # These would be determined from BaseAgent abstract methods
-                  return ['__init__', 'execute']  # Example methods
-          
-          class CustomAgentBuilder(AgentBuilder):
-              """Builder for custom agent implementations"""
-              
-              def __init__(self):
-                  self.registry = CustomAgentRegistry()
-                  self.loader = CustomAgentLoader()
-              
-              def can_build(self, agent_type: str) -> bool:
-                  """Check if this builder can handle the agent type"""
-                  return agent_type == "custom"
-              
-              def validate_spec(self, spec: AgentSpec) -> bool:
-                  """Validate custom agent specification"""
-                  try:
-                      agent_spec = spec.spec.get("agent", {})
-                      
-                      if agent_spec.get("type") != "custom":
-                          return False
-                      
-                      custom_config = agent_spec.get("custom_config", {})
-                      
-                      # Check for either registered name or module path
-                      if not custom_config.get("registered_name") and not custom_config.get("module_path"):
-                          logger.error("Custom agent needs registered_name or module_path")
-                          return False
-                      
-                      return True
-                  except Exception as e:
-                      logger.error(f"Validation error: {e}")
-                      return False
-              
-              def build(self, spec: AgentSpec, context: AgentContext) -> BaseAgent:
-                  """Build custom agent from specification"""
-                  if not self.validate_spec(spec):
-                      raise SpecificationError(f"Invalid custom agent specification")
+                  if not custom_class_name:
+                      raise SpecificationError("Custom agent needs 'custom_class' field")
                   
-                  agent_spec = spec.spec.get("agent", {})
-                  custom_config = agent_spec.get("custom_config", {})
-                  metadata = spec.metadata
-                  
-                  # Get custom agent class
-                  agent_class = self._get_agent_class(custom_config)
-                  
+                  # Get registered custom agent class
+                  agent_class = self.custom_registry.get(custom_class_name)
                   if not agent_class:
-                      raise SpecificationError("Could not load custom agent class")
+                      raise SpecificationError(f"Custom agent class '{custom_class_name}' not registered")
                   
-                  # Validate the class
-                  if not self.loader.validate_agent_class(agent_class):
-                      raise SpecificationError("Invalid custom agent implementation")
+                  # Validate it inherits from BaseAgent
+                  if not issubclass(agent_class, BaseAgent):
+                      raise SpecificationError(f"{custom_class_name} must inherit from BaseAgent")
                   
-                  # Get initialization parameters
-                  init_params = custom_config.get("init_params", {})
-                  init_params['name'] = metadata.get('name', 'custom_agent')
-                  init_params['description'] = metadata.get('description', '')
+                  # Build sub-agents if specified
+                  sub_agents = self._build_sub_agents(spec.get("sub_agents", []), context)
                   
-                  # Add context variables to params
-                  init_params.update(context.variables)
+                  # Get initialization parameters from spec
+                  init_params = agent_spec.get("parameters", {})
+                  init_params['name'] = spec['metadata']['name']
+                  init_params['description'] = spec['metadata'].get('description', '')
+                  init_params['sub_agents'] = sub_agents  # VERIFIED: Pass sub_agents to init
+                  
+                  # Add context variables if provided
+                  if context:
+                      init_params.update(context)
                   
                   # Create instance
                   try:
                       agent = agent_class(**init_params)
-                      logger.info(f"Successfully built custom agent: {metadata.get('name')}")
+                      logger.info(f"Built custom agent: {spec['metadata']['name']}")
                       return agent
                   except Exception as e:
                       raise SpecificationError(f"Error creating custom agent: {e}")
               
-              def _get_agent_class(self, custom_config: Dict) -> Optional[Type[BaseAgent]]:
-                  """Get custom agent class from config"""
-                  # Try registered name first
-                  if 'registered_name' in custom_config:
-                      return self.registry.get(custom_config['registered_name'])
-                  
-                  # Try loading from module
-                  if 'module_path' in custom_config and 'class_name' in custom_config:
-                      return self.loader.load_from_module(
-                          custom_config['module_path'],
-                          custom_config['class_name']
-                      )
-                  
-                  return None
-              
               def register_custom_agent(self, name: str, agent_class: Type[BaseAgent]):
-                  """Register a custom agent class"""
-                  self.registry.register(name, agent_class)
+                  """Register a custom agent class for use in specifications.
+                  
+                  ADDED: Registration method for custom agents.
+                  """
+                  if not issubclass(agent_class, BaseAgent):
+                      raise ValueError(f"{agent_class} must inherit from BaseAgent")
+                  
+                  # Verify required method implementation
+                  if not hasattr(agent_class, '_run_async_impl'):  # VERIFIED: Correct Python method
+                      raise ValueError(f"{agent_class} must implement _run_async_impl method")
+                  
+                  self.custom_registry[name] = agent_class
+                  logger.info(f"Registered custom agent class: {name}")
+              
+              def _load_custom_agents(self):
+                  """Load custom agent definitions from specifications.
+                  
+                  ADDED: Load custom agents from spec files.
+                  """
+                  custom_specs_dir = Path("specs/agents/custom")
+                  if not custom_specs_dir.exists():
+                      return
+                  
+                  for spec_file in custom_specs_dir.glob("*.yaml"):
+                      try:
+                          with open(spec_file) as f:
+                              spec = yaml.safe_load(f)
+                          
+                          # Check if it defines a custom agent implementation
+                          if spec.get("implementation"):
+                              self._register_custom_from_spec(spec)
+                      except Exception as e:
+                          logger.warning(f"Error loading custom agent spec {spec_file}: {e}")
+              
+              def _register_custom_from_spec(self, spec: dict):
+                  """Register custom agent from specification with implementation.
+                  
+                  ADDED: Support specification-based custom agent registration.
+                  """
+                  implementation = spec.get("implementation", {})
+                  class_definition = implementation.get("class_definition")
+                  
+                  if class_definition:
+                      # Create class dynamically from specification
+                      namespace = {
+                          'BaseAgent': BaseAgent,
+                          'Event': Event,
+                          'InvocationContext': InvocationContext,
+                          'AsyncGenerator': AsyncGenerator
+                      }
+                      exec(class_definition, namespace)
+                      
+                      class_name = implementation.get("class_name")
+                      if class_name in namespace:
+                          self.register_custom_agent(class_name, namespace[class_name])
       
-      - path: "services/agent-engine/tests/test_custom_builder.py"
-        purpose: "Unit tests for custom agent builder"
-        test_categories:
-          - "Custom agent registration"
-          - "Dynamic loading"
-          - "Validation"
-          - "Agent creation"
+      - path: "services/agent-engine/src/core/custom_agents.py"  # ADDED: Module for built-in custom agent examples
+        purpose: "Built-in custom agent implementations"
+        content_structure: |
+          # ADDED: Example custom agents that can be registered
+          from google.adk.agents import BaseAgent
+          from google.adk.events import Event
+          from google.adk.context import InvocationContext
+          from typing import AsyncGenerator, List, Dict, Any
+          import logging
+          
+          logger = logging.getLogger(__name__)
+          
+          class AdaptiveOrchestrator(BaseAgent):
+              """Example custom agent with adaptive orchestration logic.
+              
+              VERIFIED: Follows ADK custom agent pattern.
+              """
+              
+              def __init__(self, name: str, sub_agents: List[BaseAgent], 
+                         orchestration_pattern: str = "adaptive",
+                         max_iterations: int = 3, **kwargs):
+                  """Initialize adaptive orchestrator.
+                  
+                  VERIFIED: Pass sub_agents to super().__init__()
+                  """
+                  super().__init__(name=name, sub_agents=sub_agents, **kwargs)
+                  self.orchestration_pattern = orchestration_pattern
+                  self.max_iterations = max_iterations
+                  self.agents = {agent.name: agent for agent in sub_agents}
+              
+              async def _run_async_impl(self, ctx: InvocationContext) -> AsyncGenerator[Event, None]:
+                  """Implement adaptive orchestration logic.
+                  
+                  VERIFIED: Correct method name and signature for Python ADK.
+                  """
+                  iteration = 0
+                  while iteration < self.max_iterations:
+                      # Analyze current state
+                      state = ctx.session.state
+                      
+                      # Determine next agent based on state
+                      next_agent = self._select_next_agent(state, iteration)
+                      
+                      if not next_agent:
+                          break
+                      
+                      # Execute selected agent
+                      async for event in next_agent.run_async(ctx):
+                          yield event
+                          
+                          # Update state based on event
+                          if event.type == "result":
+                              state["last_result"] = event.data
+                      
+                      iteration += 1
+                  
+                  # Final event
+                  yield Event(type="completion", data={"iterations": iteration})
+              
+              def _select_next_agent(self, state: Dict[Any, Any], iteration: int) -> Optional[BaseAgent]:
+                  """Select next agent based on current state and pattern."""
+                  if self.orchestration_pattern == "adaptive":
+                      # Adaptive logic based on state
+                      if "error" in state:
+                          return self.agents.get("error_handler")
+                      elif iteration == 0:
+                          return self.agents.get("analyzer")
+                      else:
+                          return self.agents.get("processor")
+                  return None
+          
+          class ConditionalRouter(BaseAgent):
+              """Custom agent that routes based on conditions.
+              
+              ADDED: Another example of custom agent pattern.
+              """
+              
+              def __init__(self, name: str, sub_agents: List[BaseAgent],
+                         routing_rules: Dict[str, str], **kwargs):
+                  """Initialize conditional router."""
+                  super().__init__(name=name, sub_agents=sub_agents, **kwargs)
+                  self.routing_rules = routing_rules
+                  self.agents = {agent.name: agent for agent in sub_agents}
+              
+              async def _run_async_impl(self, ctx: InvocationContext) -> AsyncGenerator[Event, None]:
+                  """Route to agents based on conditions."""
+                  input_data = ctx.input
+                  
+                  for condition, agent_name in self.routing_rules.items():
+                      if self._evaluate_condition(condition, input_data):
+                          agent = self.agents.get(agent_name)
+                          if agent:
+                              async for event in agent.run_async(ctx):
+                                  yield event
+                          break
+              
+              def _evaluate_condition(self, condition: str, data: Any) -> bool:
+                  """Evaluate routing condition."""
+                  # Simple evaluation logic (can be extended)
+                  try:
+                      return eval(condition, {"input": data})
+                  except:
+                      return False
+          
+          # Registry of built-in custom agents
+          BUILT_IN_CUSTOM_AGENTS = {
+              "AdaptiveOrchestrator": AdaptiveOrchestrator,
+              "ConditionalRouter": ConditionalRouter
+          }
         
-    modifies:
-      - path: "services/agent-engine/src/core/builders/__init__.py"
-        changes: "Add custom builder imports"
-    
     uses_from_previous:
       - source: "r2-t01"
-        component: "AgentBuilder base class"
-        usage: "CustomAgentBuilder extends AgentBuilder"
+        component: "UniversalAgentFactory base class"  # CORRECTED: Use universal factory
+        usage: "Extend with _build_custom_agent method"
+      - source: "r2-t02"  # ADDED: Dependency on specification system
+        component: "Specification loading and validation"
+        usage: "Load custom agent specs from YAML files"
     
   implementation_steps:
-    - step: "Create CustomAgentRegistry"
+    - step: "Extend UniversalAgentFactory"  # CORRECTED: Not separate builder
       implementation_notes: |
-        - Store custom agent classes
+        - Add _build_custom_agent method to handle type="custom"
+        - Integrate with existing build_agent method
+        - Use same specification pattern as other agents
+      validates:
+        - "Custom agents created through universal factory"
+        
+    - step: "Implement Custom Agent Registry"  # CORRECTED: Part of factory
+      implementation_notes: |
+        - Registry within UniversalAgentFactory
+        - Store Type[BaseAgent] references
         - Validate BaseAgent inheritance
-        - Enable runtime registration
+        - Check for _run_async_impl method
       validates:
-        - "Registry stores and retrieves custom agents"
+        - "Registry validates and stores custom agents"
         
-    - step: "Implement CustomAgentLoader"
+    - step: "Create Specification Schema"  # ADDED: Specification-driven approach
       implementation_notes: |
-        - Dynamic module importing
-        - Class validation
-        - Method checking
+        - Define YAML schema for custom agents
+        - Use consistent structure with other agent types
+        - Support parameters and sub_agents
       validates:
-        - "Can load agents from modules"
+        - "Custom agents defined via specifications"
         
-    - step: "Build CustomAgentBuilder"
+    - step: "Build Example Custom Agents"  # ADDED: Examples
       implementation_notes: |
-        - Support registered and dynamic agents
-        - Validate custom implementations
-        - Create instances with parameters
+        - Create AdaptiveOrchestrator example
+        - Create ConditionalRouter example
+        - Follow ADK patterns exactly
+        - Include proper _run_async_impl implementation
       validates:
-        - "Custom agents created successfully"
+        - "Example custom agents work correctly"
         
-    - step: "Write tests"
+    - step: "Write Comprehensive Tests"
       implementation_notes: |
-        - Test registration
-        - Test loading
-        - Test validation
-        - Test creation
+        - Test registry functionality
+        - Test specification loading
+        - Test custom agent creation
+        - Test _run_async_impl execution
+        - Test integration with universal factory
       validates:
         - "All tests pass"
         
   validation:
     commands:
       - description: "Run unit tests"
-        command: "cd services/agent-engine && pytest tests/test_custom_builder.py -v"
+        command: "cd services/agent-engine && pytest tests/test_custom_agents.py -v"
         expected: "All tests pass"
         
-      - description: "Verify imports"
+      - description: "Verify custom agent integration"  # CORRECTED: Test integration
         command: |
           cd services/agent-engine && python -c "
-          from src.core.builders.custom_builder import CustomAgentBuilder
-          print('Import successful')
+          from src.core.composition import UniversalAgentFactory
+          from src.core.custom_agents import AdaptiveOrchestrator
+          factory = UniversalAgentFactory()
+          factory.register_custom_agent('AdaptiveOrchestrator', AdaptiveOrchestrator)
+          print('Custom agent registered successfully')
           "
-        expected: "Import successful"
+        expected: "Custom agent registered successfully"
+        
+      - description: "Test specification loading"  # ADDED: Test spec-driven approach
+        command: |
+          cd services/agent-engine && python -c "
+          from src.core.composition import UniversalAgentFactory
+          factory = UniversalAgentFactory()
+          spec = {'agent': {'type': 'custom', 'custom_class': 'AdaptiveOrchestrator'}, 
+                  'metadata': {'name': 'test'}}
+          agent = factory.build_agent(spec)
+          print(f'Built custom agent: {agent.name}')
+          "
+        expected: "Built custom agent: test"
         
     success_criteria:
-      - "CustomAgentBuilder implemented"
-      - "Registry and loader functional"
-      - "Custom agents can be created"
+      - "UniversalAgentFactory extended with custom support"  # CORRECTED: Not separate builder
+      - "Custom agents follow specification pattern"  # CORRECTED: Spec-driven
+      - "Registry integrated into factory"  # CORRECTED: Not separate
+      - "Example custom agents implemented"  # ADDED: Examples
       - "All tests pass"
       
   dependencies:
     required_before:
       - task: "r2-t01"
-        reason: "Need AgentBuilder base class"
+        reason: "Need UniversalAgentFactory base implementation"
+      - task: "r2-t02"  # ADDED: Specification system dependency
+        reason: "Need specification loading infrastructure"
         
     enables_after:
       - task: "r2-t05"
-        reason: "Runner needs all agent types"
+        reason: "Runner needs all agent types including custom"
       - task: "r2-t06"
         reason: "Tests need custom agent support"
         
   notes:
     key_decisions:
-      - "Support both registered and dynamic loading"
-      - "Validate BaseAgent inheritance"
-      - "Enable runtime registration"
+      - "Extend UniversalAgentFactory instead of separate builder"  # CORRECTED: Key architectural decision
+      - "Use specification-driven approach for consistency"  # CORRECTED: Consistent with platform
+      - "Implement _run_async_impl per ADK documentation"  # VERIFIED: Correct method name
+      - "Support both built-in and dynamically defined custom agents"  # ADDED: Flexibility
       
     future_enhancements:
-      - "Add custom agent templates"
-      - "Support agent plugins"
-      - "Add agent versioning"
+      - "Add more built-in custom agent patterns"
+      - "Support custom agent templates in UI"
+      - "Add visual workflow designer for custom agents"
+      - "Implement custom agent marketplace"

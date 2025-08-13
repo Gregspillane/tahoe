@@ -1,0 +1,47 @@
+apiVersion: agent-engine/v1
+kind: WorkflowTemplate
+metadata:
+  name: sequential_processing
+  version: 1.0.0
+  description: Sequential workflow for step-by-step processing
+  tags: [workflow, sequential]
+
+spec:
+  type: sequential
+  parameters:
+    input_schema:
+      type: object
+      properties:
+        data:
+          type: string
+        mode:
+          type: string
+          enum: [fast, thorough]
+      required: [data]
+    output_schema:
+      type: object
+      properties:
+        result:
+          type: string
+        metadata:
+          type: object
+  
+  steps:
+    - id: validation
+      agent_spec: input_validator
+      outputs: [is_valid, validation_errors]
+    
+    - id: preprocessing
+      agent_spec: data_preprocessor
+      depends_on: [validation]
+      outputs: [processed_data]
+    
+    - id: main_processing
+      agent_spec: content_analyzer
+      depends_on: [preprocessing]
+      outputs: [analysis_result]
+    
+    - id: postprocessing
+      agent_spec: result_formatter
+      depends_on: [main_processing]
+      outputs: [formatted_result]

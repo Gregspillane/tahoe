@@ -1,0 +1,101 @@
+apiVersion: agent-engine/v1
+kind: ToolSpec
+metadata:
+  name: analyze_sentiment
+  version: 1.0.0
+  description: Advanced sentiment analysis tool with multi-model support
+  tags: [nlp, analysis, sentiment]
+  author: ml-team
+
+spec:
+  description: |
+    Analyzes sentiment of text using various NLP models.
+    Supports multiple languages and returns detailed sentiment breakdown.
+  
+  function_definition: |
+    def analyze_sentiment(text: str, model: str = "default", language: str = "auto") -> dict:
+        """
+        Analyze sentiment of the provided text.
+        
+        Args:
+            text: The text to analyze
+            model: Model to use (default, advanced, multilingual)
+            language: Language of text (auto-detect if 'auto')
+        
+        Returns:
+            Dictionary containing sentiment analysis results
+        """
+        # Placeholder implementation
+        import random
+        
+        sentiments = ["positive", "negative", "neutral", "mixed"]
+        sentiment = random.choice(sentiments)
+        confidence = random.uniform(0.7, 0.99)
+        
+        result = {
+            "sentiment": sentiment,
+            "confidence": round(confidence, 3),
+            "language": language if language != "auto" else "en",
+            "model_used": model,
+            "breakdown": {
+                "positive": round(random.random(), 3),
+                "negative": round(random.random(), 3),
+                "neutral": round(random.random(), 3)
+            }
+        }
+        
+        return result
+  
+  dependencies:
+    - nltk
+    - transformers
+    - spacy
+  
+  categories:
+    - analysis
+    - nlp
+    - sentiment
+  
+  input_schema:
+    type: object
+    properties:
+      text:
+        type: string
+        minLength: 1
+        maxLength: 10000
+        description: Text to analyze
+      model:
+        type: string
+        enum: [default, advanced, multilingual]
+        default: default
+        description: Analysis model to use
+      language:
+        type: string
+        default: auto
+        description: Language code or 'auto' for detection
+    required: [text]
+  
+  output_schema:
+    type: object
+    properties:
+      sentiment:
+        type: string
+        enum: [positive, negative, neutral, mixed]
+      confidence:
+        type: number
+        minimum: 0
+        maximum: 1
+      language:
+        type: string
+      model_used:
+        type: string
+      breakdown:
+        type: object
+        properties:
+          positive:
+            type: number
+          negative:
+            type: number
+          neutral:
+            type: number
+    required: [sentiment, confidence]

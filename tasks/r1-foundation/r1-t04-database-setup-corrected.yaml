@@ -1,0 +1,799 @@
+task:
+  id: "r1-t04-database-setup"
+  name: "Set Up Database with Prisma"
+  description: "Configure PostgreSQL database with Prisma ORM for execution and audit storage with multi-backend session support"
+  complexity: "medium"
+  estimated_hours: 3  # CORRECTED: Increased from 2 to account for additional session backend work
+  
+  context:
+    why: "Persistent storage for execution history, audit logs, session state, and multi-backend session orchestration"
+    architectural_role: "Data persistence layer with service isolation and configurable session backends"
+    depends_on_tasks: ["r1-t01"]
+    enables_tasks: ["r5-t01", "r5-t03", "r6-t01"]
+    references:
+      masterplan: "@MASTERPLAN.md#database-entities"
+      adk_docs: 
+        - "https://google.github.io/adk-docs/sessions/session/"  # VERIFIED: Session documentation
+        - "https://google.github.io/adk-docs/runtime/"  # VERIFIED: Runtime documentation
+      verification_notes: "Database schema supports ADK session tracking with multiple persistence backends"
+    
+  adk_components:
+    imports_needed:
+      - "from prisma import Prisma"
+      - "from prisma.models import Session, Execution, Result, AuditLog"
+      - "import asyncio"
+      - "from datetime import datetime"
+      - "import os"  # ADDED: For environment configuration
+      - "from typing import Optional, Dict, Any, List"  # ADDED: Type hints
+    verified_patterns:
+      - pattern: "Store ADK session metadata with app_name, user_id, session_id"  # CORRECTED: Full session context
+        doc_ref: "https://google.github.io/adk-docs/sessions/session/"
+      - pattern: "Multi-backend session persistence (memory, Redis, Vertex)"  # ADDED: From masterplan
+        doc_ref: "@MASTERPLAN.md#457-463"
+      - pattern: "Session service as property access"  # CORRECTED: Property not method
+        doc_ref: "@MASTERPLAN.md#1023 - runner.session_service"
+    avoid_antipatterns:
+      - "Don't use runner.session_service() as method - it's a property"  # CORRECTED: Critical ADK pattern
+      - "Don't store sensitive API keys in database"
+      - "Don't bypass Prisma for raw SQL"
+      - "Don't store large blobs directly"
+      - "Don't mix service schemas - use agent_engine schema only"  # ADDED: Service isolation
+    
+  implementation:
+    creates:
+      - path: "services/infrastructure/prisma/schema.prisma"
+        purpose: "Database schema definition with service isolation"
+        models:
+          - "Session"  # CORRECTED: With proper ADK fields
+          - "Execution"
+          - "Result"
+          - "AuditLog"
+          - "ToolRegistry"
+          - "ConfigurationVersion"
+        schema_features:  # ADDED: Schema isolation requirements
+          - "agent_engine schema for this service"
+          - "auth schema for auth service (future)"
+          - "billing schema for billing service (future)"
+      - path: "services/agent-engine/src/services/database.py"
+        purpose: "Database service layer with session backend support"
+        exports:
+          - "class DatabaseService"
+          - "get_db()"
+          - "init_database()"
+          - "class SessionBackendManager"  # ADDED: Multi-backend session support
+      - path: "services/agent-engine/src/services/session_backends.py"  # ADDED: Multi-backend implementations
+        purpose: "Session backend implementations"
+        exports:
+          - "class RedisSessionService"
+          - "class VertexSessionService"
+          - "get_session_backend()"
+      - path: "services/agent-engine/src/models/database.py"
+        purpose: "Database model extensions"
+        exports:
+          - "class SessionModel"
+          - "class ExecutionModel"
+          - "class ResultModel"
+      - path: "services/agent-engine/src/config/environment.py"  # ADDED: Configuration hierarchy
+        purpose: "Environment-aware configuration loader"
+        exports:
+          - "class EnvironmentConfig"
+          - "load_config()"
+          - "get_session_backend_config()"
+      - path: "services/infrastructure/prisma/migrations/"
+        purpose: "Database migration files"
+      - path: "scripts/init_db.py"
+        purpose: "Database initialization script"
+        exports:
+          - "create_database()"
+          - "run_migrations()"
+          - "seed_data()"
+          - "create_service_schemas()"  # ADDED: Service schema isolation
+        
+    modifies:
+      - path: "services/agent-engine/requirements.txt"
+        changes: ["Add prisma dependency", "Add redis dependency"]  # CORRECTED: Added redis
+      - path: "docker-compose.yml"
+        changes: ["Configure postgres service", "Configure redis service"]  # CORRECTED: Added redis
+      - path: ".env"
+        changes: [
+          "Add database configuration",
+          "Add AGENT_ENGINE_DB_SCHEMA=agent_engine",  # ADDED: Service schema
+          "Add AGENT_ENGINE_REDIS_NAMESPACE=agent:",  # ADDED: Redis namespace
+          "Add ADK_SESSION_SERVICE=memory"  # ADDED: Session backend config
+        ]
+      - path: "config/development.env"  # ADDED: Environment override file
+        changes: ["Add development-specific overrides"]
+        
+    uses_from_previous:
+      - component: "Docker infrastructure"
+        from_task: "r1-t01"
+        usage: "PostgreSQL and Redis containers"  # CORRECTED: Added Redis
+      - component: "Environment configuration"
+        from_task: "r1-t01"
+        usage: "Hierarchical configuration system"  # CORRECTED: Full config hierarchy
+    
+  implementation_steps:
+    - step: "Create Prisma schema with service isolation"
+      focus:
+        - "Define all data models with proper ADK session fields"  # CORRECTED: Proper session structure
+        - "Set up relationships"
+        - "Add indexes for performance"
+        - "Include audit fields"
+        - "Configure service-specific schema (agent_engine)"  # ADDED: Schema isolation
+      schema_template: |
+        generator client {
+          provider = "prisma-client-py"
+          recursive_type_depth = 5
+        }
+        
+        datasource db {
+          provider = "postgresql"
+          url      = env("DATABASE_URL")
+          schemas  = ["agent_engine", "public"]  # ADDED: Multiple schemas support
+        }
+        
+        model Session {
+          id            String      @id @default(uuid())
+          app_name      String      # VERIFIED: Separate from session_id per ADK
+          user_id       String      # VERIFIED: Separate from session_id per ADK
+          session_id    String      @unique  # VERIFIED: Actual session identifier
+          state         Json?
+          metadata      Json?
+          backend       String      @default("memory")  # ADDED: Track session backend
+          created_at    DateTime    @default(now())
+          updated_at    DateTime    @updatedAt
+          expires_at    DateTime?
+          
+          executions    Execution[]
+          audit_logs    AuditLog[]
+          
+          @@index([user_id])
+          @@index([app_name])
+          @@index([created_at])
+          @@index([backend])  # ADDED: Index for backend filtering
+          @@schema("agent_engine")  # ADDED: Service schema
+        }
+        
+        model Execution {
+          id                String      @id @default(uuid())
+          session_id        String
+          agent_name        String
+          agent_type        String
+          workflow_name     String?
+          input_data        Json
+          output_data       Json?
+          status            String      // pending, running, completed, failed
+          error_message     String?
+          started_at        DateTime    @default(now())
+          completed_at      DateTime?
+          duration_ms       Int?
+          token_usage       Json?
+          
+          session           Session     @relation(fields: [session_id], references: [id])
+          results           Result[]
+          audit_logs        AuditLog[]
+          
+          @@index([session_id])
+          @@index([agent_name])
+          @@index([status])
+          @@index([started_at])
+          @@schema("agent_engine")  # ADDED: Service schema
+        }
+        
+        model Result {
+          id            String      @id @default(uuid())
+          execution_id  String
+          result_type   String      // intermediate, final, error
+          data          Json
+          metadata      Json?
+          created_at    DateTime    @default(now())
+          
+          execution     Execution   @relation(fields: [execution_id], references: [id])
+          
+          @@index([execution_id])
+          @@index([result_type])
+          @@schema("agent_engine")  # ADDED: Service schema
+        }
+        
+        model AuditLog {
+          id            String      @id @default(uuid())
+          session_id    String?
+          execution_id  String?
+          user_id       String
+          action        String
+          resource      String
+          details       Json?
+          ip_address    String?
+          user_agent    String?
+          created_at    DateTime    @default(now())
+          
+          session       Session?    @relation(fields: [session_id], references: [id])
+          execution     Execution?  @relation(fields: [execution_id], references: [id])
+          
+          @@index([user_id])
+          @@index([action])
+          @@index([created_at])
+          @@schema("agent_engine")  # ADDED: Service schema
+        }
+        
+        model ToolRegistry {
+          id            String      @id @default(uuid())
+          name          String      @unique
+          version       String
+          description   String?
+          specification Json
+          function_def  String?
+          categories    String[]
+          dependencies  String[]
+          active        Boolean     @default(true)
+          created_at    DateTime    @default(now())
+          updated_at    DateTime    @updatedAt
+          
+          @@index([name])
+          @@index([categories])
+          @@index([active])
+          @@schema("agent_engine")  # ADDED: Service schema
+        }
+        
+        model ConfigurationVersion {
+          id            String      @id @default(uuid())
+          type          String      // agent, workflow, tool, model
+          name          String
+          version       String
+          specification Json
+          active        Boolean     @default(true)
+          created_by    String
+          created_at    DateTime    @default(now())
+          
+          @@unique([type, name, version])
+          @@index([type])
+          @@index([name])
+          @@index([active])
+          @@schema("agent_engine")  # ADDED: Service schema
+        }
+    
+    - step: "Create database service with multi-backend support"  # CORRECTED: Added backend support
+      focus:
+        - "Initialize Prisma client"
+        - "Create service methods"
+        - "Handle connections"
+        - "Add error handling"
+        - "Support multiple session backends"  # ADDED: Backend flexibility
+      code_template: |
+        from prisma import Prisma
+        from typing import Optional, Dict, Any, List
+        from datetime import datetime
+        import json
+        import os
+        
+        class DatabaseService:
+            def __init__(self):
+                self.prisma = Prisma()
+                # ADDED: Get backend from environment
+                self.session_backend = os.getenv("ADK_SESSION_SERVICE", "memory")
+                # ADDED: Redis namespace for service isolation
+                self.redis_namespace = os.getenv("AGENT_ENGINE_REDIS_NAMESPACE", "agent:")
+            
+            async def connect(self):
+                """Connect to database."""
+                await self.prisma.connect()
+            
+            async def disconnect(self):
+                """Disconnect from database."""
+                await self.prisma.disconnect()
+            
+            # Session operations with ADK compatibility
+            async def create_session(self, app_name: str, user_id: str, 
+                                   session_id: str, state: Dict[str, Any] = None,
+                                   backend: str = None) -> str:  # CORRECTED: Added backend parameter
+                """Create new session record with proper ADK fields."""
+                session = await self.prisma.session.create(
+                    data={
+                        "app_name": app_name,  # VERIFIED: Separate field
+                        "user_id": user_id,    # VERIFIED: Separate field
+                        "session_id": session_id,  # VERIFIED: Actual session ID
+                        "state": json.dumps(state) if state else None,
+                        "backend": backend or self.session_backend,  # ADDED: Track backend
+                        "metadata": json.dumps({"source": "adk", "namespace": self.redis_namespace})
+                    }
+                )
+                return session.id
+            
+            async def get_session(self, session_id: str):
+                """Get session by ID."""
+                return await self.prisma.session.find_unique(
+                    where={"session_id": session_id},
+                    include={"executions": True}
+                )
+            
+            async def update_session_state(self, session_id: str, state_delta: Dict[str, Any]):
+                """Update session state with delta."""  # ADDED: ADK state management
+                session = await self.get_session(session_id)
+                if session:
+                    current_state = json.loads(session.state) if session.state else {}
+                    current_state.update(state_delta)
+                    await self.prisma.session.update(
+                        where={"session_id": session_id},
+                        data={"state": json.dumps(current_state)}
+                    )
+            
+            # Execution tracking
+            async def create_execution(self, session_id: str, agent_name: str,
+                                      agent_type: str, input_data: Dict[str, Any]):
+                """Create execution record."""
+                execution = await self.prisma.execution.create(
+                    data={
+                        "session_id": session_id,
+                        "agent_name": agent_name,
+                        "agent_type": agent_type,
+                        "input_data": json.dumps(input_data),
+                        "status": "pending"
+                    }
+                )
+                return execution.id
+            
+            async def update_execution(self, execution_id: str, status: str,
+                                      output_data: Dict[str, Any] = None,
+                                      error_message: str = None):
+                """Update execution status."""
+                data = {
+                    "status": status,
+                    "completed_at": datetime.now() if status in ["completed", "failed"] else None
+                }
+                if output_data:
+                    data["output_data"] = json.dumps(output_data)
+                if error_message:
+                    data["error_message"] = error_message
+                
+                # Calculate duration if completing
+                if status in ["completed", "failed"]:
+                    execution = await self.prisma.execution.find_unique(where={"id": execution_id})
+                    if execution:
+                        duration = (datetime.now() - execution.started_at).total_seconds() * 1000
+                        data["duration_ms"] = int(duration)
+                
+                return await self.prisma.execution.update(
+                    where={"id": execution_id},
+                    data=data
+                )
+            
+            # Audit logging
+            async def create_audit_log(self, user_id: str, action: str,
+                                      resource: str, details: Dict[str, Any] = None,
+                                      session_id: str = None):  # ADDED: Link to session
+                """Create audit log entry."""
+                return await self.prisma.auditlog.create(
+                    data={
+                        "user_id": user_id,
+                        "action": action,
+                        "resource": resource,
+                        "session_id": session_id,  # ADDED: Session tracking
+                        "details": json.dumps(details) if details else None
+                    }
+                )
+    
+    - step: "Implement session backend manager"  # ADDED: Multi-backend orchestration
+      focus:
+        - "Create backend abstraction"
+        - "Implement Redis session service"
+        - "Prepare Vertex session service stub"
+        - "Handle backend switching"
+      code_template: |
+        # services/agent-engine/src/services/session_backends.py
+        from typing import Optional, Dict, Any
+        import os
+        import json
+        import redis
+        from google.adk.sessions import InMemorySessionService
+        
+        class RedisSessionService:
+            """Redis-backed session service for distributed processing."""
+            
+            def __init__(self):
+                self.redis_client = redis.Redis(
+                    host=os.getenv("REDIS_HOST", "localhost"),
+                    port=int(os.getenv("REDIS_PORT", 6379)),
+                    decode_responses=True
+                )
+                self.namespace = os.getenv("AGENT_ENGINE_REDIS_NAMESPACE", "agent:")
+            
+            def create_session(self, app_name: str, user_id: str, 
+                             initial_state: Dict[str, Any] = None, 
+                             session_id: str = None) -> Any:
+                """Create Redis-backed session."""
+                # Implementation for Redis session storage
+                key = f"{self.namespace}session:{session_id or generate_id()}"
+                session_data = {
+                    "app_name": app_name,
+                    "user_id": user_id,
+                    "session_id": session_id,
+                    "state": initial_state or {}
+                }
+                self.redis_client.set(key, json.dumps(session_data))
+                return session_data
+            
+            def get_session(self, session_id: str):
+                """Retrieve session from Redis."""
+                key = f"{self.namespace}session:{session_id}"
+                data = self.redis_client.get(key)
+                return json.loads(data) if data else None
+        
+        class VertexSessionService:
+            """Vertex AI session service for enterprise features."""
+            
+            def __init__(self):
+                # Stub for future Vertex AI integration
+                pass
+            
+            def create_session(self, app_name: str, user_id: str,
+                             initial_state: Dict[str, Any] = None,
+                             session_id: str = None) -> Any:
+                """Create Vertex AI-backed session."""
+                # TODO: Implement Vertex AI session
+                raise NotImplementedError("Vertex AI sessions coming in Release 2")
+        
+        def get_session_backend(backend_type: str = None):
+            """Get configured session backend service."""
+            backend = backend_type or os.getenv("ADK_SESSION_SERVICE", "memory")
+            
+            if backend == "memory":
+                return InMemorySessionService()
+            elif backend == "redis":
+                return RedisSessionService()
+            elif backend == "vertex":
+                return VertexSessionService()
+            else:
+                raise ValueError(f"Unknown session backend: {backend}")
+      
+    - step: "Create environment configuration loader"  # ADDED: Hierarchical config
+      focus:
+        - "Load base .env configuration"
+        - "Apply environment-specific overrides"
+        - "Support runtime specification overrides"
+        - "Validate configuration completeness"
+      code_template: |
+        # services/agent-engine/src/config/environment.py
+        import os
+        from pathlib import Path
+        from typing import Dict, Any, Optional
+        from dotenv import load_dotenv
+        
+        class EnvironmentConfig:
+            """Hierarchical environment configuration loader."""
+            
+            def __init__(self):
+                self.environment = os.getenv("ENVIRONMENT", "development")
+                self.config = {}
+                self._load_config()
+            
+            def _load_config(self):
+                """Load configuration in hierarchy: base -> environment -> runtime."""
+                # 1. Load base .env file
+                base_env = Path.cwd() / ".env"
+                if base_env.exists():
+                    load_dotenv(base_env)
+                
+                # 2. Load environment-specific overrides
+                env_file = Path.cwd() / "config" / f"{self.environment}.env"
+                if env_file.exists():
+                    load_dotenv(env_file, override=True)
+                
+                # 3. Collect all configuration
+                self.config = {
+                    # Database configuration
+                    "DATABASE_HOST": os.getenv("DATABASE_HOST", "localhost"),
+                    "DATABASE_PORT": os.getenv("DATABASE_PORT", "5432"),
+                    "DATABASE_NAME": os.getenv("DATABASE_NAME", "tahoe"),
+                    "DATABASE_USER": os.getenv("DATABASE_USER", "tahoe"),
+                    "DATABASE_PASSWORD": os.getenv("DATABASE_PASSWORD", "tahoe123"),
+                    
+                    # Service-specific configuration
+                    "AGENT_ENGINE_PORT": os.getenv("AGENT_ENGINE_PORT", "8001"),
+                    "AGENT_ENGINE_LOG_LEVEL": os.getenv("AGENT_ENGINE_LOG_LEVEL", "INFO"),
+                    "AGENT_ENGINE_DB_SCHEMA": os.getenv("AGENT_ENGINE_DB_SCHEMA", "agent_engine"),
+                    "AGENT_ENGINE_REDIS_NAMESPACE": os.getenv("AGENT_ENGINE_REDIS_NAMESPACE", "agent:"),
+                    
+                    # Redis configuration
+                    "REDIS_HOST": os.getenv("REDIS_HOST", "localhost"),
+                    "REDIS_PORT": os.getenv("REDIS_PORT", "6379"),
+                    
+                    # ADK configuration
+                    "ADK_SESSION_SERVICE": os.getenv("ADK_SESSION_SERVICE", "memory"),
+                    "ADK_DEFAULT_MODEL": os.getenv("ADK_DEFAULT_MODEL", "gemini-2.0-flash"),
+                    "ADK_TEMPERATURE": float(os.getenv("ADK_TEMPERATURE", "0.2")),
+                    "ADK_MAX_TOKENS": int(os.getenv("ADK_MAX_TOKENS", "8192")),
+                    
+                    # API Keys (sensitive)
+                    "GEMINI_API_KEY": os.getenv("GEMINI_API_KEY"),
+                }
+            
+            def get(self, key: str, default: Any = None) -> Any:
+                """Get configuration value."""
+                return self.config.get(key, default)
+            
+            def get_database_url(self) -> str:
+                """Build PostgreSQL connection URL with schema."""
+                schema = self.config["AGENT_ENGINE_DB_SCHEMA"]
+                return (
+                    f"postgresql://{self.config['DATABASE_USER']}:"
+                    f"{self.config['DATABASE_PASSWORD']}@"
+                    f"{self.config['DATABASE_HOST']}:"
+                    f"{self.config['DATABASE_PORT']}/"
+                    f"{self.config['DATABASE_NAME']}?schema={schema}"
+                )
+        
+        # Global config instance
+        config = EnvironmentConfig()
+        
+        def load_config() -> EnvironmentConfig:
+            """Get configuration instance."""
+            return config
+        
+        def get_session_backend_config() -> Dict[str, Any]:
+            """Get session backend configuration."""
+            return {
+                "backend": config.get("ADK_SESSION_SERVICE"),
+                "redis_host": config.get("REDIS_HOST"),
+                "redis_port": config.get("REDIS_PORT"),
+                "redis_namespace": config.get("AGENT_ENGINE_REDIS_NAMESPACE"),
+            }
+    
+    - step: "Initialize database with schema isolation"  # CORRECTED: Added schema creation
+      focus:
+        - "Create database if not exists"
+        - "Create service-specific schemas"  # ADDED: Schema isolation
+        - "Run Prisma migrations"
+        - "Seed initial data"
+        - "Verify connections"
+      code_template: |
+        import asyncio
+        from prisma import Prisma
+        import psycopg2
+        from psycopg2.extensions import ISOLATION_LEVEL_AUTOCOMMIT
+        import os
+        
+        async def create_service_schemas():
+            """Create service-specific database schemas."""
+            # Connect directly to PostgreSQL to create schemas
+            conn = psycopg2.connect(
+                host=os.getenv("DATABASE_HOST", "localhost"),
+                port=os.getenv("DATABASE_PORT", "5432"),
+                database=os.getenv("DATABASE_NAME", "tahoe"),
+                user=os.getenv("DATABASE_USER", "tahoe"),
+                password=os.getenv("DATABASE_PASSWORD", "tahoe123")
+            )
+            conn.set_isolation_level(ISOLATION_LEVEL_AUTOCOMMIT)
+            cursor = conn.cursor()
+            
+            # Create schemas for each service
+            schemas = ["agent_engine", "auth", "billing"]  # Service isolation
+            for schema in schemas:
+                cursor.execute(f"CREATE SCHEMA IF NOT EXISTS {schema}")
+                print(f"Schema {schema} created or already exists")
+            
+            cursor.close()
+            conn.close()
+        
+        async def init_database():
+            """Initialize database with schema and migrations."""
+            # Create service schemas first
+            await create_service_schemas()
+            
+            # Generate Prisma client
+            import subprocess
+            subprocess.run(["prisma", "generate"], check=True)
+            
+            # Run migrations
+            subprocess.run(["prisma", "migrate", "deploy"], check=True)
+            
+            # Test connection
+            prisma = Prisma()
+            await prisma.connect()
+            
+            # Seed initial data
+            await seed_initial_data(prisma)
+            
+            await prisma.disconnect()
+            print("Database initialized successfully")
+        
+        async def seed_initial_data(prisma: Prisma):
+            """Seed initial configuration data."""
+            # Check if already seeded
+            existing = await prisma.configurationversion.find_first()
+            if existing:
+                return
+            
+            # Add default configurations
+            await prisma.configurationversion.create(
+                data={
+                    "type": "model",
+                    "name": "default",
+                    "version": "1.0.0",
+                    "specification": {
+                        "provider": "google",
+                        "model": os.getenv("ADK_DEFAULT_MODEL", "gemini-2.0-flash"),
+                        "parameters": {
+                            "temperature": float(os.getenv("ADK_TEMPERATURE", "0.2")),
+                            "max_tokens": int(os.getenv("ADK_MAX_TOKENS", "8192"))
+                        }
+                    },
+                    "created_by": "system"
+                }
+            )
+            
+            # Add default session backend configuration
+            await prisma.configurationversion.create(
+                data={
+                    "type": "session",
+                    "name": "backend-config",
+                    "version": "1.0.0",
+                    "specification": {
+                        "default_backend": os.getenv("ADK_SESSION_SERVICE", "memory"),
+                        "available_backends": ["memory", "redis", "vertex"],
+                        "redis_config": {
+                            "host": os.getenv("REDIS_HOST", "localhost"),
+                            "port": int(os.getenv("REDIS_PORT", "6379")),
+                            "namespace": os.getenv("AGENT_ENGINE_REDIS_NAMESPACE", "agent:")
+                        }
+                    },
+                    "created_by": "system"
+                }
+            )
+    
+    - step: "Configure Docker PostgreSQL and Redis"  # CORRECTED: Added Redis
+      focus:
+        - "Set up PostgreSQL container"
+        - "Set up Redis container"  # ADDED: Redis for session caching
+        - "Configure volumes for persistence"
+        - "Set environment variables"
+        - "Add health checks"
+      docker_template: |
+        services:
+          postgres:
+            image: postgres:15-alpine
+            container_name: tahoe-postgres
+            environment:
+              POSTGRES_USER: tahoe
+              POSTGRES_PASSWORD: tahoe123
+              POSTGRES_DB: tahoe  # CORRECTED: Database name without schema
+            ports:
+              - "5432:5432"
+            volumes:
+              - postgres_data:/var/lib/postgresql/data
+            healthcheck:
+              test: ["CMD-SHELL", "pg_isready -U tahoe"]
+              interval: 10s
+              timeout: 5s
+              retries: 5
+          
+          redis:  # ADDED: Redis service
+            image: redis:7-alpine
+            container_name: tahoe-redis
+            ports:
+              - "6379:6379"
+            volumes:
+              - redis_data:/data
+            healthcheck:
+              test: ["CMD", "redis-cli", "ping"]
+              interval: 10s
+              timeout: 5s
+              retries: 5
+            command: redis-server --appendonly yes  # Enable persistence
+        
+        volumes:
+          postgres_data:
+          redis_data:  # ADDED: Redis volume
+    
+    - step: "Add database and session endpoints"  # CORRECTED: Expanded endpoints
+      focus:
+        - "Add /db/health endpoint"
+        - "Add /db/stats endpoint"
+        - "Add audit log endpoint"
+        - "Add /sessions/backend endpoint"  # ADDED: Session backend info
+    
+    - step: "Create database tests with session backend coverage"  # CORRECTED: Added backend tests
+      focus:
+        - "Test CRUD operations"
+        - "Test relationships"
+        - "Test concurrent access"
+        - "Test audit logging"
+        - "Test session backend switching"  # ADDED: Backend flexibility
+        - "Test Redis session persistence"  # ADDED: Redis testing
+    
+  validation:
+    commands:
+      - desc: "Load environment configuration"  # ADDED: Config verification
+        run: "python -c 'from services.agent_engine.src.config.environment import config; print(config.config)'"
+        expects: "Configuration loaded with ADK_SESSION_SERVICE"
+        
+      - desc: "Generate Prisma client"
+        run: "cd services/infrastructure && prisma generate"
+        expects: "Client generated successfully"
+        
+      - desc: "Run migrations with schema creation"  # CORRECTED: Schema-aware migrations
+        run: "cd services/infrastructure && prisma migrate deploy"
+        expects: "Migrations applied to agent_engine schema"
+        
+      - desc: "Test database connection"
+        run: "python scripts/init_db.py"
+        expects: "Database initialized successfully"
+        
+      - desc: "Verify session backend"  # ADDED: Backend verification
+        run: "python -c 'from services.agent_engine.src.services.session_backends import get_session_backend; print(get_session_backend())'"
+        expects: "Session backend initialized"
+        
+      - desc: "Run database tests"
+        run: "pytest services/agent-engine/tests/test_database.py -v"
+        expects: "All tests pass"
+        
+      - desc: "Check database health"
+        run: "curl localhost:8001/db/health"
+        expects: '{"status": "healthy", "connected": true, "backend": "memory"}'  # CORRECTED: Include backend
+        
+      - desc: "Check Redis connection"  # ADDED: Redis verification
+        run: "redis-cli ping"
+        expects: "PONG"
+        
+      - desc: "Verify schema"
+        run: "cd services/infrastructure && prisma validate"
+        expects: "Schema is valid"
+        
+    endpoints:
+      - method: "GET"
+        path: "/db/health"
+        expects: '{"status": "healthy", "connected": true, "backend": "memory"}'  # CORRECTED: Include backend
+      - method: "GET"
+        path: "/db/stats"
+        expects: "Database statistics with schema info returned"  # CORRECTED: Schema-aware
+      - method: "GET"
+        path: "/sessions/backend"  # ADDED: Backend info endpoint
+        expects: '{"current": "memory", "available": ["memory", "redis", "vertex"]}'
+        
+    integration:
+      - desc: "Complete database setup with multi-backend support"  # CORRECTED: Full setup
+        steps:
+          - "Start PostgreSQL and Redis containers"  # CORRECTED: Both services
+          - "Create service schemas"  # ADDED: Schema isolation
+          - "Run migrations"
+          - "Seed initial data with backend config"  # CORRECTED: Backend config
+          - "Test CRUD operations"
+          - "Test session backend switching"  # ADDED: Backend flexibility
+          - "Verify audit logging"
+    
+  success_criteria:
+    - "PostgreSQL and Redis containers running"  # CORRECTED: Both services
+    - "Service schemas created (agent_engine)"  # ADDED: Schema isolation
+    - "Prisma schema defined and valid"
+    - "Migrations applied successfully"
+    - "Database service functional"
+    - "Multi-backend session support working"  # ADDED: Backend flexibility
+    - "Environment configuration hierarchy working"  # ADDED: Config hierarchy
+    - "CRUD operations working"
+    - "Audit logging operational"
+    - "Tests pass with coverage"
+    - "Health endpoint responds with backend info"  # CORRECTED: Backend status
+    - "Redis namespace isolation verified"  # ADDED: Service isolation
+    
+  session_notes:
+    decisions_made:
+      - "Use PostgreSQL 15 for stability"
+      - "Prisma ORM for type safety"
+      - "JSON fields for flexible data"
+      - "UUID primary keys"
+      - "Service-level schema isolation"  # ADDED: Multi-service architecture
+      - "Redis for distributed session state"  # ADDED: Session distribution
+      - "Environment-based backend selection"  # ADDED: Flexible backends
+    patterns_established:
+      - "Database service pattern"
+      - "Multi-backend session pattern"  # ADDED: Backend abstraction
+      - "Service schema isolation"  # ADDED: Multi-service pattern
+      - "Hierarchical configuration"  # ADDED: Config hierarchy
+      - "Audit logging pattern"
+      - "Migration strategy"
+      - "Connection management"
+    context_for_next:
+      - "Database ready with multi-backend support"  # CORRECTED: Full capability
+      - "Session backends configurable"  # ADDED: Backend flexibility
+      - "Service schemas isolated"  # ADDED: Multi-service ready
+      - "Audit logging available"
+      - "Ready for configuration loader integration"

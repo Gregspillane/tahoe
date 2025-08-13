@@ -1,0 +1,21 @@
+{
+  "AgentSpec/content_analyzer": [
+    {
+      "kind": "AgentSpec",
+      "name": "content_analyzer",
+      "version": "1.0.0",
+      "checksum": "41456b7ce45c6200ffbeda8d57541df253b8ff85595d2793865685d867009318",
+      "created_at": "2025-08-13T20:47:18.149338",
+      "metadata": {
+        "name": "content_analyzer",
+        "version": "1.0.0",
+        "description": "Analyzes content using configurable strategies",
+        "tags": [
+          "analysis",
+          "configurable"
+        ],
+        "author": "agent-engine-team"
+      }
+    }
+  ]
+}

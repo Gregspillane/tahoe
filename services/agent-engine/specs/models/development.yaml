@@ -1,0 +1,48 @@
+apiVersion: agent-engine/v1
+kind: ModelConfig
+metadata:
+  name: development_config
+  version: 1.0.0
+  description: Development environment model configuration
+  tags: [development, config]
+  environment: development
+
+spec:
+  primary:
+    provider: google
+    model: gemini-2.0-flash
+    parameters:
+      temperature: 0.3
+      max_tokens: 4096
+      top_p: 0.95
+      top_k: 40
+      timeout: 30
+  
+  fallbacks:
+    - provider: google
+      model: gemini-2.5-flash
+      trigger_conditions:
+        - rate_limit
+        - timeout
+      parameters:
+        temperature: 0.3
+        max_tokens: 4096
+  
+  load_balancing:
+    strategy: single  # No load balancing in dev
+    health_check_interval: 60
+    retry_policy:
+      max_retries: 2
+      backoff_multiplier: 2
+      initial_delay: 1
+  
+  monitoring:
+    log_requests: true
+    log_responses: false
+    metrics_enabled: true
+    sampling_rate: 1.0
+  
+  cost_optimization:
+    enabled: false
+    daily_budget: null
+    alert_threshold: null

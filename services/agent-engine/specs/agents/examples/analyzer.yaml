@@ -1,0 +1,73 @@
+apiVersion: agent-engine/v1
+kind: AgentSpec
+metadata:
+  name: content_analyzer
+  version: 1.0.0
+  description: Analyzes content using configurable strategies
+  tags: [analysis, configurable]
+  author: agent-engine-team
+
+spec:
+  agent:
+    type: llm
+    model:
+      primary: gemini-2.0-flash
+      fallbacks: 
+        - gemini-2.5-pro
+        - gemini-2.5-flash
+      parameters:
+        temperature: 0.2
+        max_tokens: 8192
+        timeout: 300
+    instruction_template: |
+      You are a {role} specializing in {domain}.
+      Your task is to analyze the provided content and {objective}.
+      
+      Guidelines:
+      - Be thorough and systematic
+      - Provide structured output
+      - Include confidence scores where applicable
+      - Focus on accuracy over speed
+  
+  tools:
+    - name: extract_entities
+      source: registry
+    - name: calculate_score
+      source: inline
+      definition: |
+        def calculate_score(data: dict) -> float:
+            """Calculate a score based on data attributes."""
+            base_score = data.get('base', 0.5)
+            modifier = data.get('modifier', 1.0)
+            return min(1.0, base_score * modifier)
+  
+  sub_agents:
+    - spec_ref: detail_extractor
+      condition: "input.get('detailed', False)"
+  
+  validation:
+    input_schema:
+      type: object
+      properties:
+        content:
+          type: string
+          description: Content to analyze
+        options:
+          type: object
+          properties:
+            detailed:
+              type: boolean
+              default: false
+            domain:
+              type: string
+              default: general
+      required: [content]
+    output_schema:
+      type: object
+      properties:
+        analysis:
+          type: object
+        confidence:
+          type: number
+          minimum: 0
+          maximum: 1

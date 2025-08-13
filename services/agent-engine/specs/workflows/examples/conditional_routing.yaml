@@ -1,0 +1,78 @@
+apiVersion: agent-engine/v1
+kind: WorkflowTemplate
+metadata:
+  name: adaptive_processing
+  version: 1.0.0
+  description: Conditional workflow with dynamic routing based on content type
+  tags: [workflow, conditional, adaptive]
+
+spec:
+  type: conditional
+  parameters:
+    input_schema:
+      type: object
+      properties:
+        content:
+          type: string
+        processing_mode:
+          type: string
+          enum: [auto, analysis, generation, hybrid]
+      required: [content]
+    output_schema:
+      type: object
+      properties:
+        result:
+          type: object
+        processing_path:
+          type: array
+          items:
+            type: string
+        metadata:
+          type: object
+  
+  steps:
+    - id: intake
+      agent_spec: content_classifier
+      outputs: [content_type, complexity, recommended_path]
+    
+    - id: routing
+      type: conditional
+      depends_on: [intake]
+      conditions:
+        - condition: "content_type == 'analytical'"
+          steps:
+            - id: analysis_branch
+              type: parallel
+              agents:
+                - statistical_analyzer
+                - semantic_analyzer
+                - pattern_detector
+        
+        - condition: "content_type == 'generative'"
+          steps:
+            - id: generation_branch
+              agent_spec: content_generator
+        
+        - condition: "complexity > 0.7"
+          steps:
+            - id: complex_branch
+              type: sequential
+              agents:
+                - complexity_reducer
+                - deep_analyzer
+                - result_synthesizer
+        
+        - condition: "True"  # Default case
+          steps:
+            - id: default_branch
+              agent_spec: general_processor
+    
+    - id: synthesis
+      agent_spec: result_synthesizer
+      depends_on: [routing]
+      outputs: [final_result]
+    
+    - id: quality_check
+      agent_spec: quality_validator
+      depends_on: [synthesis]
+      outputs: [validation_passed, quality_score]

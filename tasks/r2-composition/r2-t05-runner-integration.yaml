@@ -3,18 +3,20 @@ task:
   name: "Integrate InMemoryRunner with Agent Factory"
   description: "Connect the universal agent factory with ADK's InMemoryRunner for agent execution and streaming"
   complexity: "medium"
-  estimated_hours: 3
+  estimated_hours: 4  # CORRECTED: Increased hours to account for missing components
   
   context:
     why: "InMemoryRunner is the primary execution component in ADK that handles agent running and streaming"
-    architectural_role: "Bridge between agent composition and execution, enabling run() and run_async() operations"
+    architectural_role: "Bridge between agent composition and execution, enabling run() and run_async() operations with proper event iteration"
     depends_on_tasks: ["r2-t01", "r2-t02", "r2-t03", "r2-t04"]
     enables_tasks: ["r2-t06"]
     references:
       masterplan: "@MASTERPLAN.md#execution-runtime"
       adk_docs: 
-        - "https://google.github.io/adk-docs/runners/in-memory-runner"
-        - "https://google.github.io/adk-docs/execution/streaming"
+        - "https://google.github.io/adk-docs/runtime/"  # VERIFIED: ADK Runtime documentation
+        - "https://google.github.io/adk-docs/events/"  # ADDED: Event system documentation
+        - "https://google.github.io/adk-docs/sessions/"  # ADDED: Session management docs
+        - "https://google.github.io/adk-docs/streaming/"  # ADDED: Streaming documentation
       adk_patterns: "@tasks/adk-patterns.md#runner-usage"
     
   adk_components:
@@ -22,54 +24,151 @@ task:
       - "from google.adk.runners import InMemoryRunner"
       - "from google.adk.sessions import InMemorySessionService"
       - "from google.adk.events import Event"
-      - "from typing import AsyncIterator, Iterator"
+      - "from typing import AsyncIterator, Iterator, List, Dict, Optional"  # CORRECTED: Added missing types
+      - "import asyncio"  # ADDED: For async execution
     verified_patterns:
       - pattern: "Use InMemoryRunner for all agent execution"
-        doc_ref: "https://google.github.io/adk-docs/runners/in-memory-runner"
-      - pattern: "run() for synchronous, run_async() for streaming"
-        doc_ref: "ADK Runner documentation"
+        doc_ref: "https://google.github.io/adk-docs/runtime/"
+      - pattern: "Access session_service as property, not method"  # CORRECTED: Fixed method vs property issue
+        doc_ref: "https://google.github.io/adk-docs/sessions/session/"
+      - pattern: "Iterate through events from run_async for streaming"  # ADDED: Event iteration pattern
+        doc_ref: "https://google.github.io/adk-docs/events/"
+      - pattern: "Support multi-backend session services"  # ADDED: From masterplan requirement
+        doc_ref: "@MASTERPLAN.md#lines-457-491"
     
   implementation:
     creates:
       - path: "services/agent-engine/src/core/execution.py"
-        purpose: "Agent execution orchestration"
+        purpose: "Agent execution orchestration with streaming support"
         exports:
-          - "ExecutionService: Main execution service"
-          - "RunnerManager: Manages InMemoryRunner instances"
-          - "ExecutionContext: Execution configuration"
+          - "ExecutionService: Main execution service with event streaming"
+          - "RunnerManager: Manages InMemoryRunner instances and lifecycle"
+          - "ExecutionContext: Execution configuration with session params"
+          - "SessionBackend: Enum for session backend types"  # ADDED: Multi-backend support
+          - "StreamingExecutor: Handles async event streaming"  # ADDED: Streaming handler
     
     uses_from_previous:
       - source: "r2-t01"
         component: "UniversalAgentFactory"
       - source: "r2-t02"
         component: "LlmAgentBuilder"
+      - source: "r2-t04"  # ADDED: Session orchestration dependency
+        component: "SessionOrchestrator"
     
   implementation_steps:
+    - step: "Create SessionBackend enum and configuration"
+      implementation_notes: |
+        # ADDED: Support for multiple session backends
+        - Define SessionBackend enum (MEMORY, REDIS, VERTEX)
+        - Create session configuration data classes
+        - Support environment-based backend selection
+        
     - step: "Create RunnerManager"
       implementation_notes: |
         - Manage InMemoryRunner lifecycle
-        - Handle session creation
-        - Support both sync and async execution
+        - Handle runner creation with agents
+        - Support runner cleanup and resource management
+        # CORRECTED: Access session_service as property
+        - Access runner.session_service (property, not method call)
+        
+    - step: "Implement StreamingExecutor"  # ADDED: Missing streaming component
+      implementation_notes: |
+        - Handle async event iteration from run_async
+        - Process partial events for text streaming
+        - Detect final responses and turn completion
+        - Support event filtering and transformation
         
     - step: "Implement ExecutionService"
       implementation_notes: |
         - Integrate with agent factory
-        - Execute agents via runner
-        - Handle streaming results
+        - Execute agents via runner with proper session params
+        # CORRECTED: Proper session creation with required params
+        - Create sessions with app_name, user_id, session_id
+        # ADDED: Event iteration for streaming
+        - Iterate through events from run_async
+        - Handle streaming results with event.is_final_response()
+        - Support both sync (run) and async (run_async) execution
         
-    - step: "Add session management"
+    - step: "Add multi-backend session management"  # ADDED: From masterplan requirement
       implementation_notes: |
-        - Create sessions for execution
-        - Track execution state
-        - Handle session cleanup
+        - Support InMemorySessionService for development
+        - Add Redis session service wrapper
+        - Add Vertex session service wrapper
+        - Implement session backend factory pattern
+        
+    - step: "Implement session lifecycle features"  # ADDED: Missing session features
+      implementation_notes: |
+        - Session forking for branching conversations
+        - Session merging for combining branches
+        - Session cleanup and garbage collection
+        - Session state persistence and recovery
+        
+    - step: "Add error recovery and resilience"  # ADDED: From ADK core components
+      implementation_notes: |
+        - Implement ADK's built-in error recovery patterns
+        - Add retry logic with exponential backoff
+        - Handle partial failures in streaming
+        - Implement circuit breaker pattern
+        
+    - step: "Create event system integration"  # ADDED: From masterplan line 150
+      implementation_notes: |
+        - Track conversation history through events
+        - Implement event filtering and routing
+        - Support custom event handlers
+        - Add event persistence for audit trails
         
   validation:
     commands:
-      - description: "Test runner integration"
+      - description: "Test runner integration with all backends"  # CORRECTED: Test all backends
         command: "cd services/agent-engine && pytest tests/test_execution.py -v"
-        expected: "All tests pass"
+        expected: "All tests pass including multi-backend tests"
+        
+      - description: "Test streaming functionality"  # ADDED: Streaming tests
+        command: "cd services/agent-engine && pytest tests/test_streaming.py -v"
+        expected: "Streaming tests pass with event iteration"
+        
+      - description: "Test session lifecycle"  # ADDED: Session lifecycle tests
+        command: "cd services/agent-engine && pytest tests/test_session_lifecycle.py -v"
+        expected: "Session fork, merge, cleanup tests pass"
         
     success_criteria:
-      - "Agents execute via InMemoryRunner"
-      - "Streaming works correctly"
-      - "Sessions managed properly"
+      - "Agents execute via InMemoryRunner with proper session_service property access"  # CORRECTED
+      - "Streaming works correctly with event iteration from run_async"  # CORRECTED
+      - "Sessions managed properly with app_name, user_id, session_id params"  # CORRECTED
+      - "Multi-backend session support (memory, redis, vertex) functional"  # ADDED
+      - "Session forking and merging capabilities work"  # ADDED
+      - "Error recovery and resilience patterns implemented"  # ADDED
+      - "Event system tracks conversation history"  # ADDED
+      - "Both sync and async execution modes supported"  # ADDED
+
+  code_examples:  # ADDED: Implementation guidance
+    - description: "Correct session_service access pattern"
+      code: |
+        # CORRECT: Access as property
+        runner = InMemoryRunner(agent, app_name="agent-engine")
+        session_service = runner.session_service  # Property, not method!
+        session = session_service.create_session(
+            app_name="agent-engine",
+            user_id="user123",
+            session_id="session456"
+        )
+        
+    - description: "Event iteration for streaming"
+      code: |
+        # CORRECT: Iterate through events from run_async
+        async for event in runner.run_async(user_id, session_id, input_data):
+            if event.is_final_response():
+                results.append(event.content)
+            elif event.partial:
+                # Handle partial streaming response
+                stream_handler.process_partial(event)
+                
+    - description: "Multi-backend session factory"
+      code: |
+        def create_session_service(backend: SessionBackend):
+            if backend == SessionBackend.MEMORY:
+                return InMemorySessionService()
+            elif backend == SessionBackend.REDIS:
+                return RedisSessionService(redis_client)
+            elif backend == SessionBackend.VERTEX:
+                return VertexSessionService(vertex_config)

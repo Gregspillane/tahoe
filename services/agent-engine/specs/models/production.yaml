@@ -1,0 +1,87 @@
+apiVersion: agent-engine/v1
+kind: ModelConfig
+metadata:
+  name: production_config
+  version: 1.0.0
+  description: Production environment model configuration with high availability
+  tags: [production, config, ha]
+  environment: production
+
+spec:
+  primary:
+    provider: google
+    model: gemini-2.0-flash
+    parameters:
+      temperature: 0.2
+      max_tokens: 8192
+      top_p: 0.9
+      top_k: 30
+      timeout: 60
+      safety_settings:
+        - category: HARM_CATEGORY_DANGEROUS_CONTENT
+          threshold: BLOCK_MEDIUM_AND_ABOVE
+        - category: HARM_CATEGORY_HARASSMENT
+          threshold: BLOCK_MEDIUM_AND_ABOVE
+  
+  fallbacks:
+    - provider: google
+      model: gemini-2.5-pro
+      trigger_conditions:
+        - rate_limit
+        - error
+        - high_load
+      parameters:
+        temperature: 0.2
+        max_tokens: 8192
+        timeout: 90
+    
+    - provider: google
+      model: gemini-2.5-flash
+      trigger_conditions:
+        - error
+        - catastrophic_failure
+      parameters:
+        temperature: 0.2
+        max_tokens: 4096
+        timeout: 30
+  
+  load_balancing:
+    strategy: round_robin
+    health_check_interval: 30
+    circuit_breaker:
+      enabled: true
+      failure_threshold: 5
+      recovery_timeout: 60
+      half_open_requests: 3
+    retry_policy:
+      max_retries: 3
+      backoff_multiplier: 2
+      initial_delay: 1
+      max_delay: 30
+  
+  monitoring:
+    log_requests: true
+    log_responses: true
+    metrics_enabled: true
+    sampling_rate: 0.1  # Log 10% of requests in detail
+    alert_channels:
+      - slack
+      - pagerduty
+    performance_thresholds:
+      latency_p95: 2000  # ms
+      latency_p99: 5000  # ms
+      error_rate: 0.01   # 1%
+  
+  cost_optimization:
+    enabled: true
+    daily_budget: 1000  # USD
+    alert_threshold: 0.8  # Alert at 80% of budget
+    model_selection_strategy: cost_aware
+    cache_responses: true
+    cache_ttl: 3600  # 1 hour
+  
+  security:
+    api_key_rotation: true
+    rotation_interval: 30  # days
+    encrypt_at_rest: true
+    audit_logging: true
