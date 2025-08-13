@@ -20,7 +20,7 @@ class ServiceConfig(BaseSettings):
     DATABASE_PORT: int = 5435
     DATABASE_NAME: str = "tahoe"
     DATABASE_USER: str = "tahoe"
-    DATABASE_PASSWORD: str = "tahoe"
+    DATABASE_PASSWORD: str  # Required from environment
     DATABASE_SCHEMA: str = "agent_engine"
     
     # Redis configuration
@@ -41,8 +41,10 @@ class ServiceConfig(BaseSettings):
     @computed_field
     @property
     def DATABASE_URL(self) -> str:
-        """Construct database URL from components"""
-        return f"postgresql://{self.DATABASE_USER}:{self.DATABASE_PASSWORD}@{self.DATABASE_HOST}:{self.DATABASE_PORT}/{self.DATABASE_NAME}"
+        """Construct database URL from components with connection pooling"""
+        base_url = f"postgresql://{self.DATABASE_USER}:{self.DATABASE_PASSWORD}@{self.DATABASE_HOST}:{self.DATABASE_PORT}/{self.DATABASE_NAME}"
+        # Add connection pool parameters for Prisma
+        return f"{base_url}?connection_limit=10&pool_timeout=30"
     
     @computed_field
     @property

@@ -10,8 +10,8 @@ except ImportError:
     SequentialAgent = object
 
 import redis.asyncio as redis
-from prisma import Prisma
 from typing import Dict, List, Optional, Any
+from .models.database import database_manager, retry_db_operation
 import asyncio
 import json
 import uuid
@@ -27,7 +27,8 @@ class TahoeOrchestrator:
     """Core orchestration engine for multi-agent compliance analysis"""
     
     def __init__(self):
-        self.db: Optional[Prisma] = None
+        self.db_manager = database_manager
+        self.db = None  # Will be set to database_manager.db after init
         self.cache: Optional[redis.Redis] = None
         self._initialized = False
         
@@ -41,9 +42,9 @@ class TahoeOrchestrator:
         if self._initialized:
             return
             
-        # Initialize Prisma client
-        self.db = Prisma()
-        await self.db.connect()
+        # Initialize database connection
+        await self.db_manager.connect()
+        self.db = self.db_manager.db
         
         # Initialize Redis client
         redis_url = os.getenv("REDIS_URL", "redis://localhost:6382")
@@ -62,8 +63,7 @@ class TahoeOrchestrator:
         
     async def cleanup(self):
         """Cleanup connections on shutdown"""
-        if self.db:
-            await self.db.disconnect()
+        await self.db_manager.disconnect()
         if self.cache:
             await self.cache.close()
         self._initialized = False
@@ -95,19 +95,21 @@ class TahoeOrchestrator:
         # Generate trace ID for monitoring
         trace_id = str(uuid.uuid4())
         
-        # Create analysis record
-        analysis = await self.db.analysis.create(
-            data={
-                "interactionId": interaction_data.get("id", f"interaction-{uuid.uuid4().hex[:8]}"),
-                "portfolioId": portfolio_id,
-                "scorecardId": scorecard_id,
-                "status": "processing",
-                "traceId": trace_id,
-                "metadata": {
-                    "options": options or {},
-                    "interaction_type": interaction_data.get("type", "unknown")
+        # Create analysis record with retry for connection issues
+        analysis = await retry_db_operation(
+            lambda: self.db.analysis.create(
+                data={
+                    "interactionId": interaction_data.get("id", f"interaction-{uuid.uuid4().hex[:8]}"),
+                    "portfolioId": portfolio_id,
+                    "scorecardId": scorecard_id,
+                    "status": "processing",
+                    "traceId": trace_id,
+                    "metadata": {
+                        "options": options or {},
+                        "interaction_type": interaction_data.get("type", "unknown")
+                    }
                 }
-            }
+            )
         )
         
         try:

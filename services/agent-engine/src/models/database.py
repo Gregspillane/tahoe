@@ -5,7 +5,35 @@ Database models and utilities for agent-engine service
 from prisma import Prisma
 from typing import Optional, Dict, Any
 import json
+import asyncio
+import logging
 from contextlib import asynccontextmanager
+
+logger = logging.getLogger(__name__)
+
+# Simple retry decorator for database operations
+async def retry_db_operation(func, max_retries=3, base_delay=1):
+    """
+    Simple retry mechanism for database operations.
+    Only retries on connection errors, not business logic errors.
+    """
+    for attempt in range(max_retries):
+        try:
+            return await func()
+        except Exception as e:
+            # Only retry on connection-related errors
+            error_msg = str(e).lower()
+            if any(x in error_msg for x in ['connection', 'timeout', 'closed', 'terminated']):
+                if attempt < max_retries - 1:
+                    delay = base_delay * (2 ** attempt)  # Exponential backoff
+                    logger.warning(f"Database operation failed (attempt {attempt + 1}/{max_retries}), retrying in {delay}s: {e}")
+                    await asyncio.sleep(delay)
+                else:
+                    logger.error(f"Database operation failed after {max_retries} attempts: {e}")
+                    raise
+            else:
+                # Don't retry on non-connection errors
+                raise
 
 # Global database instance
 db = Prisma()
