@@ -1,0 +1,728 @@
+task:
+  id: "r2-t03-workflow-agents"
+  name: "Implement Workflow Agent Builders"
+  description: "Create builders for SequentialAgent, ParallelAgent, and LoopAgent to enable workflow orchestration from specifications"
+  complexity: "medium"
+  estimated_hours: 4
+  
+  context:
+    why: "Workflow agents enable complex orchestration patterns and are essential for building sophisticated agent systems"
+    architectural_role: "Builders that create workflow agents for sequential, parallel, and loop execution patterns"
+    depends_on_tasks: ["r2-t01"]
+    enables_tasks: ["r2-t05", "r2-t06"]
+    references:
+      masterplan: "@MASTERPLAN.md#workflow-agents"
+      adk_docs: 
+        - "https://google.github.io/adk-docs/agents/sequential-agent"
+        - "https://google.github.io/adk-docs/agents/parallel-agent"
+        - "https://google.github.io/adk-docs/agents/loop-agent"
+      project_context: "@tasks/project-context.md#workflow-orchestration"
+      adk_patterns: "@tasks/adk-patterns.md#workflow-agents"
+    
+  adk_components:
+    imports_needed:
+      - "from google.adk.agents import SequentialAgent, ParallelAgent, LoopAgent"
+      - "from typing import List, Dict, Any, Optional, Callable"
+      - "from dataclasses import dataclass"
+      - "import asyncio"
+    verified_patterns:
+      - pattern: "SequentialAgent executes sub-agents in order"
+        doc_ref: "https://google.github.io/adk-docs/agents/sequential-agent"
+      - pattern: "ParallelAgent executes sub-agents concurrently"
+        doc_ref: "https://google.github.io/adk-docs/agents/parallel-agent"
+      - pattern: "LoopAgent iterates sub-agents based on conditions"
+        doc_ref: "https://google.github.io/adk-docs/agents/loop-agent"
+    avoid_antipatterns:
+      - "Don't create empty workflow agents without sub-agents"
+      - "Don't mix execution patterns in single agent"
+      - "Don't ignore loop termination conditions"
+      - "Don't create circular dependencies between agents"
+    
+  implementation:
+    creates:
+      - path: "services/agent-engine/src/core/builders/workflow_builders.py"
+        purpose: "Workflow agent builders implementation"
+        exports:
+          - "SequentialAgentBuilder: Builder for sequential workflows"
+          - "ParallelAgentBuilder: Builder for parallel workflows"
+          - "LoopAgentBuilder: Builder for loop workflows"
+          - "WorkflowContext: Shared context for workflows"
+        content_structure: |
+          from google.adk.agents import SequentialAgent, ParallelAgent, LoopAgent, BaseAgent
+          from typing import List, Dict, Any, Optional, Callable
+          from dataclasses import dataclass
+          import logging
+          
+          from ..composition import AgentBuilder, AgentSpec, AgentContext
+          from ..specification import SpecificationError
+          
+          logger = logging.getLogger(__name__)
+          
+          @dataclass
+          class WorkflowContext:
+              """Context for workflow execution"""
+              max_iterations: int = 10
+              timeout: Optional[float] = None
+              error_handling: str = "fail_fast"  # fail_fast, continue, retry
+              parallel_limit: Optional[int] = None
+              
+          class WorkflowBuilderBase(AgentBuilder):
+              """Base class for workflow builders"""
+              
+              def __init__(self):
+                  self.sub_agent_factory = None  # Set by factory
+                  
+              def build_sub_agents(self, sub_agent_specs: List[Dict], context: AgentContext) -> List[BaseAgent]:
+                  """Build sub-agents from specifications"""
+                  if not self.sub_agent_factory:
+                      raise SpecificationError("Sub-agent factory not set")
+                  
+                  sub_agents = []
+                  for spec in sub_agent_specs:
+                      try:
+                          # Check condition if present
+                          condition = spec.get("condition", "true")
+                          if not self._evaluate_condition(condition, context):
+                              continue
+                          
+                          # Build sub-agent
+                          if "spec_ref" in spec:
+                              # Reference to existing specification
+                              sub_agent = self.sub_agent_factory.build_agent(
+                                  spec["spec_ref"],
+                                  self._create_sub_context(context, spec)
+                              )
+                          elif "inline_spec" in spec:
+                              # Inline specification
+                              sub_agent = self.sub_agent_factory.build_agent_from_dict(
+                                  spec["inline_spec"],
+                                  self._create_sub_context(context, spec)
+                              )
+                          else:
+                              logger.warning(f"Invalid sub-agent specification: {spec}")
+                              continue
+                          
+                          sub_agents.append(sub_agent)
+                          
+                      except Exception as e:
+                          logger.error(f"Error building sub-agent: {e}")
+                          if context.variables.get("error_handling") == "fail_fast":
+                              raise
+                  
+                  return sub_agents
+              
+              def _evaluate_condition(self, condition: str, context: AgentContext) -> bool:
+                  """Evaluate condition expression"""
+                  if condition == "true":
+                      return True
+                  if condition == "false":
+                      return False
+                  
+                  try:
+                      namespace = {"context": context, "input": context.variables}
+                      return eval(condition, namespace)
+                  except Exception as e:
+                      logger.warning(f"Error evaluating condition '{condition}': {e}")
+                      return False
+              
+              def _create_sub_context(self, parent_context: AgentContext, spec: Dict) -> AgentContext:
+                  """Create context for sub-agent"""
+                  sub_variables = parent_context.variables.copy()
+                  sub_variables.update(spec.get("variables", {}))
+                  
+                  return AgentContext(
+                      user_id=parent_context.user_id,
+                      session_id=parent_context.session_id,
+                      environment=parent_context.environment,
+                      variables=sub_variables,
+                      parent_agent=spec.get("name", "workflow")
+                  )
+              
+              def validate_workflow_spec(self, spec: AgentSpec) -> bool:
+                  """Validate workflow specification"""
+                  try:
+                      agent_spec = spec.spec.get("agent", {})
+                      
+                      # Check for sub-agents
+                      if "sub_agents" not in spec.spec or not spec.spec["sub_agents"]:
+                          logger.error("Workflow must have sub-agents")
+                          return False
+                      
+                      # Validate each sub-agent spec
+                      for sub_spec in spec.spec["sub_agents"]:
+                          if "spec_ref" not in sub_spec and "inline_spec" not in sub_spec:
+                              logger.error("Sub-agent must have spec_ref or inline_spec")
+                              return False
+                      
+                      return True
+                      
+                  except Exception as e:
+                      logger.error(f"Validation error: {e}")
+                      return False
+          
+          class SequentialAgentBuilder(WorkflowBuilderBase):
+              """Builder for sequential workflow agents"""
+              
+              def can_build(self, agent_type: str) -> bool:
+                  """Check if this builder can handle the agent type"""
+                  return agent_type == "sequential"
+              
+              def validate_spec(self, spec: AgentSpec) -> bool:
+                  """Validate sequential agent specification"""
+                  if not self.validate_workflow_spec(spec):
+                      return False
+                  
+                  agent_spec = spec.spec.get("agent", {})
+                  if agent_spec.get("type") != "sequential":
+                      return False
+                  
+                  return True
+              
+              def build(self, spec: AgentSpec, context: AgentContext) -> SequentialAgent:
+                  """Build sequential agent from specification"""
+                  if not self.validate_spec(spec):
+                      raise SpecificationError(f"Invalid sequential agent specification: {spec.metadata.get('name')}")
+                  
+                  metadata = spec.metadata
+                  
+                  # Build sub-agents
+                  sub_agents = self.build_sub_agents(spec.spec["sub_agents"], context)
+                  
+                  if not sub_agents:
+                      raise SpecificationError("Sequential agent must have at least one sub-agent")
+                  
+                  # Create SequentialAgent
+                  try:
+                      agent = SequentialAgent(
+                          name=metadata.get("name", "sequential_workflow"),
+                          sub_agents=sub_agents,
+                          description=metadata.get("description", "")
+                      )
+                      
+                      logger.info(f"Successfully built sequential agent: {metadata.get('name')}")
+                      return agent
+                      
+                  except Exception as e:
+                      raise SpecificationError(f"Error creating sequential agent: {e}")
+          
+          class ParallelAgentBuilder(WorkflowBuilderBase):
+              """Builder for parallel workflow agents"""
+              
+              def can_build(self, agent_type: str) -> bool:
+                  """Check if this builder can handle the agent type"""
+                  return agent_type == "parallel"
+              
+              def validate_spec(self, spec: AgentSpec) -> bool:
+                  """Validate parallel agent specification"""
+                  if not self.validate_workflow_spec(spec):
+                      return False
+                  
+                  agent_spec = spec.spec.get("agent", {})
+                  if agent_spec.get("type") != "parallel":
+                      return False
+                  
+                  return True
+              
+              def build(self, spec: AgentSpec, context: AgentContext) -> ParallelAgent:
+                  """Build parallel agent from specification"""
+                  if not self.validate_spec(spec):
+                      raise SpecificationError(f"Invalid parallel agent specification: {spec.metadata.get('name')}")
+                  
+                  metadata = spec.metadata
+                  agent_spec = spec.spec.get("agent", {})
+                  
+                  # Build sub-agents
+                  sub_agents = self.build_sub_agents(spec.spec["sub_agents"], context)
+                  
+                  if not sub_agents:
+                      raise SpecificationError("Parallel agent must have at least one sub-agent")
+                  
+                  # Get parallel-specific parameters
+                  parameters = agent_spec.get("parameters", {})
+                  
+                  # Create ParallelAgent
+                  try:
+                      agent = ParallelAgent(
+                          name=metadata.get("name", "parallel_workflow"),
+                          sub_agents=sub_agents,
+                          description=metadata.get("description", ""),
+                          **parameters
+                      )
+                      
+                      logger.info(f"Successfully built parallel agent: {metadata.get('name')}")
+                      return agent
+                      
+                  except Exception as e:
+                      raise SpecificationError(f"Error creating parallel agent: {e}")
+          
+          class LoopAgentBuilder(WorkflowBuilderBase):
+              """Builder for loop workflow agents"""
+              
+              def can_build(self, agent_type: str) -> bool:
+                  """Check if this builder can handle the agent type"""
+                  return agent_type == "loop"
+              
+              def validate_spec(self, spec: AgentSpec) -> bool:
+                  """Validate loop agent specification"""
+                  if not self.validate_workflow_spec(spec):
+                      return False
+                  
+                  agent_spec = spec.spec.get("agent", {})
+                  if agent_spec.get("type") != "loop":
+                      return False
+                  
+                  # Check for loop-specific requirements
+                  loop_config = agent_spec.get("loop_config", {})
+                  if not loop_config.get("max_iterations"):
+                      logger.warning("Loop agent should have max_iterations")
+                  
+                  return True
+              
+              def build(self, spec: AgentSpec, context: AgentContext) -> LoopAgent:
+                  """Build loop agent from specification"""
+                  if not self.validate_spec(spec):
+                      raise SpecificationError(f"Invalid loop agent specification: {spec.metadata.get('name')}")
+                  
+                  metadata = spec.metadata
+                  agent_spec = spec.spec.get("agent", {})
+                  loop_config = agent_spec.get("loop_config", {})
+                  
+                  # Build sub-agents
+                  sub_agents = self.build_sub_agents(spec.spec["sub_agents"], context)
+                  
+                  if not sub_agents:
+                      raise SpecificationError("Loop agent must have at least one sub-agent")
+                  
+                  # Get loop-specific parameters
+                  max_iterations = loop_config.get("max_iterations", 10)
+                  termination_condition = loop_config.get("termination_condition")
+                  
+                  # Build termination function if specified
+                  termination_fn = None
+                  if termination_condition:
+                      termination_fn = self._build_termination_function(termination_condition)
+                  
+                  # Create LoopAgent
+                  try:
+                      # Note: LoopAgent API may vary - this is based on expected pattern
+                      agent = LoopAgent(
+                          name=metadata.get("name", "loop_workflow"),
+                          sub_agents=sub_agents,
+                          description=metadata.get("description", ""),
+                          max_iterations=max_iterations,
+                          termination_condition=termination_fn
+                      )
+                      
+                      logger.info(f"Successfully built loop agent: {metadata.get('name')}")
+                      return agent
+                      
+                  except Exception as e:
+                      raise SpecificationError(f"Error creating loop agent: {e}")
+              
+              def _build_termination_function(self, condition: str) -> Callable:
+                  """Build termination condition function"""
+                  def termination_check(iteration: int, result: Any) -> bool:
+                      """Check if loop should terminate"""
+                      try:
+                          namespace = {"iteration": iteration, "result": result}
+                          return eval(condition, namespace)
+                      except Exception as e:
+                          logger.error(f"Error in termination condition: {e}")
+                          return True  # Terminate on error
+                  
+                  return termination_check
+          
+      - path: "services/agent-engine/tests/test_workflow_builders.py"
+        purpose: "Unit tests for workflow agent builders"
+        test_categories:
+          - "Sequential agent building"
+          - "Parallel agent building"
+          - "Loop agent building"
+          - "Sub-agent composition"
+          - "Condition evaluation"
+          - "Error handling"
+        content_structure: |
+          import pytest
+          from unittest.mock import Mock, patch, MagicMock
+          
+          from src.core.builders.workflow_builders import (
+              SequentialAgentBuilder, ParallelAgentBuilder, LoopAgentBuilder,
+              WorkflowContext, WorkflowBuilderBase
+          )
+          from src.core.composition import AgentSpec, AgentContext
+          from src.core.specification import SpecificationError
+          
+          class TestWorkflowBuilderBase:
+              def test_evaluate_condition_true(self):
+                  """Test evaluating true condition"""
+                  builder = WorkflowBuilderBase()
+                  context = AgentContext()
+                  
+                  assert builder._evaluate_condition("true", context) == True
+                  assert builder._evaluate_condition("false", context) == False
+              
+              def test_evaluate_condition_with_context(self):
+                  """Test evaluating condition with context variables"""
+                  builder = WorkflowBuilderBase()
+                  context = AgentContext(variables={"enabled": True, "count": 5})
+                  
+                  assert builder._evaluate_condition("input.enabled", context) == True
+                  assert builder._evaluate_condition("input.count > 3", context) == True
+                  assert builder._evaluate_condition("input.count < 3", context) == False
+              
+              def test_create_sub_context(self):
+                  """Test creating sub-agent context"""
+                  builder = WorkflowBuilderBase()
+                  parent_context = AgentContext(
+                      variables={"parent_var": "value"},
+                      user_id="user123"
+                  )
+                  spec = {
+                      "name": "sub_agent",
+                      "variables": {"sub_var": "sub_value"}
+                  }
+                  
+                  sub_context = builder._create_sub_context(parent_context, spec)
+                  
+                  assert sub_context.user_id == "user123"
+                  assert sub_context.variables["parent_var"] == "value"
+                  assert sub_context.variables["sub_var"] == "sub_value"
+                  assert sub_context.parent_agent == "sub_agent"
+              
+              def test_validate_workflow_spec_no_sub_agents(self):
+                  """Test validation fails without sub-agents"""
+                  builder = WorkflowBuilderBase()
+                  spec = AgentSpec(
+                      api_version="agent-engine/v1",
+                      kind="AgentSpec",
+                      metadata={"name": "test", "version": "1.0.0"},
+                      spec={"agent": {"type": "sequential"}}
+                  )
+                  
+                  assert builder.validate_workflow_spec(spec) == False
+          
+          class TestSequentialAgentBuilder:
+              def test_can_build_sequential(self):
+                  """Test builder recognizes sequential type"""
+                  builder = SequentialAgentBuilder()
+                  assert builder.can_build("sequential") == True
+                  assert builder.can_build("parallel") == False
+                  assert builder.can_build("llm") == False
+              
+              def test_validate_spec_valid(self):
+                  """Test validation of valid sequential spec"""
+                  builder = SequentialAgentBuilder()
+                  spec = AgentSpec(
+                      api_version="agent-engine/v1",
+                      kind="AgentSpec",
+                      metadata={"name": "test", "version": "1.0.0"},
+                      spec={
+                          "agent": {"type": "sequential"},
+                          "sub_agents": [
+                              {"spec_ref": "agent1"},
+                              {"spec_ref": "agent2"}
+                          ]
+                      }
+                  )
+                  
+                  assert builder.validate_spec(spec) == True
+              
+              @patch('src.core.builders.workflow_builders.SequentialAgent')
+              def test_build_sequential_agent(self, mock_sequential):
+                  """Test building sequential agent"""
+                  builder = SequentialAgentBuilder()
+                  
+                  # Mock sub-agent factory
+                  mock_factory = Mock()
+                  mock_sub_agent1 = Mock()
+                  mock_sub_agent2 = Mock()
+                  mock_factory.build_agent.side_effect = [mock_sub_agent1, mock_sub_agent2]
+                  builder.sub_agent_factory = mock_factory
+                  
+                  spec = AgentSpec(
+                      api_version="agent-engine/v1",
+                      kind="AgentSpec",
+                      metadata={"name": "test_sequential", "version": "1.0.0"},
+                      spec={
+                          "agent": {"type": "sequential"},
+                          "sub_agents": [
+                              {"spec_ref": "agent1"},
+                              {"spec_ref": "agent2"}
+                          ]
+                      }
+                  )
+                  context = AgentContext()
+                  
+                  mock_agent_instance = Mock()
+                  mock_sequential.return_value = mock_agent_instance
+                  
+                  agent = builder.build(spec, context)
+                  
+                  mock_sequential.assert_called_once()
+                  call_args = mock_sequential.call_args
+                  assert call_args.kwargs['name'] == "test_sequential"
+                  assert len(call_args.kwargs['sub_agents']) == 2
+          
+          class TestParallelAgentBuilder:
+              def test_can_build_parallel(self):
+                  """Test builder recognizes parallel type"""
+                  builder = ParallelAgentBuilder()
+                  assert builder.can_build("parallel") == True
+                  assert builder.can_build("sequential") == False
+              
+              def test_validate_spec_valid(self):
+                  """Test validation of valid parallel spec"""
+                  builder = ParallelAgentBuilder()
+                  spec = AgentSpec(
+                      api_version="agent-engine/v1",
+                      kind="AgentSpec",
+                      metadata={"name": "test", "version": "1.0.0"},
+                      spec={
+                          "agent": {"type": "parallel"},
+                          "sub_agents": [
+                              {"spec_ref": "agent1"},
+                              {"spec_ref": "agent2"}
+                          ]
+                      }
+                  )
+                  
+                  assert builder.validate_spec(spec) == True
+              
+              @patch('src.core.builders.workflow_builders.ParallelAgent')
+              def test_build_parallel_agent(self, mock_parallel):
+                  """Test building parallel agent"""
+                  builder = ParallelAgentBuilder()
+                  
+                  # Mock sub-agent factory
+                  mock_factory = Mock()
+                  mock_sub_agent1 = Mock()
+                  mock_sub_agent2 = Mock()
+                  mock_factory.build_agent.side_effect = [mock_sub_agent1, mock_sub_agent2]
+                  builder.sub_agent_factory = mock_factory
+                  
+                  spec = AgentSpec(
+                      api_version="agent-engine/v1",
+                      kind="AgentSpec",
+                      metadata={"name": "test_parallel", "version": "1.0.0"},
+                      spec={
+                          "agent": {
+                              "type": "parallel",
+                              "parameters": {"max_concurrency": 5}
+                          },
+                          "sub_agents": [
+                              {"spec_ref": "agent1"},
+                              {"spec_ref": "agent2"}
+                          ]
+                      }
+                  )
+                  context = AgentContext()
+                  
+                  mock_agent_instance = Mock()
+                  mock_parallel.return_value = mock_agent_instance
+                  
+                  agent = builder.build(spec, context)
+                  
+                  mock_parallel.assert_called_once()
+          
+          class TestLoopAgentBuilder:
+              def test_can_build_loop(self):
+                  """Test builder recognizes loop type"""
+                  builder = LoopAgentBuilder()
+                  assert builder.can_build("loop") == True
+                  assert builder.can_build("sequential") == False
+              
+              def test_validate_spec_valid(self):
+                  """Test validation of valid loop spec"""
+                  builder = LoopAgentBuilder()
+                  spec = AgentSpec(
+                      api_version="agent-engine/v1",
+                      kind="AgentSpec",
+                      metadata={"name": "test", "version": "1.0.0"},
+                      spec={
+                          "agent": {
+                              "type": "loop",
+                              "loop_config": {"max_iterations": 5}
+                          },
+                          "sub_agents": [{"spec_ref": "agent1"}]
+                      }
+                  )
+                  
+                  assert builder.validate_spec(spec) == True
+              
+              def test_build_termination_function(self):
+                  """Test building termination condition function"""
+                  builder = LoopAgentBuilder()
+                  condition = "iteration >= 5"
+                  
+                  termination_fn = builder._build_termination_function(condition)
+                  
+                  assert callable(termination_fn)
+                  assert termination_fn(3, None) == False
+                  assert termination_fn(5, None) == True
+                  assert termination_fn(6, None) == True
+              
+              @patch('src.core.builders.workflow_builders.LoopAgent')
+              def test_build_loop_agent(self, mock_loop):
+                  """Test building loop agent"""
+                  builder = LoopAgentBuilder()
+                  
+                  # Mock sub-agent factory
+                  mock_factory = Mock()
+                  mock_sub_agent = Mock()
+                  mock_factory.build_agent.return_value = mock_sub_agent
+                  builder.sub_agent_factory = mock_factory
+                  
+                  spec = AgentSpec(
+                      api_version="agent-engine/v1",
+                      kind="AgentSpec",
+                      metadata={"name": "test_loop", "version": "1.0.0"},
+                      spec={
+                          "agent": {
+                              "type": "loop",
+                              "loop_config": {
+                                  "max_iterations": 10,
+                                  "termination_condition": "iteration >= 5"
+                              }
+                          },
+                          "sub_agents": [{"spec_ref": "agent1"}]
+                      }
+                  )
+                  context = AgentContext()
+                  
+                  mock_agent_instance = Mock()
+                  mock_loop.return_value = mock_agent_instance
+                  
+                  agent = builder.build(spec, context)
+                  
+                  mock_loop.assert_called_once()
+                  call_args = mock_loop.call_args
+                  assert call_args.kwargs['name'] == "test_loop"
+                  assert call_args.kwargs['max_iterations'] == 10
+        
+    modifies:
+      - path: "services/agent-engine/src/core/builders/__init__.py"
+        changes: "Add workflow builder imports"
+        
+    uses_from_previous:
+      - source: "r2-t01"
+        component: "AgentBuilder base class"
+        usage: "Workflow builders extend AgentBuilder"
+      - source: "r2-t01"
+        component: "UniversalAgentFactory"
+        usage: "For building sub-agents recursively"
+    
+  implementation_steps:
+    - step: "Create WorkflowBuilderBase class"
+      implementation_notes: |
+        - Abstract base for all workflow builders
+        - Common sub-agent building logic
+        - Condition evaluation support
+        - Context propagation
+      validates:
+        - "Base class provides shared functionality"
+        - "Sub-agent building works"
+        
+    - step: "Implement SequentialAgentBuilder"
+      implementation_notes: |
+        - Build agents that execute in order
+        - Validate sequential specifications
+        - Create SequentialAgent instances
+        - Handle execution order
+      validates:
+        - "Sequential agents created correctly"
+        - "Sub-agents execute in order"
+        
+    - step: "Create ParallelAgentBuilder"
+      implementation_notes: |
+        - Build agents that execute concurrently
+        - Support concurrency limits
+        - Handle parallel execution
+        - Aggregate results
+      validates:
+        - "Parallel agents created correctly"
+        - "Sub-agents execute concurrently"
+        
+    - step: "Implement LoopAgentBuilder"
+      implementation_notes: |
+        - Build agents that iterate
+        - Support termination conditions
+        - Handle loop counters
+        - Prevent infinite loops
+      validates:
+        - "Loop agents created correctly"
+        - "Termination conditions work"
+        
+    - step: "Update builder registry"
+      implementation_notes: |
+        - Register all workflow builders
+        - Enable builder discovery
+        - Support builder chaining
+      validates:
+        - "All builders registered"
+        - "Factory recognizes workflow types"
+        
+    - step: "Write comprehensive tests"
+      implementation_notes: |
+        - Test each builder type
+        - Test sub-agent composition
+        - Test condition evaluation
+        - Test error handling
+      validates:
+        - "pytest tests/test_workflow_builders.py passes"
+        - "Coverage > 80%"
+        
+  validation:
+    commands:
+      - description: "Run unit tests"
+        command: "cd services/agent-engine && pytest tests/test_workflow_builders.py -v"
+        expected: "All tests pass"
+        
+      - description: "Check code coverage"
+        command: "cd services/agent-engine && pytest tests/test_workflow_builders.py --cov=src/core/builders --cov-report=term-missing"
+        expected: "Coverage > 80%"
+        
+      - description: "Verify imports"
+        command: |
+          cd services/agent-engine && python -c "
+          from src.core.builders.workflow_builders import (
+              SequentialAgentBuilder, ParallelAgentBuilder, LoopAgentBuilder
+          )
+          print('All imports successful')
+          "
+        expected: "All imports successful"
+        
+    success_criteria:
+      - "All workflow builder classes implemented"
+      - "Sub-agent composition works recursively"
+      - "Condition evaluation functions correctly"
+      - "All unit tests pass"
+      - "Code coverage > 80%"
+      
+  dependencies:
+    required_before:
+      - task: "r2-t01"
+        reason: "Need agent factory base and AgentBuilder abstract class"
+        
+    enables_after:
+      - task: "r2-t05"
+        reason: "Runner integration needs all agent builders"
+      - task: "r2-t06"
+        reason: "Composition tests need workflow builders"
+        
+  notes:
+    key_decisions:
+      - "Shared base class for workflow builders"
+      - "Support conditional sub-agent inclusion"
+      - "Enable recursive agent composition"
+      - "Flexible termination conditions for loops"
+      
+    future_enhancements:
+      - "Add workflow state management"
+      - "Support dynamic workflow modification"
+      - "Add workflow debugging tools"
+      - "Enable workflow visualization"
+      
+    technical_debt:
+      - "Consider adding workflow validation"
+      - "May need async execution optimization"
+      - "Could benefit from execution tracing"

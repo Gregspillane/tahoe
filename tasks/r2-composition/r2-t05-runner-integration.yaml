@@ -1,0 +1,75 @@
+task:
+  id: "r2-t05-runner-integration"
+  name: "Integrate InMemoryRunner with Agent Factory"
+  description: "Connect the universal agent factory with ADK's InMemoryRunner for agent execution and streaming"
+  complexity: "medium"
+  estimated_hours: 3
+  
+  context:
+    why: "InMemoryRunner is the primary execution component in ADK that handles agent running and streaming"
+    architectural_role: "Bridge between agent composition and execution, enabling run() and run_async() operations"
+    depends_on_tasks: ["r2-t01", "r2-t02", "r2-t03", "r2-t04"]
+    enables_tasks: ["r2-t06"]
+    references:
+      masterplan: "@MASTERPLAN.md#execution-runtime"
+      adk_docs: 
+        - "https://google.github.io/adk-docs/runners/in-memory-runner"
+        - "https://google.github.io/adk-docs/execution/streaming"
+      adk_patterns: "@tasks/adk-patterns.md#runner-usage"
+    
+  adk_components:
+    imports_needed:
+      - "from google.adk.runners import InMemoryRunner"
+      - "from google.adk.sessions import InMemorySessionService"
+      - "from google.adk.events import Event"
+      - "from typing import AsyncIterator, Iterator"
+    verified_patterns:
+      - pattern: "Use InMemoryRunner for all agent execution"
+        doc_ref: "https://google.github.io/adk-docs/runners/in-memory-runner"
+      - pattern: "run() for synchronous, run_async() for streaming"
+        doc_ref: "ADK Runner documentation"
+    
+  implementation:
+    creates:
+      - path: "services/agent-engine/src/core/execution.py"
+        purpose: "Agent execution orchestration"
+        exports:
+          - "ExecutionService: Main execution service"
+          - "RunnerManager: Manages InMemoryRunner instances"
+          - "ExecutionContext: Execution configuration"
+    
+    uses_from_previous:
+      - source: "r2-t01"
+        component: "UniversalAgentFactory"
+      - source: "r2-t02"
+        component: "LlmAgentBuilder"
+    
+  implementation_steps:
+    - step: "Create RunnerManager"
+      implementation_notes: |
+        - Manage InMemoryRunner lifecycle
+        - Handle session creation
+        - Support both sync and async execution
+        
+    - step: "Implement ExecutionService"
+      implementation_notes: |
+        - Integrate with agent factory
+        - Execute agents via runner
+        - Handle streaming results
+        
+    - step: "Add session management"
+      implementation_notes: |
+        - Create sessions for execution
+        - Track execution state
+        - Handle session cleanup
+        
+  validation:
+    commands:
+      - description: "Test runner integration"
+        command: "cd services/agent-engine && pytest tests/test_execution.py -v"
+        expected: "All tests pass"
+        
+    success_criteria:
+      - "Agents execute via InMemoryRunner"
+      - "Streaming works correctly"
+      - "Sessions managed properly"

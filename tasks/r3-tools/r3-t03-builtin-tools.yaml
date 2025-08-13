@@ -1,0 +1,76 @@
+task:
+  id: "r3-t03-builtin-tools"
+  name: "Create Built-in Tools Library"
+  description: "Implement a library of commonly used built-in tools for agents"
+  complexity: "simple"
+  estimated_hours: 2
+  
+  context:
+    why: "Built-in tools provide common functionality that agents frequently need"
+    architectural_role: "Standard tool library available to all agents"
+    depends_on_tasks: ["r3-t01", "r3-t02"]
+    enables_tasks: []
+    references:
+      masterplan: "@MASTERPLAN.md#built-in-tools"
+      adk_docs: 
+        - "https://google.github.io/adk-docs/tools/built-in"
+    
+  implementation:
+    creates:
+      - path: "services/agent-engine/src/tools/builtin/"
+        purpose: "Built-in tools directory"
+        content:
+          - "__init__.py"
+          - "text_tools.py"
+          - "data_tools.py"
+          - "validation_tools.py"
+          - "transformation_tools.py"
+      
+      - path: "services/agent-engine/src/tools/builtin/text_tools.py"
+        purpose: "Text processing tools"
+        exports:
+          - "summarize_text"
+          - "extract_keywords"
+          - "format_text"
+          - "split_text"
+          
+    uses_from_previous:
+      - source: "r3-t01"
+        component: "ToolRegistry"
+        usage: "Register built-in tools"
+    
+  implementation_steps:
+    - step: "Create text processing tools"
+      implementation_notes: |
+        - Text summarization
+        - Keyword extraction
+        - Text formatting
+        
+    - step: "Implement data tools"
+      implementation_notes: |
+        - JSON parsing
+        - Data filtering
+        - Data aggregation
+        
+    - step: "Add validation tools"
+      implementation_notes: |
+        - Schema validation
+        - Type checking
+        - Range validation
+        
+    - step: "Register all built-in tools"
+      implementation_notes: |
+        - Auto-discovery
+        - Batch registration
+        - Category assignment
+        
+  validation:
+    commands:
+      - description: "Test built-in tools"
+        command: "cd services/agent-engine && pytest tests/test_builtin_tools.py -v"
+        expected: "All tests pass"
+        
+    success_criteria:
+      - "Built-in tools implemented"
+      - "Tools registered in registry"
+      - "All tools tested"

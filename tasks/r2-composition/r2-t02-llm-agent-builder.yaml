@@ -1,0 +1,705 @@
+task:
+  id: "r2-t02-llm-agent-builder"
+  name: "Implement LLM Agent Builder"
+  description: "Create the LLM agent builder that constructs LlmAgent instances from specifications with dynamic tool and sub-agent composition"
+  complexity: "medium"
+  estimated_hours: 3
+  
+  context:
+    why: "LlmAgent is the primary agent type for LLM interactions and needs a dedicated builder for specification-driven creation"
+    architectural_role: "Core builder that creates LLM agents with tools, sub-agents, and dynamic instructions from specifications"
+    depends_on_tasks: ["r2-t01"]
+    enables_tasks: ["r2-t05", "r2-t06"]
+    references:
+      masterplan: "@MASTERPLAN.md#universal-agent-factory"
+      adk_docs: 
+        - "https://google.github.io/adk-docs/agents/llm-agent"
+        - "https://google.github.io/adk-docs/agents/tools"
+      project_context: "@tasks/project-context.md#llm-agents"
+      adk_patterns: "@tasks/adk-patterns.md#llm-agent-creation"
+    
+  adk_components:
+    imports_needed:
+      - "from google.adk.agents import LlmAgent, Agent"
+      - "from google.adk.tools import FunctionTool"
+      - "from typing import List, Dict, Any, Optional, Callable"
+      - "import inspect"
+      - "import re"
+      - "from string import Template"
+    verified_patterns:
+      - pattern: "LlmAgent is aliased as Agent in ADK"
+        doc_ref: "https://google.github.io/adk-docs/api-reference/python/agents#llmagent"
+      - pattern: "Tools can be functions or FunctionTool instances"
+        doc_ref: "https://google.github.io/adk-docs/agents/tools"
+      - pattern: "Sub-agents enable hierarchical composition"
+        doc_ref: "https://google.github.io/adk-docs/agents/composition"
+    avoid_antipatterns:
+      - "Don't wrap simple functions unnecessarily with FunctionTool"
+      - "Don't hardcode model names or parameters"
+      - "Don't ignore tool validation errors"
+      - "Don't create agents without instructions"
+    
+  implementation:
+    creates:
+      - path: "services/agent-engine/src/core/builders/llm_builder.py"
+        purpose: "LLM agent builder implementation"
+        exports:
+          - "LlmAgentBuilder: Builder for LlmAgent instances"
+          - "InstructionBuilder: Builds dynamic instructions"
+          - "ToolLoader: Loads and validates tools"
+        content_structure: |
+          from google.adk.agents import LlmAgent, Agent
+          from google.adk.tools import FunctionTool
+          from typing import List, Dict, Any, Optional, Callable
+          import inspect
+          import re
+          from string import Template
+          import logging
+          
+          from ..composition import AgentBuilder, AgentSpec, AgentContext
+          from ..specification import SpecificationError
+          
+          logger = logging.getLogger(__name__)
+          
+          class InstructionBuilder:
+              """Builds dynamic instructions from templates"""
+              
+              def build(self, template: str, context: AgentContext) -> str:
+                  """Build instruction from template with context variables"""
+                  if not template:
+                      raise ValueError("Instruction template cannot be empty")
+                  
+                  # Extract variables from template
+                  variables = self._extract_variables(template)
+                  
+                  # Prepare substitution dict
+                  substitutions = {}
+                  for var in variables:
+                      if var in context.variables:
+                          substitutions[var] = context.variables[var]
+                      else:
+                          logger.warning(f"Variable {var} not found in context, using placeholder")
+                          substitutions[var] = f"[{var}]"
+                  
+                  # Perform substitution
+                  try:
+                      instruction = Template(template).safe_substitute(**substitutions)
+                      return instruction.strip()
+                  except Exception as e:
+                      raise SpecificationError(f"Error building instruction: {e}")
+              
+              def _extract_variables(self, template: str) -> List[str]:
+                  """Extract variable names from template"""
+                  # Match ${var} and $var patterns
+                  pattern = r'\$\{?(\w+)\}?'
+                  matches = re.findall(pattern, template)
+                  return list(set(matches))
+          
+          class ToolLoader:
+              """Loads and validates tools for agents"""
+              
+              def __init__(self, tool_registry=None):
+                  self.tool_registry = tool_registry
+                  self.built_in_tools = self._load_built_in_tools()
+              
+              def load_tools(self, tool_specs: List[Dict]) -> List[Callable]:
+                  """Load tools from specifications"""
+                  tools = []
+                  
+                  for spec in tool_specs:
+                      tool = self._load_single_tool(spec)
+                      if tool:
+                          tools.append(tool)
+                      else:
+                          logger.warning(f"Failed to load tool: {spec.get('name', 'unknown')}")
+                  
+                  return tools
+              
+              def _load_single_tool(self, spec: Dict) -> Optional[Callable]:
+                  """Load a single tool from specification"""
+                  source = spec.get('source', 'registry')
+                  
+                  if source == 'registry':
+                      return self._load_from_registry(spec['name'])
+                  elif source == 'builtin':
+                      return self._load_built_in(spec['name'])
+                  elif source == 'inline':
+                      return self._create_inline_tool(spec)
+                  elif source == 'import':
+                      return self._import_tool(spec)
+                  else:
+                      logger.error(f"Unknown tool source: {source}")
+                      return None
+              
+              def _load_from_registry(self, name: str) -> Optional[Callable]:
+                  """Load tool from registry"""
+                  if not self.tool_registry:
+                      logger.warning("No tool registry available")
+                      return None
+                  
+                  return self.tool_registry.get_tool(name)
+              
+              def _load_built_in(self, name: str) -> Optional[Callable]:
+                  """Load built-in ADK tool"""
+                  if name == "google_search":
+                      try:
+                          from google.adk.tools import google_search
+                          return google_search
+                      except ImportError:
+                          logger.error("google_search tool not available")
+                          return None
+                  
+                  return self.built_in_tools.get(name)
+              
+              def _create_inline_tool(self, spec: Dict) -> Optional[Callable]:
+                  """Create tool from inline definition"""
+                  try:
+                      definition = spec.get('definition', '')
+                      # Create local namespace for execution
+                      namespace = {}
+                      exec(definition, namespace)
+                      
+                      # Find the function in namespace
+                      for name, obj in namespace.items():
+                          if callable(obj) and not name.startswith('_'):
+                              return obj
+                      
+                      logger.error("No callable found in inline definition")
+                      return None
+                      
+                  except Exception as e:
+                      logger.error(f"Error creating inline tool: {e}")
+                      return None
+              
+              def _import_tool(self, spec: Dict) -> Optional[Callable]:
+                  """Import tool from module"""
+                  try:
+                      module_name = spec.get('module')
+                      function_name = spec.get('function')
+                      
+                      module = __import__(module_name, fromlist=[function_name])
+                      return getattr(module, function_name)
+                      
+                  except Exception as e:
+                      logger.error(f"Error importing tool: {e}")
+                      return None
+              
+              def _load_built_in_tools(self) -> Dict[str, Callable]:
+                  """Load available built-in tools"""
+                  tools = {}
+                  # Add built-in tools as they become available
+                  return tools
+              
+              def validate_tool(self, tool: Callable) -> bool:
+                  """Validate tool has proper signature"""
+                  try:
+                      sig = inspect.signature(tool)
+                      # Basic validation - has parameters and returns something
+                      return len(sig.parameters) > 0
+                  except Exception:
+                      return False
+          
+          class LlmAgentBuilder(AgentBuilder):
+              """Builder for LlmAgent instances"""
+              
+              def __init__(self, tool_registry=None):
+                  self.instruction_builder = InstructionBuilder()
+                  self.tool_loader = ToolLoader(tool_registry)
+                  self.sub_agent_factory = None  # Will be set by factory
+              
+              def can_build(self, agent_type: str) -> bool:
+                  """Check if this builder can handle the agent type"""
+                  return agent_type in ["llm", "agent"]
+              
+              def validate_spec(self, spec: AgentSpec) -> bool:
+                  """Validate LLM agent specification"""
+                  try:
+                      agent_spec = spec.spec.get("agent", {})
+                      
+                      # Check required fields
+                      if not agent_spec.get("instruction_template"):
+                          logger.error("Missing instruction_template")
+                          return False
+                      
+                      # Check model configuration
+                      model_config = agent_spec.get("model", {})
+                      if not model_config.get("primary"):
+                          logger.error("Missing primary model")
+                          return False
+                      
+                      # Validate agent type
+                      if agent_spec.get("type") not in ["llm", "agent"]:
+                          logger.error(f"Invalid agent type: {agent_spec.get('type')}")
+                          return False
+                      
+                      return True
+                      
+                  except Exception as e:
+                      logger.error(f"Validation error: {e}")
+                      return False
+              
+              def build(self, spec: AgentSpec, context: AgentContext) -> LlmAgent:
+                  """Build LLM agent from specification"""
+                  if not self.validate_spec(spec):
+                      raise SpecificationError(f"Invalid LLM agent specification: {spec.metadata.get('name')}")
+                  
+                  agent_spec = spec.spec.get("agent", {})
+                  metadata = spec.metadata
+                  
+                  # Build instruction from template
+                  instruction = self.instruction_builder.build(
+                      agent_spec["instruction_template"],
+                      context
+                  )
+                  
+                  # Load tools
+                  tools = []
+                  if "tools" in spec.spec:
+                      tools = self.tool_loader.load_tools(spec.spec["tools"])
+                  
+                  # Build sub-agents
+                  sub_agents = []
+                  if "sub_agents" in spec.spec and self.sub_agent_factory:
+                      sub_agents = self._build_sub_agents(spec.spec["sub_agents"], context)
+                  
+                  # Get model configuration
+                  model_config = agent_spec.get("model", {})
+                  model = model_config.get("primary", "gemini-2.0-flash")
+                  
+                  # Get additional parameters
+                  parameters = agent_spec.get("parameters", {})
+                  
+                  # Create LlmAgent
+                  try:
+                      agent = LlmAgent(
+                          name=metadata.get("name", "unnamed_agent"),
+                          model=model,
+                          instruction=instruction,
+                          description=metadata.get("description", ""),
+                          tools=tools,
+                          sub_agents=sub_agents,
+                          **parameters
+                      )
+                      
+                      logger.info(f"Successfully built LLM agent: {metadata.get('name')}")
+                      return agent
+                      
+                  except Exception as e:
+                      raise SpecificationError(f"Error creating LLM agent: {e}")
+              
+              def _build_sub_agents(self, sub_agent_specs: List[Dict], context: AgentContext) -> List:
+                  """Build sub-agents from specifications"""
+                  sub_agents = []
+                  
+                  for sub_spec in sub_agent_specs:
+                      # Check condition
+                      condition = sub_spec.get("condition", "true")
+                      if not self._evaluate_condition(condition, context):
+                          continue
+                      
+                      # Build sub-agent
+                      spec_ref = sub_spec.get("spec_ref")
+                      if spec_ref and self.sub_agent_factory:
+                          try:
+                              sub_context = AgentContext(
+                                  **context.dict(),
+                                  parent_agent=context.variables.get("agent_name")
+                              )
+                              sub_agent = self.sub_agent_factory.build_agent(spec_ref, sub_context)
+                              sub_agents.append(sub_agent)
+                          except Exception as e:
+                              logger.error(f"Error building sub-agent {spec_ref}: {e}")
+                  
+                  return sub_agents
+              
+              def _evaluate_condition(self, condition: str, context: AgentContext) -> bool:
+                  """Evaluate condition expression"""
+                  if condition == "true":
+                      return True
+                  if condition == "false":
+                      return False
+                  
+                  try:
+                      # Simple evaluation with context variables
+                      namespace = {"context": context, "input": context.variables}
+                      return eval(condition, namespace)
+                  except Exception as e:
+                      logger.warning(f"Error evaluating condition '{condition}': {e}")
+                      return False
+          
+      - path: "services/agent-engine/src/core/builders/__init__.py"
+        purpose: "Builders module initialization"
+        content: |
+          from .llm_builder import LlmAgentBuilder, InstructionBuilder, ToolLoader
+          
+          __all__ = [
+              'LlmAgentBuilder',
+              'InstructionBuilder',
+              'ToolLoader'
+          ]
+          
+      - path: "services/agent-engine/tests/test_llm_builder.py"
+        purpose: "Unit tests for LLM agent builder"
+        test_categories:
+          - "Builder initialization"
+          - "Instruction building"
+          - "Tool loading"
+          - "Agent creation"
+          - "Sub-agent composition"
+          - "Error handling"
+        content_structure: |
+          import pytest
+          from unittest.mock import Mock, patch, MagicMock
+          from google.adk.agents import LlmAgent
+          
+          from src.core.builders.llm_builder import (
+              LlmAgentBuilder, InstructionBuilder, ToolLoader
+          )
+          from src.core.composition import AgentSpec, AgentContext
+          
+          class TestInstructionBuilder:
+              def test_simple_instruction(self):
+                  """Test building simple instruction without variables"""
+                  builder = InstructionBuilder()
+                  context = AgentContext()
+                  
+                  instruction = builder.build("You are a helpful assistant.", context)
+                  assert instruction == "You are a helpful assistant."
+              
+              def test_instruction_with_variables(self):
+                  """Test building instruction with variable substitution"""
+                  builder = InstructionBuilder()
+                  context = AgentContext(variables={"role": "analyst", "domain": "finance"})
+                  
+                  template = "You are a ${role} specializing in ${domain}."
+                  instruction = builder.build(template, context)
+                  assert instruction == "You are a analyst specializing in finance."
+              
+              def test_missing_variable_placeholder(self):
+                  """Test missing variables get placeholders"""
+                  builder = InstructionBuilder()
+                  context = AgentContext(variables={"role": "analyst"})
+                  
+                  template = "You are a ${role} in ${domain}."
+                  instruction = builder.build(template, context)
+                  assert instruction == "You are a analyst in [domain]."
+              
+              def test_empty_template_error(self):
+                  """Test error on empty template"""
+                  builder = InstructionBuilder()
+                  context = AgentContext()
+                  
+                  with pytest.raises(ValueError, match="cannot be empty"):
+                      builder.build("", context)
+          
+          class TestToolLoader:
+              def test_loader_initialization(self):
+                  """Test tool loader initializes correctly"""
+                  loader = ToolLoader()
+                  assert loader.tool_registry is None
+                  assert loader.built_in_tools == {}
+              
+              def test_load_inline_tool(self):
+                  """Test loading inline tool definition"""
+                  loader = ToolLoader()
+                  spec = {
+                      "name": "test_tool",
+                      "source": "inline",
+                      "definition": "def test_tool(x): return x * 2"
+                  }
+                  
+                  tool = loader._load_single_tool(spec)
+                  assert tool is not None
+                  assert callable(tool)
+                  assert tool(5) == 10
+              
+              def test_load_from_registry(self):
+                  """Test loading tool from registry"""
+                  mock_registry = Mock()
+                  mock_tool = Mock()
+                  mock_registry.get_tool.return_value = mock_tool
+                  
+                  loader = ToolLoader(tool_registry=mock_registry)
+                  spec = {"name": "registered_tool", "source": "registry"}
+                  
+                  tool = loader._load_single_tool(spec)
+                  assert tool == mock_tool
+                  mock_registry.get_tool.assert_called_once_with("registered_tool")
+              
+              def test_validate_tool(self):
+                  """Test tool validation"""
+                  loader = ToolLoader()
+                  
+                  def valid_tool(x, y):
+                      return x + y
+                  
+                  assert loader.validate_tool(valid_tool) == True
+                  assert loader.validate_tool("not_a_function") == False
+              
+              def test_load_multiple_tools(self):
+                  """Test loading multiple tools"""
+                  loader = ToolLoader()
+                  specs = [
+                      {"name": "tool1", "source": "inline", "definition": "def tool1(x): return x"},
+                      {"name": "tool2", "source": "inline", "definition": "def tool2(x): return x * 2"}
+                  ]
+                  
+                  tools = loader.load_tools(specs)
+                  assert len(tools) == 2
+                  assert all(callable(tool) for tool in tools)
+          
+          class TestLlmAgentBuilder:
+              def test_builder_initialization(self):
+                  """Test LLM agent builder initializes correctly"""
+                  builder = LlmAgentBuilder()
+                  assert builder.instruction_builder is not None
+                  assert builder.tool_loader is not None
+                  assert builder.sub_agent_factory is None
+              
+              def test_can_build_llm_type(self):
+                  """Test builder recognizes LLM agent types"""
+                  builder = LlmAgentBuilder()
+                  assert builder.can_build("llm") == True
+                  assert builder.can_build("agent") == True
+                  assert builder.can_build("sequential") == False
+              
+              def test_validate_spec_valid(self):
+                  """Test validation of valid specification"""
+                  builder = LlmAgentBuilder()
+                  spec = AgentSpec(
+                      api_version="agent-engine/v1",
+                      kind="AgentSpec",
+                      metadata={"name": "test", "version": "1.0.0"},
+                      spec={
+                          "agent": {
+                              "type": "llm",
+                              "instruction_template": "You are a helper.",
+                              "model": {"primary": "gemini-2.0-flash"}
+                          }
+                      }
+                  )
+                  
+                  assert builder.validate_spec(spec) == True
+              
+              def test_validate_spec_missing_instruction(self):
+                  """Test validation fails without instruction template"""
+                  builder = LlmAgentBuilder()
+                  spec = AgentSpec(
+                      api_version="agent-engine/v1",
+                      kind="AgentSpec",
+                      metadata={"name": "test", "version": "1.0.0"},
+                      spec={
+                          "agent": {
+                              "type": "llm",
+                              "model": {"primary": "gemini-2.0-flash"}
+                          }
+                      }
+                  )
+                  
+                  assert builder.validate_spec(spec) == False
+              
+              @patch('src.core.builders.llm_builder.LlmAgent')
+              def test_build_simple_agent(self, mock_llm_agent):
+                  """Test building simple LLM agent"""
+                  builder = LlmAgentBuilder()
+                  spec = AgentSpec(
+                      api_version="agent-engine/v1",
+                      kind="AgentSpec",
+                      metadata={"name": "test_agent", "version": "1.0.0", "description": "Test agent"},
+                      spec={
+                          "agent": {
+                              "type": "llm",
+                              "instruction_template": "You are a helpful assistant.",
+                              "model": {"primary": "gemini-2.0-flash"},
+                              "parameters": {"temperature": 0.2}
+                          }
+                      }
+                  )
+                  context = AgentContext()
+                  
+                  mock_agent_instance = Mock()
+                  mock_llm_agent.return_value = mock_agent_instance
+                  
+                  agent = builder.build(spec, context)
+                  
+                  mock_llm_agent.assert_called_once()
+                  call_args = mock_llm_agent.call_args
+                  assert call_args.kwargs['name'] == "test_agent"
+                  assert call_args.kwargs['instruction'] == "You are a helpful assistant."
+                  assert call_args.kwargs['temperature'] == 0.2
+              
+              def test_evaluate_condition(self):
+                  """Test condition evaluation"""
+                  builder = LlmAgentBuilder()
+                  context = AgentContext(variables={"requires_analysis": True})
+                  
+                  assert builder._evaluate_condition("true", context) == True
+                  assert builder._evaluate_condition("false", context) == False
+                  assert builder._evaluate_condition("input.requires_analysis", context) == True
+                  assert builder._evaluate_condition("invalid syntax!", context) == False
+        
+    modifies:
+      - path: "services/agent-engine/src/core/composition.py"
+        changes: "Import and register LlmAgentBuilder"
+        
+    uses_from_previous:
+      - source: "r2-t01"
+        component: "AgentBuilder base class"
+        usage: "LlmAgentBuilder extends AgentBuilder"
+      - source: "r2-t01"
+        component: "AgentSpec and AgentContext"
+        usage: "For specification and context handling"
+    
+  implementation_steps:
+    - step: "Create builders module structure"
+      commands:
+        - "mkdir -p services/agent-engine/src/core/builders"
+        - "touch services/agent-engine/src/core/builders/__init__.py"
+      validates:
+        - "Directory structure exists"
+        - "Module is importable"
+        
+    - step: "Implement InstructionBuilder"
+      implementation_notes: |
+        - Parse template for variables
+        - Support ${var} and $var syntax
+        - Handle missing variables gracefully
+        - Return clean instruction string
+      validates:
+        - "Variable substitution works"
+        - "Missing variables handled"
+        
+    - step: "Create ToolLoader"
+      implementation_notes: |
+        - Support multiple tool sources
+        - Handle inline tool definitions
+        - Load from registry when available
+        - Import tools from modules
+        - Validate tool signatures
+      validates:
+        - "Tools load from different sources"
+        - "Invalid tools rejected"
+        
+    - step: "Implement LlmAgentBuilder"
+      implementation_notes: |
+        - Extend AgentBuilder abstract class
+        - Validate LLM-specific requirements
+        - Build instruction from template
+        - Load and attach tools
+        - Support sub-agent composition
+        - Handle model configuration
+      validates:
+        - "Builder creates LlmAgent instances"
+        - "All specification fields processed"
+        
+    - step: "Register builder with factory"
+      implementation_notes: |
+        - Update UniversalAgentFactory
+        - Register LlmAgentBuilder for "llm" type
+        - Enable builder discovery
+      validates:
+        - "Factory recognizes LLM builder"
+        - "Builder registration works"
+        
+    - step: "Write comprehensive tests"
+      implementation_notes: |
+        - Test instruction building
+        - Test tool loading
+        - Test agent creation
+        - Test error conditions
+        - Test sub-agent composition
+      validates:
+        - "pytest tests/test_llm_builder.py passes"
+        - "Coverage > 80%"
+        
+    - step: "Create example specification"
+      commands:
+        - "mkdir -p services/agent-engine/specs/agents/examples"
+      implementation_notes: |
+        - Create analyzer.yaml example
+        - Include tools and sub-agents
+        - Show variable substitution
+      validates:
+        - "Example specification valid"
+        - "Can create agent from example"
+        
+  validation:
+    commands:
+      - description: "Run unit tests"
+        command: "cd services/agent-engine && pytest tests/test_llm_builder.py -v"
+        expected: "All tests pass"
+        
+      - description: "Check code coverage"
+        command: "cd services/agent-engine && pytest tests/test_llm_builder.py --cov=src/core/builders --cov-report=term-missing"
+        expected: "Coverage > 80%"
+        
+      - description: "Verify imports"
+        command: |
+          cd services/agent-engine && python -c "
+          from src.core.builders.llm_builder import LlmAgentBuilder, InstructionBuilder, ToolLoader
+          print('All imports successful')
+          "
+        expected: "All imports successful"
+        
+      - description: "Test LLM agent creation"
+        command: |
+          cd services/agent-engine && python -c "
+          from src.core.builders.llm_builder import LlmAgentBuilder
+          from src.core.composition import AgentSpec, AgentContext
+          
+          builder = LlmAgentBuilder()
+          spec = AgentSpec(
+              api_version='agent-engine/v1',
+              kind='AgentSpec',
+              metadata={'name': 'test', 'version': '1.0.0'},
+              spec={
+                  'agent': {
+                      'type': 'llm',
+                      'instruction_template': 'Test instruction',
+                      'model': {'primary': 'gemini-2.0-flash'}
+                  }
+              }
+          )
+          context = AgentContext()
+          
+          # Note: This will fail without actual ADK, but shows structure
+          print('LlmAgentBuilder ready')
+          "
+        expected: "LlmAgentBuilder ready"
+        
+    success_criteria:
+      - "LlmAgentBuilder class complete and functional"
+      - "InstructionBuilder handles template variables"
+      - "ToolLoader loads tools from multiple sources"
+      - "Agent creation from specifications works"
+      - "All unit tests pass"
+      - "Code coverage > 80%"
+      
+  dependencies:
+    required_before:
+      - task: "r2-t01"
+        reason: "Need agent factory base and AgentBuilder abstract class"
+        
+    enables_after:
+      - task: "r2-t05"
+        reason: "Runner integration needs working agent builders"
+      - task: "r2-t06"
+        reason: "Composition tests need LLM agent builder"
+        
+  notes:
+    key_decisions:
+      - "Support multiple tool sources (registry, inline, import)"
+      - "Use Template for variable substitution"
+      - "Enable sub-agent composition recursively"
+      - "Validate specifications before building"
+      
+    future_enhancements:
+      - "Add tool caching for performance"
+      - "Support async tool loading"
+      - "Add instruction validation"
+      - "Enable tool versioning"
+      
+    technical_debt:
+      - "Consider adding instruction templating engine"
+      - "May need tool dependency resolution"
+      - "Could benefit from agent pooling"

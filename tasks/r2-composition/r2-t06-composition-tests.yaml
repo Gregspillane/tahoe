@@ -1,0 +1,79 @@
+task:
+  id: "r2-t06-composition-tests"
+  name: "Create Comprehensive Composition Tests"
+  description: "Build complete test suite for agent composition including all agent types and integration tests"
+  complexity: "simple"
+  estimated_hours: 2
+  
+  context:
+    why: "Comprehensive testing ensures all agent composition features work correctly together"
+    architectural_role: "Quality assurance for the entire composition system"
+    depends_on_tasks: ["r2-t01", "r2-t02", "r2-t03", "r2-t04", "r2-t05"]
+    enables_tasks: []
+    references:
+      masterplan: "@MASTERPLAN.md#testing-standards"
+      project_context: "@tasks/project-context.md#testing-strategy"
+    
+  implementation:
+    creates:
+      - path: "services/agent-engine/tests/test_composition_integration.py"
+        purpose: "Integration tests for agent composition"
+        test_categories:
+          - "End-to-end agent creation"
+          - "All agent types"
+          - "Nested compositions"
+          - "Error scenarios"
+      
+      - path: "services/agent-engine/tests/fixtures/agent_specs/"
+        purpose: "Test specification fixtures"
+        content:
+          - "simple_llm.yaml"
+          - "sequential_workflow.yaml"
+          - "parallel_workflow.yaml"
+          - "nested_agents.yaml"
+    
+    uses_from_previous:
+      - source: "r2-t01"
+        component: "UniversalAgentFactory"
+      - source: "r2-t02"
+        component: "LlmAgentBuilder"
+      - source: "r2-t03"
+        component: "Workflow builders"
+      - source: "r2-t04"
+        component: "CustomAgentBuilder"
+      - source: "r2-t05"
+        component: "ExecutionService"
+    
+  implementation_steps:
+    - step: "Create test fixtures"
+      implementation_notes: |
+        - Sample agent specifications
+        - Mock tools and sub-agents
+        - Test data sets
+        
+    - step: "Write integration tests"
+      implementation_notes: |
+        - Test complete composition flow
+        - Test all agent types
+        - Test error handling
+        
+    - step: "Add performance tests"
+      implementation_notes: |
+        - Measure composition time
+        - Test with many agents
+        - Profile memory usage
+        
+  validation:
+    commands:
+      - description: "Run all composition tests"
+        command: "cd services/agent-engine && pytest tests/test_composition* -v"
+        expected: "All tests pass"
+        
+      - description: "Check test coverage"
+        command: "cd services/agent-engine && pytest tests/ --cov=src/core --cov-report=term-missing"
+        expected: "Coverage > 80%"
+        
+    success_criteria:
+      - "All agent types tested"
+      - "Integration tests pass"
+      - "Coverage > 80%"

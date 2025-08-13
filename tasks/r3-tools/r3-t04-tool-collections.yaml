@@ -1,0 +1,238 @@
+task:
+  id: "r3-t04-tool-collections"
+  name: "Implement Tool Collections and Categories"
+  description: "Create system for organizing tools into collections and categories for easier discovery and management"
+  complexity: "simple"
+  estimated_hours: 2
+  
+  context:
+    why: "Tool collections enable agents to easily access related tools and simplify tool management"
+    architectural_role: "Organization layer for tools with collections and categories"
+    depends_on_tasks: ["r3-t01", "r3-t02", "r3-t03"]
+    enables_tasks: []
+    references:
+      masterplan: "@MASTERPLAN.md#tool-collections"
+      project_context: "@tasks/project-context.md#tool-organization"
+    
+  implementation:
+    creates:
+      - path: "services/agent-engine/src/core/tool_collections.py"
+        purpose: "Tool collection management"
+        exports:
+          - "ToolCollection: Collection of related tools"
+          - "CollectionManager: Manages tool collections"
+          - "ToolDiscovery: Tool discovery service"
+        content_structure: |
+          from typing import List, Dict, Any, Optional
+          from pydantic import BaseModel, Field
+          import logging
+          
+          from .tools import ToolRegistry, ToolSpec
+          
+          logger = logging.getLogger(__name__)
+          
+          class ToolCollection(BaseModel):
+              """A collection of related tools"""
+              name: str
+              description: str
+              tools: List[str] = Field(default_factory=list)
+              categories: List[str] = Field(default_factory=list)
+              metadata: Dict[str, Any] = Field(default_factory=dict)
+          
+          class CollectionManager:
+              """Manages tool collections"""
+              
+              def __init__(self, registry: ToolRegistry):
+                  self.registry = registry
+                  self.collections: Dict[str, ToolCollection] = {}
+                  self._init_default_collections()
+              
+              def create_collection(self, collection: ToolCollection) -> bool:
+                  """Create a new tool collection"""
+                  if collection.name in self.collections:
+                      logger.warning(f"Collection {collection.name} already exists")
+                      return False
+                  
+                  self.collections[collection.name] = collection
+                  logger.info(f"Created collection: {collection.name}")
+                  return True
+              
+              def add_tool_to_collection(self, collection_name: str, tool_name: str) -> bool:
+                  """Add a tool to a collection"""
+                  if collection_name not in self.collections:
+                      return False
+                  
+                  if tool_name not in self.registry.list_tools():
+                      logger.warning(f"Tool {tool_name} not in registry")
+                      return False
+                  
+                  collection = self.collections[collection_name]
+                  if tool_name not in collection.tools:
+                      collection.tools.append(tool_name)
+                  return True
+              
+              def get_collection_tools(self, collection_name: str) -> List[ToolSpec]:
+                  """Get all tools in a collection"""
+                  if collection_name not in self.collections:
+                      return []
+                  
+                  collection = self.collections[collection_name]
+                  tools = []
+                  for tool_name in collection.tools:
+                      spec = self.registry.tools.get(tool_name)
+                      if spec:
+                          tools.append(spec)
+                  return tools
+              
+              def _init_default_collections(self):
+                  """Initialize default collections"""
+                  default_collections = [
+                      ToolCollection(
+                          name="text_processing",
+                          description="Tools for text manipulation and analysis",
+                          categories=["analysis", "transformation"]
+                      ),
+                      ToolCollection(
+                          name="data_analysis",
+                          description="Tools for data analysis and processing",
+                          categories=["analysis", "validation"]
+                      ),
+                      ToolCollection(
+                          name="integration",
+                          description="Tools for external system integration",
+                          categories=["integration"]
+                      ),
+                      ToolCollection(
+                          name="utilities",
+                          description="General utility tools",
+                          categories=["utility"]
+                      )
+                  ]
+                  
+                  for collection in default_collections:
+                      self.create_collection(collection)
+          
+          class ToolDiscovery:
+              """Service for discovering tools"""
+              
+              def __init__(self, registry: ToolRegistry, manager: CollectionManager):
+                  self.registry = registry
+                  self.manager = manager
+              
+              def search_tools(self, query: str) -> List[ToolSpec]:
+                  """Search for tools by name or description"""
+                  results = []
+                  query_lower = query.lower()
+                  
+                  for name, spec in self.registry.tools.items():
+                      if (query_lower in name.lower() or 
+                          query_lower in spec.description.lower()):
+                          results.append(spec)
+                  
+                  return results
+              
+              def recommend_tools(self, context: Dict[str, Any]) -> List[str]:
+                  """Recommend tools based on context"""
+                  recommendations = []
+                  
+                  # Simple recommendation logic based on task type
+                  task_type = context.get("task_type", "")
+                  
+                  if "text" in task_type:
+                      recommendations.extend(
+                          self.registry.categories.get_tools_by_category("analysis")
+                      )
+                  if "data" in task_type:
+                      recommendations.extend(
+                          self.registry.categories.get_tools_by_category("transformation")
+                      )
+                  
+                  return list(set(recommendations))  # Remove duplicates
+              
+              def get_tool_info(self, tool_name: str) -> Optional[Dict]:
+                  """Get detailed information about a tool"""
+                  spec = self.registry.tools.get(tool_name)
+                  if not spec:
+                      return None
+                  
+                  return {
+                      "name": spec.name,
+                      "description": spec.description,
+                      "categories": spec.categories,
+                      "input_schema": spec.input_schema,
+                      "output_schema": spec.output_schema,
+                      "dependencies": spec.dependencies,
+                      "metadata": spec.metadata
+                  }
+      
+      - path: "services/agent-engine/tests/test_tool_collections.py"
+        purpose: "Tests for tool collections"
+        test_categories:
+          - "Collection management"
+          - "Tool discovery"
+          - "Recommendations"
+    
+    uses_from_previous:
+      - source: "r3-t01"
+        component: "ToolRegistry"
+        usage: "Access registered tools"
+      - source: "r3-t03"
+        component: "Built-in tools"
+        usage: "Add to collections"
+    
+  implementation_steps:
+    - step: "Create ToolCollection model"
+      implementation_notes: |
+        - Define collection structure
+        - Support metadata
+        - Enable categorization
+        
+    - step: "Implement CollectionManager"
+      implementation_notes: |
+        - Manage collections
+        - Add/remove tools
+        - Query collections
+        
+    - step: "Build ToolDiscovery service"
+      implementation_notes: |
+        - Search functionality
+        - Tool recommendations
+        - Information retrieval
+        
+    - step: "Create default collections"
+      implementation_notes: |
+        - Standard collections
+        - Category mapping
+        - Auto-population
+        
+  validation:
+    commands:
+      - description: "Test collections"
+        command: "cd services/agent-engine && pytest tests/test_tool_collections.py -v"
+        expected: "All tests pass"
+        
+      - description: "Verify collections work"
+        command: |
+          cd services/agent-engine && python -c "
+          from src.core.tools import ToolRegistry
+          from src.core.tool_collections import CollectionManager
+          registry = ToolRegistry()
+          manager = CollectionManager(registry)
+          print(f'Collections: {list(manager.collections.keys())}')
+          "
+        expected: "Default collections listed"
+        
+    success_criteria:
+      - "CollectionManager implemented"
+      - "ToolDiscovery functional"
+      - "Default collections created"
+      - "All tests pass"
+      
+  dependencies:
+    required_before:
+      - task: "r3-t01"
+        reason: "Need tool registry"
+      - task: "r3-t02"
+        reason: "Need tool loading"
+      - task: "r3-t03"
+        reason: "Need built-in tools"

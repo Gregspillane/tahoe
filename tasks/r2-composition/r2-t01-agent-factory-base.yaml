@@ -1,0 +1,649 @@
+task:
+  id: "r2-t01-agent-factory-base"
+  name: "Build Universal Agent Factory Base Structure"
+  description: "Create the foundational agent factory system that can instantiate any ADK agent type from specifications"
+  complexity: "medium"
+  estimated_hours: 4
+  
+  context:
+    why: "The agent factory is the core composition engine that creates agents dynamically from YAML/JSON specifications"
+    architectural_role: "Central factory pattern that enables specification-driven agent creation without code changes"
+    depends_on_tasks: ["r1-t02", "r1-t03", "r1-t05"]
+    enables_tasks: ["r2-t02", "r2-t03", "r2-t04", "r2-t05"]
+    references:
+      masterplan: "@MASTERPLAN.md#universal-agent-factory"
+      adk_docs: 
+        - "https://google.github.io/adk-docs/agents/base-agent"
+        - "https://google.github.io/adk-docs/agents/composition"
+      project_context: "@tasks/project-context.md#agent-composition"
+      adk_patterns: "@tasks/adk-patterns.md#agent-creation"
+    
+  adk_components:
+    imports_needed:
+      - "from google.adk.agents import BaseAgent"
+      - "from typing import Dict, Any, Optional, List"
+      - "from pydantic import BaseModel, Field, validator"
+      - "import yaml"
+      - "import json"
+      - "from pathlib import Path"
+      - "from abc import ABC, abstractmethod"
+    verified_patterns:
+      - pattern: "All ADK agents inherit from BaseAgent"
+        doc_ref: "https://google.github.io/adk-docs/api-reference/python/agents#baseagent"
+      - pattern: "Agent specifications should define type, model, and configuration"
+        doc_ref: "Project architectural decision"
+      - pattern: "Factory pattern for dynamic agent creation"
+        doc_ref: "@MASTERPLAN.md#universal-agent-factory"
+    avoid_antipatterns:
+      - "Don't hardcode agent types - use dynamic dispatch"
+      - "Don't create agents without validation"
+      - "Don't mix specification parsing with agent creation"
+      - "Don't ignore specification version compatibility"
+    
+  implementation:
+    creates:
+      - path: "services/agent-engine/src/core/composition.py"
+        purpose: "Main agent composition module with factory classes"
+        exports:
+          - "UniversalAgentFactory: Main factory class"
+          - "AgentBuilder: Abstract base for specific builders"
+          - "AgentSpec: Pydantic model for specifications"
+          - "AgentContext: Runtime context for agents"
+        content_structure: |
+          from google.adk.agents import BaseAgent
+          from typing import Dict, Any, Optional, List, Type
+          from abc import ABC, abstractmethod
+          from pydantic import BaseModel, Field, validator
+          import logging
+          
+          logger = logging.getLogger(__name__)
+          
+          class AgentSpec(BaseModel):
+              """Pydantic model for agent specifications"""
+              api_version: str = Field(default="agent-engine/v1")
+              kind: str = Field(default="AgentSpec")
+              metadata: Dict[str, Any]
+              spec: Dict[str, Any]
+              
+              @validator('api_version')
+              def validate_version(cls, v):
+                  if not v.startswith("agent-engine/"):
+                      raise ValueError(f"Unsupported API version: {v}")
+                  return v
+                  
+              @validator('kind')
+              def validate_kind(cls, v):
+                  if v != "AgentSpec":
+                      raise ValueError(f"Invalid kind: {v}, expected AgentSpec")
+                  return v
+          
+          class AgentContext(BaseModel):
+              """Runtime context for agent creation"""
+              user_id: Optional[str] = None
+              session_id: Optional[str] = None
+              environment: str = "development"
+              variables: Dict[str, Any] = Field(default_factory=dict)
+              parent_agent: Optional[str] = None
+              
+          class AgentBuilder(ABC):
+              """Abstract base class for agent builders"""
+              
+              @abstractmethod
+              def can_build(self, agent_type: str) -> bool:
+                  """Check if this builder can handle the agent type"""
+                  pass
+                  
+              @abstractmethod
+              def build(self, spec: AgentSpec, context: AgentContext) -> BaseAgent:
+                  """Build the agent from specification"""
+                  pass
+                  
+              @abstractmethod
+              def validate_spec(self, spec: AgentSpec) -> bool:
+                  """Validate the specification for this agent type"""
+                  pass
+          
+          class UniversalAgentFactory:
+              """Main factory for creating agents from specifications"""
+              
+              def __init__(self):
+                  self.builders: Dict[str, AgentBuilder] = {}
+                  self.specs: Dict[str, AgentSpec] = {}
+                  self.spec_loader = SpecificationLoader()
+                  self.validator = SpecificationValidator()
+                  
+              def register_builder(self, agent_type: str, builder: AgentBuilder):
+                  """Register a builder for an agent type"""
+                  self.builders[agent_type] = builder
+                  logger.info(f"Registered builder for agent type: {agent_type}")
+                  
+              def build_agent(self, spec_name: str, context: Optional[AgentContext] = None) -> BaseAgent:
+                  """Build an agent from specification name"""
+                  if context is None:
+                      context = AgentContext()
+                      
+                  # Load specification
+                  spec = self.load_spec(spec_name)
+                  
+                  # Validate specification
+                  if not self.validator.validate(spec):
+                      raise ValueError(f"Invalid specification: {spec_name}")
+                  
+                  # Get agent type
+                  agent_type = spec.spec.get("agent", {}).get("type", "llm")
+                  
+                  # Find appropriate builder
+                  builder = self.builders.get(agent_type)
+                  if not builder:
+                      raise ValueError(f"No builder registered for agent type: {agent_type}")
+                  
+                  # Build and return agent
+                  logger.info(f"Building agent {spec_name} of type {agent_type}")
+                  return builder.build(spec, context)
+                  
+              def load_spec(self, spec_name: str) -> AgentSpec:
+                  """Load specification by name"""
+                  if spec_name in self.specs:
+                      return self.specs[spec_name]
+                      
+                  spec_data = self.spec_loader.load(spec_name)
+                  spec = AgentSpec(**spec_data)
+                  self.specs[spec_name] = spec
+                  return spec
+                  
+              def build_agent_from_dict(self, spec_dict: Dict, context: Optional[AgentContext] = None) -> BaseAgent:
+                  """Build an agent directly from dictionary specification"""
+                  if context is None:
+                      context = AgentContext()
+                      
+                  spec = AgentSpec(**spec_dict)
+                  
+                  if not self.validator.validate(spec):
+                      raise ValueError("Invalid specification dictionary")
+                  
+                  agent_type = spec.spec.get("agent", {}).get("type", "llm")
+                  builder = self.builders.get(agent_type)
+                  
+                  if not builder:
+                      raise ValueError(f"No builder registered for agent type: {agent_type}")
+                  
+                  return builder.build(spec, context)
+                  
+              def list_registered_types(self) -> List[str]:
+                  """List all registered agent types"""
+                  return list(self.builders.keys())
+                  
+              def clear_cache(self):
+                  """Clear cached specifications"""
+                  self.specs.clear()
+                  logger.info("Cleared specification cache")
+                  
+      - path: "services/agent-engine/src/core/specification.py"
+        purpose: "Specification loading and validation system"
+        exports:
+          - "SpecificationLoader: Loads specs from files"
+          - "SpecificationValidator: Validates specifications"
+          - "SpecificationError: Custom exception"
+        content_structure: |
+          from typing import Dict, Any, Optional
+          from pathlib import Path
+          import yaml
+          import json
+          import logging
+          from pydantic import ValidationError
+          
+          logger = logging.getLogger(__name__)
+          
+          class SpecificationError(Exception):
+              """Custom exception for specification errors"""
+              pass
+          
+          class SpecificationLoader:
+              """Loads specifications from various sources"""
+              
+              def __init__(self, base_path: Optional[Path] = None):
+                  self.base_path = base_path or Path("services/agent-engine/specs")
+                  self.cache: Dict[str, Dict] = {}
+                  
+              def load(self, spec_name: str) -> Dict:
+                  """Load specification by name"""
+                  if spec_name in self.cache:
+                      return self.cache[spec_name]
+                      
+                  # Try different paths and formats
+                  spec_data = None
+                  for subdir in ["agents", "workflows", "tools"]:
+                      for ext in [".yaml", ".yml", ".json"]:
+                          path = self.base_path / subdir / f"{spec_name}{ext}"
+                          if path.exists():
+                              spec_data = self._load_file(path)
+                              break
+                      if spec_data:
+                          break
+                          
+                  if not spec_data:
+                      raise SpecificationError(f"Specification not found: {spec_name}")
+                      
+                  self.cache[spec_name] = spec_data
+                  return spec_data
+                  
+              def load_from_path(self, path: Path) -> Dict:
+                  """Load specification from specific path"""
+                  if not path.exists():
+                      raise SpecificationError(f"File not found: {path}")
+                  return self._load_file(path)
+                  
+              def _load_file(self, path: Path) -> Dict:
+                  """Load file based on extension"""
+                  try:
+                      with open(path, 'r') as f:
+                          if path.suffix in ['.yaml', '.yml']:
+                              return yaml.safe_load(f)
+                          elif path.suffix == '.json':
+                              return json.load(f)
+                          else:
+                              raise SpecificationError(f"Unsupported file type: {path.suffix}")
+                  except Exception as e:
+                      raise SpecificationError(f"Error loading {path}: {e}")
+                      
+              def clear_cache(self):
+                  """Clear cached specifications"""
+                  self.cache.clear()
+                  
+          class SpecificationValidator:
+              """Validates agent specifications"""
+              
+              def __init__(self):
+                  self.required_fields = {
+                      "apiVersion": str,
+                      "kind": str,
+                      "metadata": dict,
+                      "spec": dict
+                  }
+                  self.required_metadata = ["name", "version"]
+                  self.required_spec = ["agent"]
+                  self.valid_agent_types = ["llm", "sequential", "parallel", "loop", "custom"]
+                  
+              def validate(self, spec: Any) -> bool:
+                  """Validate specification structure"""
+                  try:
+                      # If it's already an AgentSpec, get the dict representation
+                      if hasattr(spec, 'dict'):
+                          spec_dict = spec.dict()
+                      else:
+                          spec_dict = spec
+                          
+                      # Check required top-level fields
+                      for field, field_type in self.required_fields.items():
+                          field_name = field[0].lower() + field[1:] if field != "apiVersion" else "api_version"
+                          if field_name not in spec_dict:
+                              logger.error(f"Missing required field: {field_name}")
+                              return False
+                          if not isinstance(spec_dict[field_name], field_type):
+                              logger.error(f"Invalid type for {field_name}: expected {field_type}")
+                              return False
+                              
+                      # Check metadata
+                      metadata = spec_dict.get("metadata", {})
+                      for field in self.required_metadata:
+                          if field not in metadata:
+                              logger.error(f"Missing required metadata field: {field}")
+                              return False
+                              
+                      # Check spec
+                      spec_content = spec_dict.get("spec", {})
+                      for field in self.required_spec:
+                          if field not in spec_content:
+                              logger.error(f"Missing required spec field: {field}")
+                              return False
+                              
+                      # Validate agent type
+                      agent_type = spec_content.get("agent", {}).get("type")
+                      if agent_type not in self.valid_agent_types:
+                          logger.error(f"Invalid agent type: {agent_type}")
+                          return False
+                          
+                      return True
+                      
+                  except Exception as e:
+                      logger.error(f"Validation error: {e}")
+                      return False
+                      
+              def validate_context(self, context: Dict) -> bool:
+                  """Validate agent context"""
+                  # Basic validation for context
+                  if not isinstance(context, dict):
+                      return False
+                  return True
+                  
+      - path: "services/agent-engine/src/core/__init__.py"
+        purpose: "Core module initialization"
+        content: |
+          from .composition import UniversalAgentFactory, AgentBuilder, AgentSpec, AgentContext
+          from .specification import SpecificationLoader, SpecificationValidator, SpecificationError
+          
+          __all__ = [
+              'UniversalAgentFactory',
+              'AgentBuilder', 
+              'AgentSpec',
+              'AgentContext',
+              'SpecificationLoader',
+              'SpecificationValidator',
+              'SpecificationError'
+          ]
+          
+      - path: "services/agent-engine/tests/test_agent_factory.py"
+        purpose: "Unit tests for agent factory"
+        test_categories:
+          - "Factory initialization"
+          - "Builder registration"
+          - "Specification loading"
+          - "Agent creation from specs"
+          - "Error handling"
+        content_structure: |
+          import pytest
+          from unittest.mock import Mock, patch
+          from pathlib import Path
+          
+          from src.core.composition import UniversalAgentFactory, AgentBuilder, AgentSpec, AgentContext
+          from src.core.specification import SpecificationLoader, SpecificationValidator
+          
+          class TestUniversalAgentFactory:
+              def test_factory_initialization(self):
+                  """Test factory initializes correctly"""
+                  factory = UniversalAgentFactory()
+                  assert factory.builders == {}
+                  assert factory.specs == {}
+                  assert factory.spec_loader is not None
+                  assert factory.validator is not None
+                  
+              def test_register_builder(self):
+                  """Test builder registration"""
+                  factory = UniversalAgentFactory()
+                  mock_builder = Mock(spec=AgentBuilder)
+                  
+                  factory.register_builder("test_type", mock_builder)
+                  assert "test_type" in factory.builders
+                  assert factory.builders["test_type"] == mock_builder
+                  
+              def test_list_registered_types(self):
+                  """Test listing registered agent types"""
+                  factory = UniversalAgentFactory()
+                  mock_builder1 = Mock(spec=AgentBuilder)
+                  mock_builder2 = Mock(spec=AgentBuilder)
+                  
+                  factory.register_builder("type1", mock_builder1)
+                  factory.register_builder("type2", mock_builder2)
+                  
+                  types = factory.list_registered_types()
+                  assert len(types) == 2
+                  assert "type1" in types
+                  assert "type2" in types
+                  
+              def test_build_agent_no_builder(self):
+                  """Test error when no builder registered"""
+                  factory = UniversalAgentFactory()
+                  spec_dict = {
+                      "api_version": "agent-engine/v1",
+                      "kind": "AgentSpec",
+                      "metadata": {"name": "test", "version": "1.0.0"},
+                      "spec": {"agent": {"type": "unknown"}}
+                  }
+                  
+                  with pytest.raises(ValueError, match="No builder registered"):
+                      factory.build_agent_from_dict(spec_dict)
+                      
+              def test_clear_cache(self):
+                  """Test clearing specification cache"""
+                  factory = UniversalAgentFactory()
+                  factory.specs["test"] = Mock()
+                  
+                  factory.clear_cache()
+                  assert len(factory.specs) == 0
+                  
+          class TestSpecificationLoader:
+              def test_loader_initialization(self):
+                  """Test loader initializes correctly"""
+                  loader = SpecificationLoader()
+                  assert loader.base_path == Path("services/agent-engine/specs")
+                  assert loader.cache == {}
+                  
+              def test_custom_base_path(self):
+                  """Test loader with custom base path"""
+                  custom_path = Path("/custom/path")
+                  loader = SpecificationLoader(base_path=custom_path)
+                  assert loader.base_path == custom_path
+                  
+              @patch('builtins.open')
+              @patch('pathlib.Path.exists')
+              def test_load_yaml_file(self, mock_exists, mock_open):
+                  """Test loading YAML specification"""
+                  mock_exists.return_value = True
+                  mock_open.return_value.__enter__.return_value.read.return_value = """
+                  apiVersion: agent-engine/v1
+                  kind: AgentSpec
+                  metadata:
+                    name: test
+                  spec:
+                    agent:
+                      type: llm
+                  """
+                  
+                  loader = SpecificationLoader()
+                  # Test will be completed in actual implementation
+                  
+          class TestSpecificationValidator:
+              def test_validator_initialization(self):
+                  """Test validator initializes correctly"""
+                  validator = SpecificationValidator()
+                  assert validator.required_fields is not None
+                  assert "llm" in validator.valid_agent_types
+                  
+              def test_validate_valid_spec(self):
+                  """Test validation of valid specification"""
+                  validator = SpecificationValidator()
+                  spec = {
+                      "api_version": "agent-engine/v1",
+                      "kind": "AgentSpec",
+                      "metadata": {"name": "test", "version": "1.0.0"},
+                      "spec": {"agent": {"type": "llm"}}
+                  }
+                  
+                  assert validator.validate(spec) == True
+                  
+              def test_validate_missing_field(self):
+                  """Test validation fails with missing field"""
+                  validator = SpecificationValidator()
+                  spec = {
+                      "api_version": "agent-engine/v1",
+                      "kind": "AgentSpec",
+                      "metadata": {"name": "test"},  # Missing version
+                      "spec": {"agent": {"type": "llm"}}
+                  }
+                  
+                  assert validator.validate(spec) == False
+                  
+              def test_validate_invalid_agent_type(self):
+                  """Test validation fails with invalid agent type"""
+                  validator = SpecificationValidator()
+                  spec = {
+                      "api_version": "agent-engine/v1",
+                      "kind": "AgentSpec",
+                      "metadata": {"name": "test", "version": "1.0.0"},
+                      "spec": {"agent": {"type": "invalid_type"}}
+                  }
+                  
+                  assert validator.validate(spec) == False
+        
+    modifies: []
+        
+    uses_from_previous:
+      - source: "r1-t03"
+        component: "specification parsing system"
+        usage: "Base for loading and validating agent specifications"
+      - source: "r1-t05"
+        component: "configuration loader"
+        usage: "For loading environment-specific agent configurations"
+    
+  implementation_steps:
+    - step: "Create core composition module structure"
+      commands:
+        - "mkdir -p services/agent-engine/src/core"
+        - "touch services/agent-engine/src/core/__init__.py"
+      validates:
+        - "Directory structure exists"
+        - "Python module is importable"
+        
+    - step: "Implement AgentSpec Pydantic model"
+      implementation_notes: |
+        - Define complete specification schema
+        - Add validators for version compatibility
+        - Include metadata validation
+        - Support both YAML and JSON formats
+      validates:
+        - "AgentSpec model validates correctly"
+        - "Version checking works"
+        
+    - step: "Create AgentContext model"
+      implementation_notes: |
+        - Define runtime context structure
+        - Include session and user information
+        - Support variable injection
+        - Enable parent-child agent relationships
+      validates:
+        - "Context model handles all required fields"
+        - "Variable substitution works"
+        
+    - step: "Implement abstract AgentBuilder"
+      implementation_notes: |
+        - Define builder interface
+        - Include validation methods
+        - Support capability checking
+        - Enable builder chaining
+      validates:
+        - "Abstract methods defined correctly"
+        - "Builder interface is complete"
+        
+    - step: "Build UniversalAgentFactory"
+      implementation_notes: |
+        - Implement builder registration
+        - Create agent instantiation logic
+        - Add specification caching
+        - Include error handling
+      validates:
+        - "Factory can register builders"
+        - "Factory can create agents from specs"
+        - "Caching works correctly"
+        
+    - step: "Create SpecificationLoader"
+      implementation_notes: |
+        - Support multiple file formats (YAML, JSON)
+        - Implement path resolution
+        - Add caching mechanism
+        - Include error handling
+      validates:
+        - "Loader finds specifications correctly"
+        - "YAML and JSON parsing works"
+        - "Cache improves performance"
+        
+    - step: "Implement SpecificationValidator"
+      implementation_notes: |
+        - Validate required fields
+        - Check agent type validity
+        - Verify metadata completeness
+        - Validate specification version
+      validates:
+        - "Validator catches missing fields"
+        - "Invalid types are rejected"
+        - "Version compatibility checked"
+        
+    - step: "Write comprehensive unit tests"
+      implementation_notes: |
+        - Test factory initialization
+        - Test builder registration
+        - Test specification loading
+        - Test validation logic
+        - Test error conditions
+      validates:
+        - "pytest tests/test_agent_factory.py passes"
+        - "Coverage > 80%"
+        
+    - step: "Create integration test"
+      implementation_notes: |
+        - Test complete flow from spec to agent
+        - Verify all components work together
+        - Test error propagation
+      validates:
+        - "Integration test passes"
+        - "End-to-end flow works"
+        
+  validation:
+    commands:
+      - description: "Run unit tests"
+        command: "cd services/agent-engine && pytest tests/test_agent_factory.py -v"
+        expected: "All tests pass"
+        
+      - description: "Check code coverage"
+        command: "cd services/agent-engine && pytest tests/test_agent_factory.py --cov=src/core --cov-report=term-missing"
+        expected: "Coverage > 80%"
+        
+      - description: "Verify imports"
+        command: |
+          cd services/agent-engine && python -c "
+          from src.core.composition import UniversalAgentFactory, AgentBuilder
+          from src.core.specification import SpecificationLoader, SpecificationValidator
+          print('All imports successful')
+          "
+        expected: "All imports successful"
+        
+      - description: "Test factory initialization"
+        command: |
+          cd services/agent-engine && python -c "
+          from src.core.composition import UniversalAgentFactory
+          factory = UniversalAgentFactory()
+          print(f'Factory initialized with {len(factory.builders)} builders')
+          "
+        expected: "Factory initialized with 0 builders"
+        
+    success_criteria:
+      - "UniversalAgentFactory class exists and is functional"
+      - "AgentBuilder abstract class defined"
+      - "SpecificationLoader can load YAML and JSON"
+      - "SpecificationValidator validates specifications"
+      - "All unit tests pass"
+      - "Code coverage > 80%"
+      
+  dependencies:
+    required_before:
+      - task: "r1-t02"
+        reason: "Need ADK verified and installed"
+      - task: "r1-t03"
+        reason: "Need specification parsing system"
+      - task: "r1-t05"
+        reason: "Need configuration loading system"
+        
+    enables_after:
+      - task: "r2-t02"
+        reason: "LLM agent builder needs factory base"
+      - task: "r2-t03"
+        reason: "Workflow agents need factory base"
+      - task: "r2-t04"
+        reason: "Custom agents need factory base"
+        
+  notes:
+    key_decisions:
+      - "Use factory pattern for extensibility"
+      - "Separate specification loading from agent creation"
+      - "Use Pydantic for specification validation"
+      - "Support multiple specification formats"
+      
+    future_enhancements:
+      - "Add specification versioning support"
+      - "Implement specification inheritance"
+      - "Add builder plugin system"
+      - "Create specification migration tools"
+      
+    technical_debt:
+      - "Consider adding specification schema validation"
+      - "May need to optimize caching strategy"
+      - "Could benefit from async loading"

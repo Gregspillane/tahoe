@@ -179,10 +179,11 @@ User Request → API Gateway → Specification Loader → Agent Factory
 ## Technical Decisions Made
 
 ### Language & Framework
-- **Python 3.9+**: ADK requirement
-- **FastAPI**: Async REST API
+- **Python 3.12**: Using latest stable Python (ADK requires 3.9+)
+- **FastAPI**: Async REST API framework
 - **Prisma**: Type-safe ORM
 - **Redis**: Caching and sessions
+- **Google ADK 1.10.0**: Core agent framework
 
 ### ADK Choices
 - **InMemoryRunner**: Primary runner (not custom)

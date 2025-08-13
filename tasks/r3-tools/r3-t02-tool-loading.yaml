@@ -1,0 +1,60 @@
+task:
+  id: "r3-t02-tool-loading"
+  name: "Implement Dynamic Tool Loading System"
+  description: "Create system for dynamically loading tools from specifications, modules, and inline definitions"
+  complexity: "medium"
+  estimated_hours: 3
+  
+  context:
+    why: "Dynamic tool loading enables runtime tool registration and flexible tool management"
+    architectural_role: "Loads tools from various sources and integrates with the registry"
+    depends_on_tasks: ["r3-t01"]
+    enables_tasks: []
+    references:
+      masterplan: "@MASTERPLAN.md#tool-loading-and-validation"
+      adk_patterns: "@tasks/adk-patterns.md#dynamic-tool-loading"
+    
+  implementation:
+    creates:
+      - path: "services/agent-engine/src/core/tool_loader.py"
+        purpose: "Dynamic tool loading implementation"
+        exports:
+          - "ToolLoader: Main loader class"
+          - "ToolSource: Enum for tool sources"
+          - "ToolImporter: Import tools from modules"
+          - "InlineToolBuilder: Build tools from definitions"
+        
+    uses_from_previous:
+      - source: "r3-t01"
+        component: "ToolRegistry"
+        usage: "Register loaded tools"
+    
+  implementation_steps:
+    - step: "Create ToolLoader class"
+      implementation_notes: |
+        - Load from specifications
+        - Support multiple sources
+        - Handle dependencies
+        
+    - step: "Implement module importing"
+      implementation_notes: |
+        - Dynamic import from paths
+        - Discover tool functions
+        - Handle import errors
+        
+    - step: "Build inline tool creator"
+      implementation_notes: |
+        - Parse inline definitions
+        - Create callable functions
+        - Validate safety
+        
+  validation:
+    commands:
+      - description: "Test tool loading"
+        command: "cd services/agent-engine && pytest tests/test_tool_loader.py -v"
+        expected: "All tests pass"
+        
+    success_criteria:
+      - "Tools load from all sources"
+      - "Validation works correctly"
+      - "Error handling robust"

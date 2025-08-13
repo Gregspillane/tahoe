@@ -162,6 +162,30 @@
 - Achievable target
 **Impact**: Good test coverage without perfectionism
 
+## 2025-08-13 (Evening): Implementation Decisions
+
+### Decision: Python 3.12 for Development
+**Choice**: Use Python 3.12 (latest stable)
+**Alternatives Considered**:
+- Python 3.9 (rejected - older version)
+- Python 3.11 (rejected - not latest)
+**Rationale**:
+- ADK supports 3.9+, so 3.12 is compatible
+- Latest features and performance improvements
+- Better type hints and error messages
+**Impact**: Modern Python features available
+
+### Decision: Docker Compose for Local Infrastructure
+**Choice**: Use docker-compose.yml for postgres and redis
+**Alternatives Considered**:
+- Manual service installation (rejected - inconsistent)
+- Kubernetes locally (rejected - overkill)
+**Rationale**:
+- Easy to start/stop services
+- Consistent across environments
+- Simple configuration
+**Impact**: Simplified local development
+
 ## Future Decisions Needed
 
 ### Pending: CI/CD Pipeline

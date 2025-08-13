@@ -1,0 +1,276 @@
+task:
+  id: "r3-t01-tool-registry"
+  name: "Build Universal Tool Registry System"
+  description: "Create the core tool registry that manages tool registration, validation, and discovery"
+  complexity: "medium"
+  estimated_hours: 4
+  
+  context:
+    why: "A centralized tool registry enables dynamic tool loading and management across all agents"
+    architectural_role: "Central registry for all tools with validation, categorization, and runtime registration"
+    depends_on_tasks: ["r1-t05", "r2-t01"]
+    enables_tasks: ["r3-t02", "r3-t03", "r3-t04"]
+    references:
+      masterplan: "@MASTERPLAN.md#tool-registry-system"
+      adk_docs: 
+        - "https://google.github.io/adk-docs/tools/function-tool"
+        - "https://google.github.io/adk-docs/tools/automatic-wrapping"
+      adk_patterns: "@tasks/adk-patterns.md#tool-integration"
+    
+  adk_components:
+    imports_needed:
+      - "from google.adk.tools import FunctionTool"
+      - "from typing import Callable, Dict, Any, List, Optional"
+      - "import inspect"
+      - "from pydantic import BaseModel"
+    verified_patterns:
+      - pattern: "ADK automatically wraps most Python functions"
+        doc_ref: "https://google.github.io/adk-docs/tools/automatic-wrapping"
+      - pattern: "Use FunctionTool for explicit control"
+        doc_ref: "https://google.github.io/adk-docs/tools/function-tool"
+    
+  implementation:
+    creates:
+      - path: "services/agent-engine/src/core/tools.py"
+        purpose: "Core tool registry implementation"
+        exports:
+          - "ToolRegistry: Main registry class"
+          - "ToolSpec: Tool specification model"
+          - "ToolValidator: Tool validation logic"
+          - "ToolCategory: Tool categorization"
+        content_structure: |
+          from google.adk.tools import FunctionTool
+          from typing import Callable, Dict, Any, List, Optional
+          from pydantic import BaseModel, Field
+          import inspect
+          import logging
+          
+          logger = logging.getLogger(__name__)
+          
+          class ToolSpec(BaseModel):
+              """Specification for a tool"""
+              name: str
+              description: str
+              function: Optional[Callable] = None
+              categories: List[str] = Field(default_factory=list)
+              input_schema: Optional[Dict] = None
+              output_schema: Optional[Dict] = None
+              requires_wrapping: bool = False
+              dependencies: List[str] = Field(default_factory=list)
+              metadata: Dict[str, Any] = Field(default_factory=dict)
+          
+          class ToolValidator:
+              """Validates tool functions and specifications"""
+              
+              def validate_function(self, func: Callable) -> bool:
+                  """Validate a tool function"""
+                  try:
+                      sig = inspect.signature(func)
+                      # Check for valid signature
+                      if len(sig.parameters) == 0:
+                          logger.warning(f"Tool {func.__name__} has no parameters")
+                      return True
+                  except Exception as e:
+                      logger.error(f"Invalid tool function: {e}")
+                      return False
+              
+              def validate_spec(self, spec: ToolSpec) -> bool:
+                  """Validate tool specification"""
+                  if not spec.name:
+                      return False
+                  if spec.function and not self.validate_function(spec.function):
+                      return False
+                  return True
+          
+          class ToolCategory:
+              """Tool categorization system"""
+              
+              CATEGORIES = {
+                  "analysis": "Data analysis and processing tools",
+                  "generation": "Content generation tools",
+                  "integration": "External system integration tools",
+                  "utility": "General utility tools",
+                  "validation": "Data validation tools",
+                  "transformation": "Data transformation tools"
+              }
+              
+              def __init__(self):
+                  self.category_tools: Dict[str, List[str]] = {
+                      cat: [] for cat in self.CATEGORIES
+                  }
+              
+              def add_tool(self, tool_name: str, categories: List[str]):
+                  """Add tool to categories"""
+                  for category in categories:
+                      if category in self.category_tools:
+                          self.category_tools[category].append(tool_name)
+              
+              def get_tools_by_category(self, category: str) -> List[str]:
+                  """Get all tools in a category"""
+                  return self.category_tools.get(category, [])
+          
+          class ToolRegistry:
+              """Universal tool registry"""
+              
+              def __init__(self):
+                  self.tools: Dict[str, ToolSpec] = {}
+                  self.validator = ToolValidator()
+                  self.categories = ToolCategory()
+                  self._init_builtin_tools()
+              
+              def register(self, spec: ToolSpec) -> bool:
+                  """Register a tool"""
+                  if not self.validator.validate_spec(spec):
+                      logger.error(f"Invalid tool spec: {spec.name}")
+                      return False
+                  
+                  # Wrap with FunctionTool if needed
+                  if spec.requires_wrapping and spec.function:
+                      spec.function = FunctionTool(spec.function)
+                  
+                  self.tools[spec.name] = spec
+                  self.categories.add_tool(spec.name, spec.categories)
+                  logger.info(f"Registered tool: {spec.name}")
+                  return True
+              
+              def register_function(self, func: Callable, 
+                                   name: Optional[str] = None,
+                                   description: Optional[str] = None,
+                                   categories: List[str] = None,
+                                   requires_wrapping: bool = False) -> bool:
+                  """Register a function as a tool"""
+                  tool_name = name or func.__name__
+                  tool_desc = description or func.__doc__ or "No description"
+                  
+                  spec = ToolSpec(
+                      name=tool_name,
+                      description=tool_desc,
+                      function=func,
+                      categories=categories or ["utility"],
+                      requires_wrapping=requires_wrapping
+                  )
+                  
+                  return self.register(spec)
+              
+              def get_tool(self, name: str) -> Optional[Callable]:
+                  """Get a tool function by name"""
+                  spec = self.tools.get(name)
+                  return spec.function if spec else None
+              
+              def get_tools_for_agent(self, tool_names: List[str]) -> List[Callable]:
+                  """Get multiple tools for agent creation"""
+                  tools = []
+                  for name in tool_names:
+                      tool = self.get_tool(name)
+                      if tool:
+                          tools.append(tool)
+                      else:
+                          logger.warning(f"Tool not found: {name}")
+                  return tools
+              
+              def list_tools(self) -> List[str]:
+                  """List all registered tool names"""
+                  return list(self.tools.keys())
+              
+              def get_tools_by_category(self, category: str) -> List[ToolSpec]:
+                  """Get all tools in a category"""
+                  tool_names = self.categories.get_tools_by_category(category)
+                  return [self.tools[name] for name in tool_names if name in self.tools]
+              
+              def _init_builtin_tools(self):
+                  """Initialize built-in tools"""
+                  # Register google_search if available
+                  try:
+                      from google.adk.tools import google_search
+                      self.register_function(
+                          google_search,
+                          name="google_search",
+                          description="Search Google for information",
+                          categories=["integration", "utility"]
+                      )
+                  except ImportError:
+                      logger.debug("google_search tool not available")
+      
+      - path: "services/agent-engine/tests/test_tool_registry.py"
+        purpose: "Unit tests for tool registry"
+        test_categories:
+          - "Tool registration"
+          - "Tool validation"
+          - "Category management"
+          - "Tool retrieval"
+    
+    uses_from_previous:
+      - source: "r1-t05"
+        component: "Configuration system"
+        usage: "For loading tool configurations"
+    
+  implementation_steps:
+    - step: "Create ToolSpec model"
+      implementation_notes: |
+        - Define tool specification structure
+        - Include metadata and schemas
+        - Support function reference
+        
+    - step: "Implement ToolValidator"
+      implementation_notes: |
+        - Validate function signatures
+        - Check dependencies
+        - Verify schemas
+        
+    - step: "Build ToolCategory system"
+      implementation_notes: |
+        - Define standard categories
+        - Enable category queries
+        - Support multiple categories per tool
+        
+    - step: "Create ToolRegistry"
+      implementation_notes: |
+        - Core registration logic
+        - Tool storage and retrieval
+        - Category integration
+        - Built-in tool initialization
+        
+    - step: "Write comprehensive tests"
+      implementation_notes: |
+        - Test registration
+        - Test validation
+        - Test categorization
+        - Test retrieval
+        
+  validation:
+    commands:
+      - description: "Run unit tests"
+        command: "cd services/agent-engine && pytest tests/test_tool_registry.py -v"
+        expected: "All tests pass"
+        
+      - description: "Verify tool registration"
+        command: |
+          cd services/agent-engine && python -c "
+          from src.core.tools import ToolRegistry
+          registry = ToolRegistry()
+          def test_tool(x): return x * 2
+          registry.register_function(test_tool)
+          print(f'Tools: {registry.list_tools()}')
+          "
+        expected: "Tools list includes test_tool"
+        
+    success_criteria:
+      - "ToolRegistry implemented and functional"
+      - "Tool validation works correctly"
+      - "Categories system operational"
+      - "All tests pass"
+      
+  dependencies:
+    required_before:
+      - task: "r1-t05"
+        reason: "Need configuration system"
+      - task: "r2-t01"
+        reason: "Registry integrates with factory"
+        
+    enables_after:
+      - task: "r3-t02"
+        reason: "Tool loading needs registry"
+      - task: "r3-t03"
+        reason: "Built-in tools use registry"
+      - task: "r3-t04"
+        reason: "Collections built on registry"
