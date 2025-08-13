@@ -194,9 +194,9 @@ def test_runner_execution() -> bool:
         
         # Create runner
         print("\n2. Creating InMemoryRunner...")
-        runner = InMemoryRunner(agent, app_name="verify-app")
+        runner = InMemoryRunner(agent, app_name="verify_app")
         print("✓ InMemoryRunner created")
-        print(f"  - App name: verify-app")
+        print(f"  - App name: verify_app")
         
         # Test session service
         print("\n3. Testing session service...")
@@ -210,7 +210,7 @@ def test_runner_execution() -> bool:
             # Try sync version first
             if hasattr(session_service, 'create_session_sync'):
                 session = session_service.create_session_sync(
-                    app_name="verify-app",
+                    app_name="verify_app",
                     user_id="test-user"
                 )
             else:
@@ -218,7 +218,7 @@ def test_runner_execution() -> bool:
                 import asyncio
                 async def create():
                     return await session_service.create_session(
-                        app_name="verify-app",
+                        app_name="verify_app",
                         user_id="test-user"
                     )
                 session = asyncio.run(create())
@@ -354,7 +354,7 @@ def test_session_management() -> bool:
             model="gemini-2.0-flash",
             instruction="Session management test agent"
         )
-        runner = InMemoryRunner(agent, app_name="session-app")
+        runner = InMemoryRunner(agent, app_name="session_app")
         print("✓ Agent and runner created")
         
         # Get session service
@@ -368,22 +368,22 @@ def test_session_management() -> bool:
         try:
             if hasattr(session_service, 'create_session_sync'):
                 session1 = session_service.create_session_sync(
-                    app_name="session-app",
+                    app_name="session_app",
                     user_id="user1"
                 )
                 session2 = session_service.create_session_sync(
-                    app_name="session-app",
+                    app_name="session_app",
                     user_id="user2"
                 )
             else:
                 import asyncio
                 async def create_sessions():
                     s1 = await session_service.create_session(
-                        app_name="session-app",
+                        app_name="session_app",
                         user_id="user1"
                     )
                     s2 = await session_service.create_session(
-                        app_name="session-app",
+                        app_name="session_app",
                         user_id="user2"
                     )
                     return s1, s2
@@ -402,7 +402,7 @@ def test_session_management() -> bool:
             if hasattr(session_service, 'create_session_sync'):
                 # create_session_sync doesn't support initial_state
                 session_with_state = session_service.create_session_sync(
-                    app_name="session-app",
+                    app_name="session_app",
                     user_id="user3"
                 )
                 print(f"✓ Created session (sync doesn't support initial_state): {session_with_state.id}")
@@ -410,7 +410,7 @@ def test_session_management() -> bool:
                 import asyncio
                 async def create_with_state():
                     return await session_service.create_session(
-                        app_name="session-app",
+                        app_name="session_app",
                         user_id="user3",
                         initial_state={"counter": 0, "messages": []}
                     )

@@ -1,0 +1,728 @@
+task:
+  id: "r6-t03-graphql-interface"
+  name: "Create GraphQL Interface for Complex Queries"
+  description: "Implement GraphQL API for flexible data querying and mutations across agents, sessions, and workflows"
+  complexity: "medium"
+  estimated_hours: 3
+  
+  context:
+    why: "GraphQL provides flexible query interface for complex data relationships and reduces over-fetching"
+    architectural_role: "Alternative query interface for advanced API consumers"
+    depends_on_tasks: ["r6-t01", "r6-t02"]
+    enables_tasks: ["r6-t05"]
+    references:
+      masterplan: "@MASTERPLAN.md#api-interfaces"
+      architecture: "@memory-bank/architecture.md#graphql-design"
+    
+  implementation:
+    creates:
+      - path: "services/agent-engine/src/api/graphql/"
+        purpose: "GraphQL implementation"
+        content:
+          - "__init__.py"
+          - "schema.py"
+          - "resolvers.py"
+          - "types.py"
+          - "mutations.py"
+          - "subscriptions.py"
+      
+      - path: "services/agent-engine/src/api/graphql/schema.py"
+        purpose: "GraphQL schema definition"
+        exports:
+          - "schema: GraphQL schema object"
+          - "Query: Root query type"
+          - "Mutation: Root mutation type"
+          - "Subscription: Root subscription type"
+        content_structure: |
+          import strawberry
+          from typing import List, Optional, Dict, Any
+          from datetime import datetime
+          
+          from .types import (
+              Agent,
+              Session,
+              Workflow,
+              AgentExecution,
+              WorkflowExecution
+          )
+          from .resolvers import (
+              AgentResolver,
+              SessionResolver,
+              WorkflowResolver
+          )
+          from .mutations import (
+              AgentMutations,
+              SessionMutations,
+              WorkflowMutations
+          )
+          from .subscriptions import (
+              AgentSubscriptions,
+              SessionSubscriptions,
+              WorkflowSubscriptions
+          )
+          
+          @strawberry.type
+          class Query:
+              """Root query type"""
+              
+              # Agent queries
+              @strawberry.field
+              async def agent(self, id: str) -> Optional[Agent]:
+                  """Get agent by ID"""
+                  return await AgentResolver.get_agent(id)
+              
+              @strawberry.field
+              async def agents(
+                  self,
+                  type: Optional[str] = None,
+                  status: Optional[str] = None,
+                  limit: int = 100,
+                  offset: int = 0
+              ) -> List[Agent]:
+                  """List agents with filters"""
+                  return await AgentResolver.list_agents(
+                      type=type,
+                      status=status,
+                      limit=limit,
+                      offset=offset
+                  )
+              
+              # Session queries
+              @strawberry.field
+              async def session(self, id: str) -> Optional[Session]:
+                  """Get session by ID"""
+                  return await SessionResolver.get_session(id)
+              
+              @strawberry.field
+              async def sessions(
+                  self,
+                  user_id: Optional[str] = None,
+                  app_name: Optional[str] = None,
+                  active_only: bool = True,
+                  limit: int = 100,
+                  offset: int = 0
+              ) -> List[Session]:
+                  """List sessions with filters"""
+                  return await SessionResolver.list_sessions(
+                      user_id=user_id,
+                      app_name=app_name,
+                      active_only=active_only,
+                      limit=limit,
+                      offset=offset
+                  )
+              
+              # Workflow queries
+              @strawberry.field
+              async def workflow(self, id: str) -> Optional[Workflow]:
+                  """Get workflow by ID"""
+                  return await WorkflowResolver.get_workflow(id)
+              
+              @strawberry.field
+              async def workflows(
+                  self,
+                  status: Optional[str] = None,
+                  limit: int = 100,
+                  offset: int = 0
+              ) -> List[Workflow]:
+                  """List workflows with filters"""
+                  return await WorkflowResolver.list_workflows(
+                      status=status,
+                      limit=limit,
+                      offset=offset
+                  )
+              
+              # Execution queries
+              @strawberry.field
+              async def agent_executions(
+                  self,
+                  agent_id: Optional[str] = None,
+                  session_id: Optional[str] = None,
+                  status: Optional[str] = None,
+                  limit: int = 50,
+                  offset: int = 0
+              ) -> List[AgentExecution]:
+                  """List agent executions"""
+                  return await AgentResolver.list_executions(
+                      agent_id=agent_id,
+                      session_id=session_id,
+                      status=status,
+                      limit=limit,
+                      offset=offset
+                  )
+              
+              @strawberry.field
+              async def workflow_executions(
+                  self,
+                  workflow_id: Optional[str] = None,
+                  session_id: Optional[str] = None,
+                  status: Optional[str] = None,
+                  limit: int = 50,
+                  offset: int = 0
+              ) -> List[WorkflowExecution]:
+                  """List workflow executions"""
+                  return await WorkflowResolver.list_executions(
+                      workflow_id=workflow_id,
+                      session_id=session_id,
+                      status=status,
+                      limit=limit,
+                      offset=offset
+                  )
+              
+              # Aggregation queries
+              @strawberry.field
+              async def agent_stats(self) -> Dict[str, Any]:
+                  """Get agent statistics"""
+                  return await AgentResolver.get_stats()
+              
+              @strawberry.field
+              async def session_stats(self) -> Dict[str, Any]:
+                  """Get session statistics"""
+                  return await SessionResolver.get_stats()
+              
+              @strawberry.field
+              async def workflow_stats(self) -> Dict[str, Any]:
+                  """Get workflow statistics"""
+                  return await WorkflowResolver.get_stats()
+          
+          @strawberry.type
+          class Mutation:
+              """Root mutation type"""
+              
+              # Agent mutations
+              @strawberry.field
+              async def create_agent(
+                  self,
+                  name: str,
+                  type: str,
+                  specification: strawberry.scalars.JSON
+              ) -> Agent:
+                  """Create new agent"""
+                  return await AgentMutations.create_agent(
+                      name=name,
+                      type=type,
+                      specification=specification
+                  )
+              
+              @strawberry.field
+              async def execute_agent(
+                  self,
+                  agent_id: str,
+                  input_data: strawberry.scalars.JSON,
+                  session_id: Optional[str] = None
+              ) -> AgentExecution:
+                  """Execute an agent"""
+                  return await AgentMutations.execute_agent(
+                      agent_id=agent_id,
+                      input_data=input_data,
+                      session_id=session_id
+                  )
+              
+              @strawberry.field
+              async def delete_agent(self, agent_id: str) -> bool:
+                  """Delete an agent"""
+                  return await AgentMutations.delete_agent(agent_id)
+              
+              # Session mutations
+              @strawberry.field
+              async def create_session(
+                  self,
+                  user_id: str,
+                  app_name: str,
+                  config: Optional[strawberry.scalars.JSON] = None
+              ) -> Session:
+                  """Create new session"""
+                  return await SessionMutations.create_session(
+                      user_id=user_id,
+                      app_name=app_name,
+                      config=config
+                  )
+              
+              @strawberry.field
+              async def update_session(
+                  self,
+                  session_id: str,
+                  state: Optional[strawberry.scalars.JSON] = None,
+                  metadata: Optional[strawberry.scalars.JSON] = None
+              ) -> Session:
+                  """Update session"""
+                  return await SessionMutations.update_session(
+                      session_id=session_id,
+                      state=state,
+                      metadata=metadata
+                  )
+              
+              @strawberry.field
+              async def fork_session(
+                  self,
+                  source_session_id: str,
+                  new_session_id: Optional[str] = None
+              ) -> Session:
+                  """Fork a session"""
+                  return await SessionMutations.fork_session(
+                      source_session_id=source_session_id,
+                      new_session_id=new_session_id
+                  )
+              
+              @strawberry.field
+              async def delete_session(self, session_id: str) -> bool:
+                  """Delete a session"""
+                  return await SessionMutations.delete_session(session_id)
+              
+              # Workflow mutations
+              @strawberry.field
+              async def create_workflow(
+                  self,
+                  name: str,
+                  specification: strawberry.scalars.JSON
+              ) -> Workflow:
+                  """Create new workflow"""
+                  return await WorkflowMutations.create_workflow(
+                      name=name,
+                      specification=specification
+                  )
+              
+              @strawberry.field
+              async def execute_workflow(
+                  self,
+                  workflow_id: str,
+                  input_data: strawberry.scalars.JSON,
+                  session_id: Optional[str] = None
+              ) -> WorkflowExecution:
+                  """Execute a workflow"""
+                  return await WorkflowMutations.execute_workflow(
+                      workflow_id=workflow_id,
+                      input_data=input_data,
+                      session_id=session_id
+                  )
+          
+          @strawberry.type
+          class Subscription:
+              """Root subscription type"""
+              
+              @strawberry.subscription
+              async def agent_events(
+                  self,
+                  agent_id: Optional[str] = None,
+                  session_id: Optional[str] = None
+              ):
+                  """Subscribe to agent events"""
+                  async for event in AgentSubscriptions.agent_events(
+                      agent_id=agent_id,
+                      session_id=session_id
+                  ):
+                      yield event
+              
+              @strawberry.subscription
+              async def session_updates(
+                  self,
+                  session_id: Optional[str] = None,
+                  user_id: Optional[str] = None
+              ):
+                  """Subscribe to session updates"""
+                  async for update in SessionSubscriptions.session_updates(
+                      session_id=session_id,
+                      user_id=user_id
+                  ):
+                      yield update
+              
+              @strawberry.subscription
+              async def workflow_progress(
+                  self,
+                  workflow_id: Optional[str] = None,
+                  session_id: Optional[str] = None
+              ):
+                  """Subscribe to workflow progress"""
+                  async for progress in WorkflowSubscriptions.workflow_progress(
+                      workflow_id=workflow_id,
+                      session_id=session_id
+                  ):
+                      yield progress
+          
+          # Create the schema
+          schema = strawberry.Schema(
+              query=Query,
+              mutation=Mutation,
+              subscription=Subscription
+          )
+      
+      - path: "services/agent-engine/src/api/graphql/types.py"
+        purpose: "GraphQL type definitions"
+        exports:
+          - "Agent: Agent GraphQL type"
+          - "Session: Session GraphQL type"
+          - "Workflow: Workflow GraphQL type"
+          - "AgentExecution: Execution type"
+        content_structure: |
+          import strawberry
+          from typing import List, Optional, Dict, Any
+          from datetime import datetime
+          from enum import Enum
+          
+          @strawberry.enum
+          class AgentType(Enum):
+              LLM = "llm"
+              SEQUENTIAL = "sequential"
+              PARALLEL = "parallel"
+              LOOP = "loop"
+              CUSTOM = "custom"
+          
+          @strawberry.enum
+          class AgentStatus(Enum):
+              READY = "ready"
+              RUNNING = "running"
+              ERROR = "error"
+              DISABLED = "disabled"
+          
+          @strawberry.enum
+          class ExecutionStatus(Enum):
+              PENDING = "pending"
+              RUNNING = "running"
+              COMPLETED = "completed"
+              FAILED = "failed"
+              CANCELLED = "cancelled"
+          
+          @strawberry.type
+          class Agent:
+              """Agent GraphQL type"""
+              id: str
+              name: str
+              type: AgentType
+              status: AgentStatus
+              created_at: datetime
+              updated_at: Optional[datetime] = None
+              specification: strawberry.scalars.JSON
+              metadata: strawberry.scalars.JSON
+              tags: List[str]
+              
+              @strawberry.field
+              async def executions(
+                  self,
+                  limit: int = 10,
+                  offset: int = 0
+              ) -> List["AgentExecution"]:
+                  """Get agent executions"""
+                  from .resolvers import AgentResolver
+                  return await AgentResolver.get_agent_executions(
+                      self.id,
+                      limit=limit,
+                      offset=offset
+                  )
+          
+          @strawberry.type
+          class Session:
+              """Session GraphQL type"""
+              id: str
+              user_id: str
+              app_name: str
+              created_at: datetime
+              updated_at: datetime
+              is_active: bool
+              parent_session_id: Optional[str] = None
+              state: strawberry.scalars.JSON
+              metadata: strawberry.scalars.JSON
+              tags: List[str]
+              
+              @strawberry.field
+              async def child_sessions(self) -> List["Session"]:
+                  """Get child sessions (forks)"""
+                  from .resolvers import SessionResolver
+                  return await SessionResolver.get_child_sessions(self.id)
+              
+              @strawberry.field
+              async def agent_executions(
+                  self,
+                  limit: int = 10,
+                  offset: int = 0
+              ) -> List["AgentExecution"]:
+                  """Get executions in this session"""
+                  from .resolvers import AgentResolver
+                  return await AgentResolver.list_executions(
+                      session_id=self.id,
+                      limit=limit,
+                      offset=offset
+                  )
+          
+          @strawberry.type
+          class Workflow:
+              """Workflow GraphQL type"""
+              id: str
+              name: str
+              created_at: datetime
+              updated_at: Optional[datetime] = None
+              specification: strawberry.scalars.JSON
+              metadata: strawberry.scalars.JSON
+              tags: List[str]
+              
+              @strawberry.field
+              async def executions(
+                  self,
+                  limit: int = 10,
+                  offset: int = 0
+              ) -> List["WorkflowExecution"]:
+                  """Get workflow executions"""
+                  from .resolvers import WorkflowResolver
+                  return await WorkflowResolver.get_workflow_executions(
+                      self.id,
+                      limit=limit,
+                      offset=offset
+                  )
+          
+          @strawberry.type
+          class AgentExecution:
+              """Agent execution GraphQL type"""
+              id: str
+              agent_id: str
+              session_id: Optional[str] = None
+              status: ExecutionStatus
+              started_at: datetime
+              completed_at: Optional[datetime] = None
+              input_data: strawberry.scalars.JSON
+              result: Optional[strawberry.scalars.JSON] = None
+              errors: List[str]
+              metadata: strawberry.scalars.JSON
+              
+              @strawberry.field
+              async def agent(self) -> Optional[Agent]:
+                  """Get the agent for this execution"""
+                  from .resolvers import AgentResolver
+                  return await AgentResolver.get_agent(self.agent_id)
+              
+              @strawberry.field
+              async def session(self) -> Optional[Session]:
+                  """Get the session for this execution"""
+                  if not self.session_id:
+                      return None
+                  from .resolvers import SessionResolver
+                  return await SessionResolver.get_session(self.session_id)
+          
+          @strawberry.type
+          class WorkflowExecution:
+              """Workflow execution GraphQL type"""
+              id: str
+              workflow_id: str
+              session_id: Optional[str] = None
+              status: ExecutionStatus
+              started_at: datetime
+              completed_at: Optional[datetime] = None
+              current_step: Optional[str] = None
+              progress: float
+              input_data: strawberry.scalars.JSON
+              result: Optional[strawberry.scalars.JSON] = None
+              errors: List[str]
+              metadata: strawberry.scalars.JSON
+              
+              @strawberry.field
+              async def workflow(self) -> Optional[Workflow]:
+                  """Get the workflow for this execution"""
+                  from .resolvers import WorkflowResolver
+                  return await WorkflowResolver.get_workflow(self.workflow_id)
+      
+      - path: "services/agent-engine/src/api/graphql/resolvers.py"
+        purpose: "GraphQL resolvers"
+        exports:
+          - "AgentResolver"
+          - "SessionResolver"
+          - "WorkflowResolver"
+        content_structure: |
+          from typing import List, Optional, Dict, Any
+          import logging
+          
+          from .types import Agent, Session, Workflow, AgentExecution, WorkflowExecution
+          from ...core.agent_factory import AgentFactory
+          from ...core.session import SessionOrchestrator
+          from ...core.workflow import WorkflowEngine
+          
+          logger = logging.getLogger(__name__)
+          
+          class AgentResolver:
+              """Agent GraphQL resolvers"""
+              
+              @staticmethod
+              async def get_agent(agent_id: str) -> Optional[Agent]:
+                  """Get agent by ID"""
+                  # Implementation would fetch from agent store
+                  pass
+              
+              @staticmethod
+              async def list_agents(
+                  type: Optional[str] = None,
+                  status: Optional[str] = None,
+                  limit: int = 100,
+                  offset: int = 0
+              ) -> List[Agent]:
+                  """List agents with filters"""
+                  # Implementation would query agent store
+                  pass
+              
+              @staticmethod
+              async def list_executions(
+                  agent_id: Optional[str] = None,
+                  session_id: Optional[str] = None,
+                  status: Optional[str] = None,
+                  limit: int = 50,
+                  offset: int = 0
+              ) -> List[AgentExecution]:
+                  """List agent executions"""
+                  # Implementation would query execution store
+                  pass
+              
+              @staticmethod
+              async def get_stats() -> Dict[str, Any]:
+                  """Get agent statistics"""
+                  # Implementation would aggregate agent metrics
+                  return {
+                      "total_agents": 0,
+                      "active_agents": 0,
+                      "total_executions": 0,
+                      "executions_today": 0
+                  }
+          
+          class SessionResolver:
+              """Session GraphQL resolvers"""
+              
+              @staticmethod
+              async def get_session(session_id: str) -> Optional[Session]:
+                  """Get session by ID"""
+                  # Implementation would use SessionOrchestrator
+                  pass
+              
+              @staticmethod
+              async def list_sessions(
+                  user_id: Optional[str] = None,
+                  app_name: Optional[str] = None,
+                  active_only: bool = True,
+                  limit: int = 100,
+                  offset: int = 0
+              ) -> List[Session]:
+                  """List sessions with filters"""
+                  # Implementation would query session backend
+                  pass
+              
+              @staticmethod
+              async def get_child_sessions(session_id: str) -> List[Session]:
+                  """Get child sessions (forks)"""
+                  # Implementation would find sessions with parent_session_id
+                  pass
+              
+              @staticmethod
+              async def get_stats() -> Dict[str, Any]:
+                  """Get session statistics"""
+                  return {
+                      "total_sessions": 0,
+                      "active_sessions": 0,
+                      "sessions_today": 0,
+                      "average_session_duration": 0
+                  }
+          
+          class WorkflowResolver:
+              """Workflow GraphQL resolvers"""
+              
+              @staticmethod
+              async def get_workflow(workflow_id: str) -> Optional[Workflow]:
+                  """Get workflow by ID"""
+                  # Implementation would use WorkflowEngine
+                  pass
+              
+              @staticmethod
+              async def list_workflows(
+                  status: Optional[str] = None,
+                  limit: int = 100,
+                  offset: int = 0
+              ) -> List[Workflow]:
+                  """List workflows with filters"""
+                  # Implementation would query workflow store
+                  pass
+              
+              @staticmethod
+              async def list_executions(
+                  workflow_id: Optional[str] = None,
+                  session_id: Optional[str] = None,
+                  status: Optional[str] = None,
+                  limit: int = 50,
+                  offset: int = 0
+              ) -> List[WorkflowExecution]:
+                  """List workflow executions"""
+                  # Implementation would query execution store
+                  pass
+              
+              @staticmethod
+              async def get_stats() -> Dict[str, Any]:
+                  """Get workflow statistics"""
+                  return {
+                      "total_workflows": 0,
+                      "active_workflows": 0,
+                      "total_executions": 0,
+                      "executions_today": 0
+                  }
+      
+      - path: "services/agent-engine/tests/test_graphql.py"
+        purpose: "GraphQL tests"
+        test_categories:
+          - "Query resolution"
+          - "Mutations"
+          - "Subscriptions"
+          - "Type relationships"
+          - "Error handling"
+    
+    uses_from_previous:
+      - source: "r6-t01"
+        component: "API infrastructure"
+        usage: "Shared API foundation"
+      - source: "r6-t02"
+        component: "WebSocket support"
+        usage: "GraphQL subscriptions"
+    
+  implementation_steps:
+    - step: "Define GraphQL types"
+      implementation_notes: |
+        - Strawberry types
+        - Enum definitions
+        - Field relationships
+        
+    - step: "Create schema"
+      implementation_notes: |
+        - Query type
+        - Mutation type
+        - Subscription type
+        
+    - step: "Implement resolvers"
+      implementation_notes: |
+        - Data fetching
+        - Relationship loading
+        - Filtering/pagination
+        
+    - step: "Add mutations"
+      implementation_notes: |
+        - CRUD operations
+        - Validation
+        - Error handling
+        
+    - step: "Build subscriptions"
+      implementation_notes: |
+        - Real-time updates
+        - Event filtering
+        - Connection management
+        
+  validation:
+    commands:
+      - description: "Test GraphQL schema"
+        command: "cd services/agent-engine && pytest tests/test_graphql.py -v"
+        expected: "All tests pass"
+        
+      - description: "Query GraphQL playground"
+        command: "curl -X POST http://localhost:8001/graphql -H 'Content-Type: application/json' -d '{\"query\": \"{ __schema { types { name } } }\"}'"
+        expected: "Schema introspection works"
+        
+    success_criteria:
+      - "Schema properly defined"
+      - "Queries working"
+      - "Mutations functional"
+      - "Subscriptions operational"
+      - "All tests pass"
+      
+  dependencies:
+    required_before:
+      - task: "r6-t01"
+        reason: "Need REST API foundation"
+      - task: "r6-t02"
+        reason: "Need WebSocket for subscriptions"

@@ -1,28 +1,30 @@
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
-import os
-from dotenv import load_dotenv
 from typing import Dict, Any
-
-load_dotenv()
-load_dotenv(f"config/{os.getenv('ENVIRONMENT', 'development')}.env")
+from config import settings
 
 app = FastAPI(
-    title="Agent Engine",
-    description="Universal agent orchestration platform",
-    version="0.1.0"
+    title=settings.agent_engine.title,
+    description=settings.agent_engine.description,
+    version=settings.agent_engine.version,
+    debug=settings.debug
 )
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
+    allow_origins=settings.security.cors_origins,
     allow_methods=["*"],
     allow_headers=["*"]
 )
 
 @app.get("/health")
 async def health():
-    return {"status": "healthy", "service": "agent-engine"}
+    return {
+        "status": "healthy", 
+        "service": settings.agent_engine.name,
+        "version": settings.agent_engine.version,
+        "environment": settings.environment
+    }
 
 @app.get("/adk/verify")
 async def verify_adk() -> Dict[str, Any]:
@@ -77,7 +79,7 @@ async def verify_adk() -> Dict[str, Any]:
     # Test session
     try:
         if 'runner' in locals():
-            session_service = runner.session_service()
+            session_service = runner.session_service
             session = session_service.create_session(
                 app_name="verify",
                 user_id="test-user"
@@ -120,4 +122,40 @@ async def verify_adk() -> Dict[str, Any]:
     results["status"] = "verified" if all_success else "partial"
     results["all_components_operational"] = all_success
     
+    # Add configuration info
+    results["configuration"] = {
+        "environment": settings.environment,
+        "adk_model": settings.adk.default_model,
+        "service_name": settings.agent_engine.name
+    }
+    
     return results
+
+
+@app.get("/config")
+async def get_configuration() -> Dict[str, Any]:
+    """Get current configuration (for debugging/monitoring)."""
+    return {
+        "environment": settings.environment,
+        "service": {
+            "name": settings.agent_engine.name,
+            "version": settings.agent_engine.version,
+            "host": settings.agent_engine.host,
+            "port": settings.agent_engine.port
+        },
+        "adk": {
+            "default_model": settings.adk.default_model,
+            "max_retries": settings.adk.max_retries,
+            "timeout": settings.adk.timeout
+        },
+        "database": {
+            "host": settings.database.host,
+            "port": settings.database.port,
+            "name": settings.database.name
+        },
+        "redis": {
+            "host": settings.redis.host,
+            "port": settings.redis.port,
+            "db": settings.redis.db
+        }
+    }

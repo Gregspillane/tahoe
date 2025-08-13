@@ -1,0 +1,560 @@
+task:
+  id: "r6-t02-websocket-support"
+  name: "Implement WebSocket Support for Real-time Communication"
+  description: "Add WebSocket endpoints for real-time agent execution, session updates, and event streaming"
+  complexity: "medium"
+  estimated_hours: 3
+  
+  context:
+    why: "WebSocket support enables real-time bidirectional communication for interactive agent sessions"
+    architectural_role: "Real-time communication layer for live agent interactions"
+    depends_on_tasks: ["r6-t01", "r4-t04"]
+    enables_tasks: ["r6-t03"]
+    references:
+      masterplan: "@MASTERPLAN.md#real-time-features"
+      architecture: "@memory-bank/architecture.md#websocket-design"
+    
+  implementation:
+    creates:
+      - path: "services/agent-engine/src/api/websocket/"
+        purpose: "WebSocket implementation"
+        content:
+          - "__init__.py"
+          - "connection_manager.py"
+          - "handlers.py"
+          - "messages.py"
+          - "auth.py"
+      
+      - path: "services/agent-engine/src/api/websocket/connection_manager.py"
+        purpose: "WebSocket connection management"
+        exports:
+          - "ConnectionManager: Manages WebSocket connections"
+          - "Connection: Individual connection wrapper"
+          - "ConnectionPool: Connection pooling"
+        content_structure: |
+          from typing import Dict, Set, List, Optional, Any
+          from fastapi import WebSocket, WebSocketDisconnect
+          from datetime import datetime
+          import logging
+          import asyncio
+          import json
+          from uuid import uuid4
+          
+          logger = logging.getLogger(__name__)
+          
+          class Connection:
+              """WebSocket connection wrapper"""
+              
+              def __init__(self, websocket: WebSocket, client_id: str, user_id: Optional[str] = None):
+                  self.websocket = websocket
+                  self.client_id = client_id
+                  self.user_id = user_id
+                  self.session_id: Optional[str] = None
+                  self.connected_at = datetime.now()
+                  self.last_activity = datetime.now()
+                  self.subscriptions: Set[str] = set()
+                  self.metadata: Dict[str, Any] = {}
+              
+              async def send_json(self, data: Dict[str, Any]):
+                  """Send JSON message to client"""
+                  try:
+                      await self.websocket.send_json(data)
+                      self.last_activity = datetime.now()
+                  except Exception as e:
+                      logger.error(f"Failed to send to {self.client_id}: {e}")
+                      raise
+              
+              async def send_text(self, text: str):
+                  """Send text message to client"""
+                  try:
+                      await self.websocket.send_text(text)
+                      self.last_activity = datetime.now()
+                  except Exception as e:
+                      logger.error(f"Failed to send to {self.client_id}: {e}")
+                      raise
+              
+              async def receive_json(self) -> Dict[str, Any]:
+                  """Receive JSON message from client"""
+                  data = await self.websocket.receive_json()
+                  self.last_activity = datetime.now()
+                  return data
+              
+              def subscribe(self, channel: str):
+                  """Subscribe to a channel"""
+                  self.subscriptions.add(channel)
+              
+              def unsubscribe(self, channel: str):
+                  """Unsubscribe from a channel"""
+                  self.subscriptions.discard(channel)
+              
+              def is_subscribed(self, channel: str) -> bool:
+                  """Check if subscribed to channel"""
+                  return channel in self.subscriptions
+          
+          class ConnectionPool:
+              """Pool of connections for a specific context"""
+              
+              def __init__(self, pool_id: str):
+                  self.pool_id = pool_id
+                  self.connections: Set[Connection] = set()
+              
+              def add(self, connection: Connection):
+                  """Add connection to pool"""
+                  self.connections.add(connection)
+              
+              def remove(self, connection: Connection):
+                  """Remove connection from pool"""
+                  self.connections.discard(connection)
+              
+              async def broadcast(self, message: Dict[str, Any], exclude: Optional[Connection] = None):
+                  """Broadcast message to all connections in pool"""
+                  tasks = []
+                  for conn in self.connections:
+                      if conn != exclude:
+                          tasks.append(conn.send_json(message))
+                  
+                  if tasks:
+                      results = await asyncio.gather(*tasks, return_exceptions=True)
+                      # Log any failures
+                      for i, result in enumerate(results):
+                          if isinstance(result, Exception):
+                              logger.error(f"Broadcast failed: {result}")
+              
+              def get_connection_count(self) -> int:
+                  """Get number of connections in pool"""
+                  return len(self.connections)
+          
+          class ConnectionManager:
+              """Manages all WebSocket connections"""
+              
+              def __init__(self):
+                  self.active_connections: Dict[str, Connection] = {}
+                  self.user_connections: Dict[str, Set[str]] = {}  # user_id -> client_ids
+                  self.session_connections: Dict[str, Set[str]] = {}  # session_id -> client_ids
+                  self.pools: Dict[str, ConnectionPool] = {}
+                  self.message_handlers: Dict[str, Any] = {}
+              
+              async def connect(self, websocket: WebSocket, client_id: Optional[str] = None) -> Connection:
+                  """Accept and register new connection"""
+                  await websocket.accept()
+                  
+                  if not client_id:
+                      client_id = f"client_{uuid4().hex[:12]}"
+                  
+                  connection = Connection(websocket, client_id)
+                  self.active_connections[client_id] = connection
+                  
+                  logger.info(f"Client {client_id} connected")
+                  
+                  # Send welcome message
+                  await connection.send_json({
+                      "type": "connection",
+                      "status": "connected",
+                      "client_id": client_id,
+                      "timestamp": datetime.now().isoformat()
+                  })
+                  
+                  return connection
+              
+              async def disconnect(self, client_id: str):
+                  """Disconnect and cleanup connection"""
+                  if client_id not in self.active_connections:
+                      return
+                  
+                  connection = self.active_connections[client_id]
+                  
+                  # Remove from user connections
+                  if connection.user_id:
+                      if connection.user_id in self.user_connections:
+                          self.user_connections[connection.user_id].discard(client_id)
+                          if not self.user_connections[connection.user_id]:
+                              del self.user_connections[connection.user_id]
+                  
+                  # Remove from session connections
+                  if connection.session_id:
+                      if connection.session_id in self.session_connections:
+                          self.session_connections[connection.session_id].discard(client_id)
+                          if not self.session_connections[connection.session_id]:
+                              del self.session_connections[connection.session_id]
+                  
+                  # Remove from pools
+                  for pool in self.pools.values():
+                      pool.remove(connection)
+                  
+                  # Remove connection
+                  del self.active_connections[client_id]
+                  
+                  logger.info(f"Client {client_id} disconnected")
+              
+              def set_user(self, client_id: str, user_id: str):
+                  """Associate connection with user"""
+                  if client_id not in self.active_connections:
+                      return
+                  
+                  connection = self.active_connections[client_id]
+                  connection.user_id = user_id
+                  
+                  if user_id not in self.user_connections:
+                      self.user_connections[user_id] = set()
+                  self.user_connections[user_id].add(client_id)
+              
+              def set_session(self, client_id: str, session_id: str):
+                  """Associate connection with session"""
+                  if client_id not in self.active_connections:
+                      return
+                  
+                  connection = self.active_connections[client_id]
+                  
+                  # Remove from old session
+                  if connection.session_id and connection.session_id in self.session_connections:
+                      self.session_connections[connection.session_id].discard(client_id)
+                  
+                  # Add to new session
+                  connection.session_id = session_id
+                  if session_id not in self.session_connections:
+                      self.session_connections[session_id] = set()
+                  self.session_connections[session_id].add(client_id)
+              
+              async def send_to_client(self, client_id: str, message: Dict[str, Any]) -> bool:
+                  """Send message to specific client"""
+                  if client_id not in self.active_connections:
+                      return False
+                  
+                  try:
+                      await self.active_connections[client_id].send_json(message)
+                      return True
+                  except Exception as e:
+                      logger.error(f"Failed to send to client {client_id}: {e}")
+                      await self.disconnect(client_id)
+                      return False
+              
+              async def send_to_user(self, user_id: str, message: Dict[str, Any]):
+                  """Send message to all connections of a user"""
+                  if user_id not in self.user_connections:
+                      return
+                  
+                  tasks = []
+                  for client_id in self.user_connections[user_id]:
+                      tasks.append(self.send_to_client(client_id, message))
+                  
+                  await asyncio.gather(*tasks, return_exceptions=True)
+              
+              async def send_to_session(self, session_id: str, message: Dict[str, Any]):
+                  """Send message to all connections in a session"""
+                  if session_id not in self.session_connections:
+                      return
+                  
+                  tasks = []
+                  for client_id in self.session_connections[session_id]:
+                      tasks.append(self.send_to_client(client_id, message))
+                  
+                  await asyncio.gather(*tasks, return_exceptions=True)
+              
+              async def broadcast(self, message: Dict[str, Any], channel: Optional[str] = None):
+                  """Broadcast message to all or channel subscribers"""
+                  tasks = []
+                  
+                  for connection in self.active_connections.values():
+                      if channel is None or connection.is_subscribed(channel):
+                          tasks.append(connection.send_json(message))
+                  
+                  if tasks:
+                      await asyncio.gather(*tasks, return_exceptions=True)
+              
+              def get_pool(self, pool_id: str) -> ConnectionPool:
+                  """Get or create connection pool"""
+                  if pool_id not in self.pools:
+                      self.pools[pool_id] = ConnectionPool(pool_id)
+                  return self.pools[pool_id]
+              
+              def register_handler(self, message_type: str, handler):
+                  """Register message handler"""
+                  self.message_handlers[message_type] = handler
+              
+              async def handle_message(self, client_id: str, message: Dict[str, Any]):
+                  """Route message to appropriate handler"""
+                  message_type = message.get("type")
+                  
+                  if not message_type:
+                      await self.send_to_client(client_id, {
+                          "type": "error",
+                          "error": "Missing message type"
+                      })
+                      return
+                  
+                  handler = self.message_handlers.get(message_type)
+                  if not handler:
+                      await self.send_to_client(client_id, {
+                          "type": "error",
+                          "error": f"Unknown message type: {message_type}"
+                      })
+                      return
+                  
+                  try:
+                      connection = self.active_connections[client_id]
+                      await handler(connection, message)
+                  except Exception as e:
+                      logger.error(f"Handler error for {message_type}: {e}")
+                      await self.send_to_client(client_id, {
+                          "type": "error",
+                          "error": str(e)
+                      })
+              
+              def get_stats(self) -> Dict:
+                  """Get connection statistics"""
+                  return {
+                      "total_connections": len(self.active_connections),
+                      "unique_users": len(self.user_connections),
+                      "active_sessions": len(self.session_connections),
+                      "pools": len(self.pools),
+                      "connections_by_pool": {
+                          pool_id: pool.get_connection_count()
+                          for pool_id, pool in self.pools.items()
+                      }
+                  }
+      
+      - path: "services/agent-engine/src/api/websocket/handlers.py"
+        purpose: "WebSocket message handlers"
+        exports:
+          - "handle_agent_execute"
+          - "handle_session_message"
+          - "handle_workflow_execute"
+          - "handle_subscribe"
+        content_structure: |
+          from typing import Dict, Any
+          import logging
+          import asyncio
+          
+          from .connection_manager import Connection
+          from ...core.agent_factory import AgentFactory
+          from ...core.session import SessionOrchestrator
+          from ...core.workflow import WorkflowEngine
+          
+          logger = logging.getLogger(__name__)
+          
+          async def handle_agent_execute(
+              connection: Connection,
+              message: Dict[str, Any],
+              factory: AgentFactory,
+              runner
+          ):
+              """Handle agent execution request"""
+              agent_spec = message.get("agent_spec")
+              input_data = message.get("input_data", {})
+              request_id = message.get("request_id")
+              
+              try:
+                  # Create agent
+                  agent = factory.create_agent(agent_spec)
+                  
+                  # Stream execution results
+                  async for event in runner.run_stream(agent, input_data):
+                      await connection.send_json({
+                          "type": "agent_event",
+                          "request_id": request_id,
+                          "event": event
+                      })
+                  
+                  # Send completion
+                  await connection.send_json({
+                      "type": "agent_complete",
+                      "request_id": request_id,
+                      "status": "success"
+                  })
+                  
+              except Exception as e:
+                  await connection.send_json({
+                      "type": "agent_error",
+                      "request_id": request_id,
+                      "error": str(e)
+                  })
+          
+          async def handle_session_message(
+              connection: Connection,
+              message: Dict[str, Any],
+              orchestrator: SessionOrchestrator
+          ):
+              """Handle session-related messages"""
+              action = message.get("action")
+              session_id = message.get("session_id") or connection.session_id
+              
+              if action == "create":
+                  context = await orchestrator.create_session(
+                      user_id=connection.user_id or "anonymous",
+                      app_name=message.get("app_name", "default")
+                  )
+                  connection.session_id = context.session_id
+                  
+                  await connection.send_json({
+                      "type": "session_created",
+                      "session_id": context.session_id,
+                      "metadata": context.metadata.model_dump(mode='json')
+                  })
+              
+              elif action == "update":
+                  state_update = message.get("state")
+                  success = await orchestrator.update_session(
+                      session_id,
+                      state_update=state_update
+                  )
+                  
+                  await connection.send_json({
+                      "type": "session_updated",
+                      "session_id": session_id,
+                      "success": success
+                  })
+              
+              elif action == "get":
+                  context = await orchestrator.get_session(session_id)
+                  if context:
+                      await connection.send_json({
+                          "type": "session_data",
+                          "session_id": session_id,
+                          "state": context.state.model_dump(mode='json'),
+                          "metadata": context.metadata.model_dump(mode='json')
+                      })
+                  else:
+                      await connection.send_json({
+                          "type": "session_error",
+                          "error": "Session not found"
+                      })
+          
+          async def handle_workflow_execute(
+              connection: Connection,
+              message: Dict[str, Any],
+              engine: WorkflowEngine
+          ):
+              """Handle workflow execution request"""
+              template_name = message.get("template_name")
+              input_data = message.get("input_data", {})
+              request_id = message.get("request_id")
+              
+              try:
+                  # Stream workflow events
+                  async for event in engine.execute_workflow_stream(
+                      template_name=template_name,
+                      input_data=input_data,
+                      session_id=connection.session_id
+                  ):
+                      await connection.send_json({
+                          "type": "workflow_event",
+                          "request_id": request_id,
+                          "event": event
+                      })
+                  
+                  # Send completion
+                  await connection.send_json({
+                      "type": "workflow_complete",
+                      "request_id": request_id,
+                      "status": "success"
+                  })
+                  
+              except Exception as e:
+                  await connection.send_json({
+                      "type": "workflow_error",
+                      "request_id": request_id,
+                      "error": str(e)
+                  })
+          
+          async def handle_subscribe(
+              connection: Connection,
+              message: Dict[str, Any]
+          ):
+              """Handle channel subscription"""
+              action = message.get("action")
+              channel = message.get("channel")
+              
+              if not channel:
+                  await connection.send_json({
+                      "type": "subscribe_error",
+                      "error": "Channel required"
+                  })
+                  return
+              
+              if action == "subscribe":
+                  connection.subscribe(channel)
+                  await connection.send_json({
+                      "type": "subscribed",
+                      "channel": channel
+                  })
+              
+              elif action == "unsubscribe":
+                  connection.unsubscribe(channel)
+                  await connection.send_json({
+                      "type": "unsubscribed",
+                      "channel": channel
+                  })
+      
+      - path: "services/agent-engine/src/api/websocket/messages.py"
+        purpose: "WebSocket message definitions"
+        exports:
+          - "WebSocketMessage: Base message class"
+          - "AgentMessage: Agent-related messages"
+          - "SessionMessage: Session-related messages"
+          - "WorkflowMessage: Workflow-related messages"
+      
+      - path: "services/agent-engine/tests/test_websocket.py"
+        purpose: "WebSocket tests"
+        test_categories:
+          - "Connection management"
+          - "Message handling"
+          - "Broadcasting"
+          - "Session integration"
+          - "Error scenarios"
+    
+    uses_from_previous:
+      - source: "r6-t01"
+        component: "API models and dependencies"
+        usage: "Shared API infrastructure"
+      - source: "r4-t04"
+        component: "Event streaming"
+        usage: "Stream events over WebSocket"
+    
+  implementation_steps:
+    - step: "Create connection manager"
+      implementation_notes: |
+        - Connection tracking
+        - User/session associations
+        - Connection pools
+        
+    - step: "Implement message handlers"
+      implementation_notes: |
+        - Agent execution
+        - Session management
+        - Workflow execution
+        
+    - step: "Add broadcasting"
+      implementation_notes: |
+        - Channel subscriptions
+        - Targeted messaging
+        - Event distribution
+        
+    - step: "Build WebSocket endpoints"
+      implementation_notes: |
+        - FastAPI integration
+        - Authentication
+        - Error handling
+        
+  validation:
+    commands:
+      - description: "Test WebSocket connections"
+        command: "cd services/agent-engine && pytest tests/test_websocket.py -v"
+        expected: "All tests pass"
+        
+      - description: "Test with wscat"
+        command: "wscat -c ws://localhost:8001/ws"
+        expected: "Connection established"
+        
+    success_criteria:
+      - "Connection management working"
+      - "Message routing functional"
+      - "Broadcasting operational"
+      - "Session integration complete"
+      - "All tests pass"
+      
+  dependencies:
+    required_before:
+      - task: "r6-t01"
+        reason: "Need API infrastructure"
+      - task: "r4-t04"
+        reason: "Need event streaming"

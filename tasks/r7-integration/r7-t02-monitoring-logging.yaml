@@ -1,0 +1,1101 @@
+task:
+  id: "r7-t02-monitoring-logging"
+  name: "Implement Monitoring and Logging Infrastructure"
+  description: "Create comprehensive monitoring, logging, and observability system with metrics, traces, and alerts"
+  complexity: "complex"
+  estimated_hours: 4
+  
+  context:
+    why: "Production systems require comprehensive monitoring, logging, and alerting for reliability and debugging"
+    architectural_role: "Observability layer for production monitoring and troubleshooting"
+    depends_on_tasks: ["r7-t01", "r6-t05"]
+    enables_tasks: ["r7-t04"]
+    references:
+      masterplan: "@MASTERPLAN.md#monitoring-requirements"
+      architecture: "@memory-bank/architecture.md#observability"
+    
+  implementation:
+    creates:
+      - path: "services/agent-engine/src/monitoring/"
+        purpose: "Monitoring and observability implementation"
+        content:
+          - "__init__.py"
+          - "metrics.py"
+          - "logging.py"
+          - "tracing.py"
+          - "health.py"
+          - "alerts.py"
+      
+      - path: "services/agent-engine/src/monitoring/metrics.py"
+        purpose: "Application metrics collection"
+        exports:
+          - "MetricsCollector: Main metrics collector"
+          - "AgentMetrics: Agent-specific metrics"
+          - "SessionMetrics: Session metrics"
+          - "APIMetrics: API performance metrics"
+        content_structure: |
+          from typing import Dict, Any, Optional, List, Callable
+          from datetime import datetime, timedelta
+          import time
+          import logging
+          from collections import defaultdict, deque
+          from threading import Lock
+          import asyncio
+          from prometheus_client import (
+              Counter, Histogram, Gauge, Summary, Info,
+              CollectorRegistry, generate_latest, CONTENT_TYPE_LATEST
+          )
+          from fastapi import Request, Response
+          from fastapi.middleware.base import BaseHTTPMiddleware
+          
+          logger = logging.getLogger(__name__)
+          
+          class MetricsCollector:
+              """Central metrics collector"""
+              
+              def __init__(self, registry: Optional[CollectorRegistry] = None):
+                  self.registry = registry or CollectorRegistry()
+                  self._lock = Lock()
+                  self._custom_metrics: Dict[str, Any] = {}
+                  
+                  # Core API metrics
+                  self.http_requests_total = Counter(
+                      'http_requests_total',
+                      'Total HTTP requests',
+                      ['method', 'endpoint', 'status_code'],
+                      registry=self.registry
+                  )
+                  
+                  self.http_request_duration = Histogram(
+                      'http_request_duration_seconds',
+                      'HTTP request duration',
+                      ['method', 'endpoint'],
+                      registry=self.registry
+                  )
+                  
+                  self.active_connections = Gauge(
+                      'active_connections_total',
+                      'Active WebSocket connections',
+                      registry=self.registry
+                  )
+                  
+                  # Agent metrics
+                  self.agent_executions_total = Counter(
+                      'agent_executions_total',
+                      'Total agent executions',
+                      ['agent_type', 'status'],
+                      registry=self.registry
+                  )
+                  
+                  self.agent_execution_duration = Histogram(
+                      'agent_execution_duration_seconds',
+                      'Agent execution duration',
+                      ['agent_type'],
+                      registry=self.registry
+                  )
+                  
+                  self.llm_api_calls = Counter(
+                      'llm_api_calls_total',
+                      'LLM API calls',
+                      ['model', 'provider', 'status'],
+                      registry=self.registry
+                  )
+                  
+                  self.llm_tokens_used = Counter(
+                      'llm_tokens_used_total',
+                      'LLM tokens consumed',
+                      ['model', 'provider', 'type'],
+                      registry=self.registry
+                  )
+                  
+                  # Session metrics
+                  self.active_sessions = Gauge(
+                      'active_sessions_total',
+                      'Active sessions',
+                      registry=self.registry
+                  )
+                  
+                  self.session_duration = Histogram(
+                      'session_duration_seconds',
+                      'Session duration',
+                      ['backend_type'],
+                      registry=self.registry
+                  )
+                  
+                  # System metrics
+                  self.memory_usage = Gauge(
+                      'memory_usage_bytes',
+                      'Memory usage',
+                      registry=self.registry
+                  )
+                  
+                  self.cpu_usage = Gauge(
+                      'cpu_usage_percent',
+                      'CPU usage percentage',
+                      registry=self.registry
+                  )
+                  
+                  # Error metrics
+                  self.errors_total = Counter(
+                      'errors_total',
+                      'Total errors',
+                      ['component', 'error_type'],
+                      registry=self.registry
+                  )
+                  
+                  # Business metrics
+                  self.workflow_executions = Counter(
+                      'workflow_executions_total',
+                      'Workflow executions',
+                      ['template_name', 'status'],
+                      registry=self.registry
+                  )
+                  
+                  self.api_key_usage = Counter(
+                      'api_key_usage_total',
+                      'API key usage',
+                      ['key_id', 'endpoint'],
+                      registry=self.registry
+                  )
+                  
+                  # Start system metrics collection
+                  asyncio.create_task(self._collect_system_metrics())
+              
+              def record_http_request(
+                  self,
+                  method: str,
+                  endpoint: str,
+                  status_code: int,
+                  duration: float
+              ):
+                  """Record HTTP request metrics"""
+                  self.http_requests_total.labels(
+                      method=method,
+                      endpoint=endpoint,
+                      status_code=status_code
+                  ).inc()
+                  
+                  self.http_request_duration.labels(
+                      method=method,
+                      endpoint=endpoint
+                  ).observe(duration)
+              
+              def record_agent_execution(
+                  self,
+                  agent_type: str,
+                  status: str,
+                  duration: float,
+                  llm_calls: int = 0,
+                  tokens_used: Dict[str, int] = None
+              ):
+                  """Record agent execution metrics"""
+                  self.agent_executions_total.labels(
+                      agent_type=agent_type,
+                      status=status
+                  ).inc()
+                  
+                  self.agent_execution_duration.labels(
+                      agent_type=agent_type
+                  ).observe(duration)
+                  
+                  if tokens_used:
+                      for token_type, count in tokens_used.items():
+                          self.llm_tokens_used.labels(
+                              model="gemini-1.5-pro",  # Would be dynamic
+                              provider="google",
+                              type=token_type
+                          ).inc(count)
+              
+              def record_session_activity(
+                  self,
+                  action: str,
+                  backend_type: str,
+                  duration: Optional[float] = None
+              ):
+                  """Record session activity"""
+                  if action == "create":
+                      self.active_sessions.inc()
+                  elif action == "end" and duration:
+                      self.active_sessions.dec()
+                      self.session_duration.labels(
+                          backend_type=backend_type
+                      ).observe(duration)
+              
+              def record_error(
+                  self,
+                  component: str,
+                  error_type: str,
+                  count: int = 1
+              ):
+                  """Record error occurrence"""
+                  self.errors_total.labels(
+                      component=component,
+                      error_type=error_type
+                  ).inc(count)
+              
+              def set_connection_count(self, count: int):
+                  """Set active WebSocket connections"""
+                  self.active_connections.set(count)
+              
+              def add_custom_metric(self, name: str, metric):
+                  """Add custom metric"""
+                  with self._lock:
+                      self._custom_metrics[name] = metric
+              
+              def get_metrics(self) -> str:
+                  """Get Prometheus metrics in text format"""
+                  return generate_latest(self.registry)
+              
+              async def _collect_system_metrics(self):
+                  """Collect system metrics periodically"""
+                  import psutil
+                  
+                  while True:
+                      try:
+                          # Memory usage
+                          process = psutil.Process()
+                          memory_info = process.memory_info()
+                          self.memory_usage.set(memory_info.rss)
+                          
+                          # CPU usage
+                          cpu_percent = process.cpu_percent()
+                          self.cpu_usage.set(cpu_percent)
+                          
+                      except Exception as e:
+                          logger.error(f"Error collecting system metrics: {e}")
+                      
+                      await asyncio.sleep(10)  # Collect every 10 seconds
+          
+          class MetricsMiddleware(BaseHTTPMiddleware):
+              """FastAPI middleware for collecting HTTP metrics"""
+              
+              def __init__(self, app, metrics_collector: MetricsCollector):
+                  super().__init__(app)
+                  self.metrics = metrics_collector
+              
+              async def dispatch(self, request: Request, call_next: Callable) -> Response:
+                  start_time = time.time()
+                  
+                  response = await call_next(request)
+                  
+                  # Record metrics
+                  duration = time.time() - start_time
+                  endpoint = self._get_endpoint(request)
+                  
+                  self.metrics.record_http_request(
+                      method=request.method,
+                      endpoint=endpoint,
+                      status_code=response.status_code,
+                      duration=duration
+                  )
+                  
+                  return response
+              
+              def _get_endpoint(self, request: Request) -> str:
+                  """Extract endpoint pattern from request"""
+                  path = request.url.path
+                  
+                  # Normalize paths with IDs
+                  import re
+                  path = re.sub(r'/[a-f0-9-]{8,}', '/{id}', path)
+                  path = re.sub(r'/\d+', '/{id}', path)
+                  
+                  return path
+          
+          # Global metrics collector instance
+          metrics_collector = MetricsCollector()
+      
+      - path: "services/agent-engine/src/monitoring/logging.py"
+        purpose: "Structured logging configuration"
+        exports:
+          - "setup_logging: Configure application logging"
+          - "get_logger: Get configured logger"
+          - "CorrelationMiddleware: Request correlation middleware"
+        content_structure: |
+          import logging
+          import logging.config
+          import sys
+          import json
+          import traceback
+          from datetime import datetime
+          from typing import Dict, Any, Optional
+          import uuid
+          from contextvars import ContextVar
+          from fastapi import Request, Response
+          from fastapi.middleware.base import BaseHTTPMiddleware
+          
+          # Context variables for request tracking
+          request_id_var: ContextVar[str] = ContextVar('request_id', default='')
+          user_id_var: ContextVar[str] = ContextVar('user_id', default='')
+          session_id_var: ContextVar[str] = ContextVar('session_id', default='')
+          
+          class StructuredFormatter(logging.Formatter):
+              """JSON formatter for structured logging"""
+              
+              def format(self, record: logging.LogRecord) -> str:
+                  # Create base log entry
+                  log_entry = {
+                      'timestamp': datetime.utcnow().isoformat() + 'Z',
+                      'level': record.levelname,
+                      'logger': record.name,
+                      'message': record.getMessage(),
+                      'module': record.module,
+                      'function': record.funcName,
+                      'line': record.lineno,
+                  }
+                  
+                  # Add context variables
+                  if request_id := request_id_var.get():
+                      log_entry['request_id'] = request_id
+                  
+                  if user_id := user_id_var.get():
+                      log_entry['user_id'] = user_id
+                  
+                  if session_id := session_id_var.get():
+                      log_entry['session_id'] = session_id
+                  
+                  # Add exception info if present
+                  if record.exc_info:
+                      log_entry['exception'] = {
+                          'type': record.exc_info[0].__name__,
+                          'message': str(record.exc_info[1]),
+                          'traceback': traceback.format_exception(*record.exc_info)
+                      }
+                  
+                  # Add custom fields from extra
+                  for key, value in record.__dict__.items():
+                      if key.startswith('custom_'):
+                          log_entry[key[7:]] = value  # Remove 'custom_' prefix
+                  
+                  return json.dumps(log_entry)
+          
+          class CorrelationMiddleware(BaseHTTPMiddleware):
+              """Middleware to add correlation IDs to requests"""
+              
+              async def dispatch(self, request: Request, call_next) -> Response:
+                  # Generate or extract request ID
+                  request_id = request.headers.get('X-Request-ID') or str(uuid.uuid4())
+                  request_id_var.set(request_id)
+                  
+                  # Extract user context if available
+                  if 'X-User-ID' in request.headers:
+                      user_id_var.set(request.headers['X-User-ID'])
+                  
+                  if 'X-Session-ID' in request.headers:
+                      session_id_var.set(request.headers['X-Session-ID'])
+                  
+                  response = await call_next(request)
+                  
+                  # Add request ID to response headers
+                  response.headers['X-Request-ID'] = request_id
+                  
+                  return response
+          
+          def setup_logging(
+              level: str = "INFO",
+              json_format: bool = True,
+              log_file: Optional[str] = None
+          ):
+              """Setup application logging"""
+              
+              handlers = ['console']
+              if log_file:
+                  handlers.append('file')
+              
+              config = {
+                  'version': 1,
+                  'disable_existing_loggers': False,
+                  'formatters': {
+                      'structured': {
+                          '()': StructuredFormatter,
+                      } if json_format else {
+                          'format': '%(asctime)s - %(name)s - %(levelname)s - %(message)s'
+                      },
+                      'simple': {
+                          'format': '%(levelname)s: %(message)s'
+                      }
+                  },
+                  'handlers': {
+                      'console': {
+                          'class': 'logging.StreamHandler',
+                          'level': level,
+                          'formatter': 'structured' if json_format else 'simple',
+                          'stream': sys.stdout
+                      }
+                  },
+                  'loggers': {
+                      'tahoe': {
+                          'level': level,
+                          'handlers': handlers,
+                          'propagate': False
+                      },
+                      'uvicorn': {
+                          'level': 'INFO',
+                          'handlers': handlers,
+                          'propagate': False
+                      },
+                      'uvicorn.error': {
+                          'level': 'INFO',
+                          'handlers': handlers,
+                          'propagate': False
+                      },
+                      'uvicorn.access': {
+                          'level': 'INFO',
+                          'handlers': handlers,
+                          'propagate': False
+                      }
+                  },
+                  'root': {
+                      'level': level,
+                      'handlers': handlers
+                  }
+              }
+              
+              # Add file handler if specified
+              if log_file:
+                  config['handlers']['file'] = {
+                      'class': 'logging.handlers.RotatingFileHandler',
+                      'level': level,
+                      'formatter': 'structured' if json_format else 'simple',
+                      'filename': log_file,
+                      'maxBytes': 10485760,  # 10MB
+                      'backupCount': 5
+                  }
+              
+              logging.config.dictConfig(config)
+          
+          def get_logger(name: str) -> logging.Logger:
+              """Get a configured logger"""
+              return logging.getLogger(f'tahoe.{name}')
+          
+          def log_agent_execution(
+              agent_type: str,
+              agent_id: str,
+              status: str,
+              duration: float,
+              input_data: Optional[Dict] = None,
+              output_data: Optional[Dict] = None,
+              error: Optional[str] = None
+          ):
+              """Log agent execution with structured data"""
+              logger = get_logger('agent.execution')
+              
+              extra_data = {
+                  'custom_agent_type': agent_type,
+                  'custom_agent_id': agent_id,
+                  'custom_status': status,
+                  'custom_duration': duration,
+                  'custom_input_size': len(str(input_data)) if input_data else 0,
+                  'custom_output_size': len(str(output_data)) if output_data else 0
+              }
+              
+              if error:
+                  extra_data['custom_error'] = error
+              
+              message = f"Agent {agent_type}:{agent_id} execution {status} in {duration:.2f}s"
+              
+              if status == 'completed':
+                  logger.info(message, extra=extra_data)
+              else:
+                  logger.error(message, extra=extra_data)
+          
+          def log_session_activity(
+              session_id: str,
+              action: str,
+              user_id: str,
+              details: Optional[Dict] = None
+          ):
+              """Log session activity"""
+              logger = get_logger('session')
+              
+              extra_data = {
+                  'custom_session_id': session_id,
+                  'custom_action': action,
+                  'custom_user_id': user_id
+              }
+              
+              if details:
+                  for key, value in details.items():
+                      extra_data[f'custom_{key}'] = value
+              
+              message = f"Session {action}: {session_id} for user {user_id}"
+              logger.info(message, extra=extra_data)
+      
+      - path: "services/agent-engine/src/monitoring/tracing.py"
+        purpose: "Distributed tracing implementation"
+        exports:
+          - "setup_tracing: Initialize tracing"
+          - "trace_agent_execution: Trace agent calls"
+          - "trace_session_operation: Trace session ops"
+        content_structure: |
+          from typing import Dict, Any, Optional, Callable
+          import time
+          import asyncio
+          from contextlib import asynccontextmanager
+          from functools import wraps
+          import logging
+          
+          # This would integrate with OpenTelemetry in a real implementation
+          # For now, we'll create a simple tracing system
+          
+          logger = logging.getLogger(__name__)
+          
+          class Span:
+              """Simple span implementation"""
+              
+              def __init__(
+                  self,
+                  operation_name: str,
+                  parent_span: Optional['Span'] = None,
+                  tags: Optional[Dict[str, Any]] = None
+              ):
+                  self.operation_name = operation_name
+                  self.parent_span = parent_span
+                  self.tags = tags or {}
+                  self.start_time = time.time()
+                  self.end_time: Optional[float] = None
+                  self.duration: Optional[float] = None
+                  self.logs: List[Dict[str, Any]] = []
+                  self.status = "started"
+              
+              def set_tag(self, key: str, value: Any):
+                  """Set span tag"""
+                  self.tags[key] = value
+              
+              def log(self, message: str, level: str = "info", **kwargs):
+                  """Add log to span"""
+                  self.logs.append({
+                      'timestamp': time.time(),
+                      'message': message,
+                      'level': level,
+                      **kwargs
+                  })
+              
+              def finish(self, status: str = "completed"):
+                  """Finish the span"""
+                  self.end_time = time.time()
+                  self.duration = self.end_time - self.start_time
+                  self.status = status
+                  
+                  # Log span completion
+                  logger.info(
+                      f"Span {self.operation_name} {status} in {self.duration:.3f}s",
+                      extra={
+                          'custom_span_name': self.operation_name,
+                          'custom_duration': self.duration,
+                          'custom_status': status,
+                          'custom_tags': self.tags
+                      }
+                  )
+          
+          class Tracer:
+              """Simple tracer implementation"""
+              
+              def __init__(self):
+                  self.active_spans: Dict[str, Span] = {}
+              
+              def start_span(
+                  self,
+                  operation_name: str,
+                  parent_span: Optional[Span] = None,
+                  tags: Optional[Dict[str, Any]] = None
+              ) -> Span:
+                  """Start a new span"""
+                  span = Span(operation_name, parent_span, tags)
+                  return span
+              
+              def trace_function(
+                  self,
+                  operation_name: Optional[str] = None,
+                  tags: Optional[Dict[str, Any]] = None
+              ):
+                  """Decorator to trace function calls"""
+                  def decorator(func: Callable):
+                      @wraps(func)
+                      async def async_wrapper(*args, **kwargs):
+                          span_name = operation_name or f"{func.__module__}.{func.__name__}"
+                          span = self.start_span(span_name, tags=tags)
+                          
+                          try:
+                              result = await func(*args, **kwargs)
+                              span.finish("completed")
+                              return result
+                          except Exception as e:
+                              span.set_tag("error", True)
+                              span.set_tag("error.message", str(e))
+                              span.finish("error")
+                              raise
+                      
+                      @wraps(func)
+                      def sync_wrapper(*args, **kwargs):
+                          span_name = operation_name or f"{func.__module__}.{func.__name__}"
+                          span = self.start_span(span_name, tags=tags)
+                          
+                          try:
+                              result = func(*args, **kwargs)
+                              span.finish("completed")
+                              return result
+                          except Exception as e:
+                              span.set_tag("error", True)
+                              span.set_tag("error.message", str(e))
+                              span.finish("error")
+                              raise
+                      
+                      return async_wrapper if asyncio.iscoroutinefunction(func) else sync_wrapper
+                  
+                  return decorator
+          
+          # Global tracer instance
+          tracer = Tracer()
+          
+          def setup_tracing():
+              """Initialize distributed tracing"""
+              # In a real implementation, this would configure OpenTelemetry
+              logger.info("Tracing initialized")
+          
+          @asynccontextmanager
+          async def trace_agent_execution(
+              agent_type: str,
+              agent_id: str,
+              input_data: Dict[str, Any]
+          ):
+              """Context manager for tracing agent execution"""
+              span = tracer.start_span(
+                  "agent.execute",
+                  tags={
+                      "agent.type": agent_type,
+                      "agent.id": agent_id,
+                      "input.size": len(str(input_data))
+                  }
+              )
+              
+              try:
+                  yield span
+                  span.finish("completed")
+              except Exception as e:
+                  span.set_tag("error", True)
+                  span.set_tag("error.type", type(e).__name__)
+                  span.set_tag("error.message", str(e))
+                  span.finish("error")
+                  raise
+          
+          @asynccontextmanager
+          async def trace_session_operation(
+              operation: str,
+              session_id: str
+          ):
+              """Context manager for tracing session operations"""
+              span = tracer.start_span(
+                  f"session.{operation}",
+                  tags={
+                      "session.id": session_id,
+                      "operation": operation
+                  }
+              )
+              
+              try:
+                  yield span
+                  span.finish("completed")
+              except Exception as e:
+                  span.set_tag("error", True)
+                  span.set_tag("error.type", type(e).__name__)
+                  span.set_tag("error.message", str(e))
+                  span.finish("error")
+                  raise
+      
+      - path: "services/agent-engine/src/monitoring/health.py"
+        purpose: "Health check system"
+        exports:
+          - "HealthChecker: System health monitoring"
+          - "health_endpoint: FastAPI health endpoint"
+        content_structure: |
+          from typing import Dict, Any, List, Optional
+          import asyncio
+          import time
+          from datetime import datetime, timedelta
+          from enum import Enum
+          import logging
+          from pydantic import BaseModel
+          
+          logger = logging.getLogger(__name__)
+          
+          class HealthStatus(str, Enum):
+              HEALTHY = "healthy"
+              DEGRADED = "degraded"
+              UNHEALTHY = "unhealthy"
+          
+          class ComponentHealth(BaseModel):
+              """Health status of a component"""
+              name: str
+              status: HealthStatus
+              message: Optional[str] = None
+              last_check: datetime
+              response_time_ms: Optional[float] = None
+              details: Dict[str, Any] = {}
+          
+          class SystemHealth(BaseModel):
+              """Overall system health"""
+              status: HealthStatus
+              timestamp: datetime
+              uptime_seconds: float
+              components: List[ComponentHealth]
+              summary: Dict[str, Any]
+          
+          class HealthChecker:
+              """System health monitoring"""
+              
+              def __init__(self):
+                  self.start_time = time.time()
+                  self.checks: Dict[str, callable] = {}
+                  self.last_results: Dict[str, ComponentHealth] = {}
+              
+              def register_check(self, name: str, check_func: callable):
+                  """Register a health check"""
+                  self.checks[name] = check_func
+              
+              async def check_component(self, name: str, check_func: callable) -> ComponentHealth:
+                  """Run a single health check"""
+                  start_time = time.time()
+                  
+                  try:
+                      result = await check_func()
+                      response_time = (time.time() - start_time) * 1000
+                      
+                      if isinstance(result, bool):
+                          status = HealthStatus.HEALTHY if result else HealthStatus.UNHEALTHY
+                          message = None
+                          details = {}
+                      elif isinstance(result, dict):
+                          status = HealthStatus(result.get('status', 'healthy'))
+                          message = result.get('message')
+                          details = result.get('details', {})
+                      else:
+                          status = HealthStatus.HEALTHY
+                          message = str(result)
+                          details = {}
+                      
+                      return ComponentHealth(
+                          name=name,
+                          status=status,
+                          message=message,
+                          last_check=datetime.now(),
+                          response_time_ms=response_time,
+                          details=details
+                      )
+                      
+                  except Exception as e:
+                      response_time = (time.time() - start_time) * 1000
+                      logger.error(f"Health check failed for {name}: {e}")
+                      
+                      return ComponentHealth(
+                          name=name,
+                          status=HealthStatus.UNHEALTHY,
+                          message=f"Check failed: {str(e)}",
+                          last_check=datetime.now(),
+                          response_time_ms=response_time,
+                          details={'error': str(e)}
+                      )
+              
+              async def check_all(self) -> SystemHealth:
+                  """Run all health checks"""
+                  component_results = []
+                  
+                  # Run all checks concurrently
+                  tasks = [
+                      self.check_component(name, check_func)
+                      for name, check_func in self.checks.items()
+                  ]
+                  
+                  if tasks:
+                      component_results = await asyncio.gather(*tasks, return_exceptions=True)
+                      
+                      # Handle any exceptions
+                      for i, result in enumerate(component_results):
+                          if isinstance(result, Exception):
+                              name = list(self.checks.keys())[i]
+                              component_results[i] = ComponentHealth(
+                                  name=name,
+                                  status=HealthStatus.UNHEALTHY,
+                                  message=f"Unexpected error: {result}",
+                                  last_check=datetime.now()
+                              )
+                  
+                  # Update cache
+                  for component in component_results:
+                      self.last_results[component.name] = component
+                  
+                  # Determine overall status
+                  overall_status = self._determine_overall_status(component_results)
+                  
+                  # Create summary
+                  summary = self._create_summary(component_results)
+                  
+                  return SystemHealth(
+                      status=overall_status,
+                      timestamp=datetime.now(),
+                      uptime_seconds=time.time() - self.start_time,
+                      components=component_results,
+                      summary=summary
+                  )
+              
+              def _determine_overall_status(self, components: List[ComponentHealth]) -> HealthStatus:
+                  """Determine overall system health"""
+                  if not components:
+                      return HealthStatus.HEALTHY
+                  
+                  unhealthy_count = sum(1 for c in components if c.status == HealthStatus.UNHEALTHY)
+                  degraded_count = sum(1 for c in components if c.status == HealthStatus.DEGRADED)
+                  
+                  if unhealthy_count > 0:
+                      return HealthStatus.UNHEALTHY
+                  elif degraded_count > 0:
+                      return HealthStatus.DEGRADED
+                  else:
+                      return HealthStatus.HEALTHY
+              
+              def _create_summary(self, components: List[ComponentHealth]) -> Dict[str, Any]:
+                  """Create health summary"""
+                  total = len(components)
+                  healthy = sum(1 for c in components if c.status == HealthStatus.HEALTHY)
+                  degraded = sum(1 for c in components if c.status == HealthStatus.DEGRADED)
+                  unhealthy = sum(1 for c in components if c.status == HealthStatus.UNHEALTHY)
+                  
+                  avg_response_time = None
+                  if components:
+                      response_times = [c.response_time_ms for c in components if c.response_time_ms]
+                      if response_times:
+                          avg_response_time = sum(response_times) / len(response_times)
+                  
+                  return {
+                      'total_components': total,
+                      'healthy_count': healthy,
+                      'degraded_count': degraded,
+                      'unhealthy_count': unhealthy,
+                      'health_percentage': (healthy / total * 100) if total > 0 else 100,
+                      'avg_response_time_ms': avg_response_time
+                  }
+          
+          # Global health checker
+          health_checker = HealthChecker()
+          
+          # Health check functions
+          async def check_database():
+              """Check database connectivity"""
+              try:
+                  # This would check actual database connection
+                  # For now, simulate a check
+                  await asyncio.sleep(0.01)
+                  return {'status': 'healthy', 'message': 'Database connected'}
+              except Exception as e:
+                  return {'status': 'unhealthy', 'message': f'Database error: {e}'}
+          
+          async def check_redis():
+              """Check Redis connectivity"""
+              try:
+                  # This would check actual Redis connection
+                  await asyncio.sleep(0.01)
+                  return {'status': 'healthy', 'message': 'Redis connected'}
+              except Exception as e:
+                  return {'status': 'unhealthy', 'message': f'Redis error: {e}'}
+          
+          async def check_gemini_api():
+              """Check Gemini API connectivity"""
+              try:
+                  # This would make a test call to Gemini API
+                  await asyncio.sleep(0.05)
+                  return {'status': 'healthy', 'message': 'Gemini API accessible'}
+              except Exception as e:
+                  return {'status': 'unhealthy', 'message': f'Gemini API error: {e}'}
+          
+          # Register health checks
+          health_checker.register_check('database', check_database)
+          health_checker.register_check('redis', check_redis)
+          health_checker.register_check('gemini_api', check_gemini_api)
+      
+      - path: "monitoring/"
+        purpose: "External monitoring configuration"
+        content:
+          - "prometheus/"
+          - "grafana/"
+          - "alertmanager/"
+          - "docker-compose.monitoring.yml"
+      
+      - path: "monitoring/docker-compose.monitoring.yml"
+        purpose: "Monitoring stack deployment"
+        content_structure: |
+          version: '3.8'
+          
+          services:
+            prometheus:
+              image: prom/prometheus:latest
+              container_name: tahoe-prometheus
+              command:
+                - '--config.file=/etc/prometheus/prometheus.yml'
+                - '--storage.tsdb.path=/prometheus'
+                - '--web.console.libraries=/etc/prometheus/console_libraries'
+                - '--web.console.templates=/etc/prometheus/consoles'
+                - '--storage.tsdb.retention.time=200h'
+                - '--web.enable-lifecycle'
+              restart: unless-stopped
+              volumes:
+                - ./prometheus:/etc/prometheus
+                - prometheus_data:/prometheus
+              ports:
+                - "9090:9090"
+              networks:
+                - monitoring
+                - tahoe-network
+              depends_on:
+                - cadvisor
+            
+            grafana:
+              image: grafana/grafana:latest
+              container_name: tahoe-grafana
+              environment:
+                - GF_SECURITY_ADMIN_PASSWORD=${GRAFANA_PASSWORD:-admin}
+              restart: unless-stopped
+              volumes:
+                - grafana_data:/var/lib/grafana
+                - ./grafana/provisioning:/etc/grafana/provisioning
+                - ./grafana/dashboards:/var/lib/grafana/dashboards
+              ports:
+                - "3000:3000"
+              networks:
+                - monitoring
+            
+            alertmanager:
+              image: prom/alertmanager:latest
+              container_name: tahoe-alertmanager
+              restart: unless-stopped
+              volumes:
+                - ./alertmanager:/etc/alertmanager
+              command:
+                - '--config.file=/etc/alertmanager/alertmanager.yml'
+                - '--storage.path=/alertmanager'
+                - '--web.external-url=http://localhost:9093'
+              ports:
+                - "9093:9093"
+              networks:
+                - monitoring
+            
+            cadvisor:
+              image: gcr.io/cadvisor/cadvisor:latest
+              container_name: tahoe-cadvisor
+              restart: unless-stopped
+              volumes:
+                - /:/rootfs:ro
+                - /var/run:/var/run:rw
+                - /sys:/sys:ro
+                - /var/lib/docker/:/var/lib/docker:ro
+              ports:
+                - "8082:8080"
+              networks:
+                - monitoring
+            
+            node-exporter:
+              image: prom/node-exporter:latest
+              container_name: tahoe-node-exporter
+              restart: unless-stopped
+              command:
+                - '--path.procfs=/host/proc'
+                - '--path.rootfs=/rootfs'
+                - '--path.sysfs=/host/sys'
+                - '--collector.filesystem.ignored-mount-points=^/(sys|proc|dev|host|etc)($$|/)'
+              volumes:
+                - /proc:/host/proc:ro
+                - /sys:/host/sys:ro
+                - /:/rootfs:ro
+              ports:
+                - "9100:9100"
+              networks:
+                - monitoring
+          
+          volumes:
+            prometheus_data:
+            grafana_data:
+          
+          networks:
+            monitoring:
+              driver: bridge
+            tahoe-network:
+              external: true
+      
+      - path: "services/agent-engine/tests/test_monitoring.py"
+        purpose: "Monitoring system tests"
+        test_categories:
+          - "Metrics collection"
+          - "Health checks"
+          - "Logging functionality"
+          - "Tracing operations"
+          - "Alert conditions"
+    
+    uses_from_previous:
+      - source: "r7-t01"
+        component: "Docker deployment"
+        usage: "Containerized monitoring stack"
+      - source: "r6-t05"
+        component: "API documentation"
+        usage: "Monitoring endpoints documentation"
+    
+  implementation_steps:
+    - step: "Create metrics system"
+      implementation_notes: |
+        - Prometheus metrics
+        - Custom collectors
+        - Performance tracking
+        
+    - step: "Setup structured logging"
+      implementation_notes: |
+        - JSON formatting
+        - Correlation IDs
+        - Log aggregation
+        
+    - step: "Implement tracing"
+      implementation_notes: |
+        - Distributed tracing
+        - Span management
+        - Performance insights
+        
+    - step: "Build health checks"
+      implementation_notes: |
+        - Component monitoring
+        - Dependency checks
+        - Status aggregation
+        
+    - step: "Deploy monitoring stack"
+      implementation_notes: |
+        - Prometheus setup
+        - Grafana dashboards
+        - Alerting rules
+        
+  validation:
+    commands:
+      - description: "Test metrics collection"
+        command: "cd services/agent-engine && pytest tests/test_monitoring.py -v"
+        expected: "All tests pass"
+        
+      - description: "Check Prometheus metrics"
+        command: "curl http://localhost:8001/metrics"
+        expected: "Metrics endpoint returns data"
+        
+      - description: "Verify health endpoint"
+        command: "curl http://localhost:8001/health"
+        expected: "Health check passes"
+        
+      - description: "Start monitoring stack"
+        command: "cd monitoring && docker-compose -f docker-compose.monitoring.yml up -d"
+        expected: "Monitoring services start"
+        
+    success_criteria:
+      - "Metrics collection working"
+      - "Structured logging implemented"
+      - "Health checks functional"
+      - "Monitoring stack deployed"
+      - "All tests pass"
+      
+  dependencies:
+    required_before:
+      - task: "r7-t01"
+        reason: "Need Docker deployment"
+      - task: "r6-t05"
+        reason: "Need API documentation"

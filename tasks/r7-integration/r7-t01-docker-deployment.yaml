@@ -1,0 +1,731 @@
+task:
+  id: "r7-t01-docker-deployment"
+  name: "Create Production Docker Deployment"
+  description: "Build production-ready Docker images and orchestration with docker-compose for scalable deployment"
+  complexity: "medium"
+  estimated_hours: 3
+  
+  context:
+    why: "Production deployment requires containerization for scalability, consistency, and easy orchestration"
+    architectural_role: "Deployment and infrastructure layer for production systems"
+    depends_on_tasks: ["r6-t01", "r1-t04"]
+    enables_tasks: ["r7-t02", "r7-t04"]
+    references:
+      masterplan: "@MASTERPLAN.md#deployment-strategy"
+      architecture: "@memory-bank/architecture.md#container-strategy"
+    
+  implementation:
+    creates:
+      - path: "docker/"
+        purpose: "Docker configuration and deployment files"
+        content:
+          - "Dockerfile.production"
+          - "docker-compose.yml"
+          - "docker-compose.prod.yml"
+          - "docker-compose.dev.yml"
+          - "nginx/"
+          - "scripts/"
+      
+      - path: "docker/Dockerfile.production"
+        purpose: "Production-optimized Docker image"
+        content_structure: |
+          # Multi-stage build for production
+          FROM python:3.12-slim as builder
+          
+          # Set environment variables
+          ENV PYTHONDONTWRITEBYTECODE=1 \
+              PYTHONUNBUFFERED=1 \
+              POETRY_NO_INTERACTION=1 \
+              POETRY_VENV_IN_PROJECT=1 \
+              POETRY_CACHE_DIR=/tmp/poetry_cache
+          
+          # Install system dependencies
+          RUN apt-get update && apt-get install -y \
+              build-essential \
+              curl \
+              && rm -rf /var/lib/apt/lists/*
+          
+          # Install Poetry
+          RUN pip install poetry
+          
+          # Copy dependency files
+          WORKDIR /app
+          COPY services/agent-engine/pyproject.toml services/agent-engine/poetry.lock ./
+          
+          # Install dependencies
+          RUN poetry install --only=main --no-root && rm -rf $POETRY_CACHE_DIR
+          
+          # Production stage
+          FROM python:3.12-slim as production
+          
+          # Set environment variables
+          ENV PYTHONDONTWRITEBYTECODE=1 \
+              PYTHONUNBUFFERED=1 \
+              PATH="/app/.venv/bin:$PATH" \
+              PYTHONPATH="/app/services/agent-engine/src:$PYTHONPATH"
+          
+          # Install runtime dependencies
+          RUN apt-get update && apt-get install -y \
+              curl \
+              && rm -rf /var/lib/apt/lists/* \
+              && groupadd -r tahoe && useradd -r -g tahoe tahoe
+          
+          # Copy virtual environment from builder
+          COPY --from=builder /app/.venv /app/.venv
+          
+          # Create app directory
+          WORKDIR /app
+          
+          # Copy application code
+          COPY services/agent-engine/src ./services/agent-engine/src
+          COPY services/agent-engine/pyproject.toml ./services/agent-engine/
+          COPY config/ ./config/
+          
+          # Create necessary directories
+          RUN mkdir -p /app/logs /app/data \
+              && chown -R tahoe:tahoe /app
+          
+          # Switch to non-root user
+          USER tahoe
+          
+          # Health check
+          HEALTHCHECK --interval=30s --timeout=30s --start-period=5s --retries=3 \
+              CMD curl -f http://localhost:8001/health || exit 1
+          
+          # Expose port
+          EXPOSE 8001
+          
+          # Default command
+          CMD ["uvicorn", "services.agent-engine.src.main:app", "--host", "0.0.0.0", "--port", "8001"]
+      
+      - path: "docker/docker-compose.yml"
+        purpose: "Base docker-compose configuration"
+        content_structure: |
+          version: '3.8'
+          
+          services:
+            postgres:
+              image: postgres:15
+              environment:
+                POSTGRES_DB: ${POSTGRES_DB:-tahoe}
+                POSTGRES_USER: ${POSTGRES_USER:-tahoe}
+                POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-tahoe123}
+              volumes:
+                - postgres_data:/var/lib/postgresql/data
+                - ./postgres/init:/docker-entrypoint-initdb.d
+              ports:
+                - "${POSTGRES_PORT:-5432}:5432"
+              healthcheck:
+                test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-tahoe}"]
+                interval: 10s
+                timeout: 5s
+                retries: 5
+              networks:
+                - tahoe-network
+            
+            redis:
+              image: redis:7-alpine
+              command: redis-server --appendonly yes --maxmemory ${REDIS_MAX_MEMORY:-512mb} --maxmemory-policy allkeys-lru
+              volumes:
+                - redis_data:/data
+              ports:
+                - "${REDIS_PORT:-6379}:6379"
+              healthcheck:
+                test: ["CMD", "redis-cli", "ping"]
+                interval: 10s
+                timeout: 5s
+                retries: 5
+              networks:
+                - tahoe-network
+            
+            agent-engine:
+              build:
+                context: ..
+                dockerfile: docker/Dockerfile.production
+              environment:
+                - DATABASE_URL=postgresql://${POSTGRES_USER:-tahoe}:${POSTGRES_PASSWORD:-tahoe123}@postgres:5432/${POSTGRES_DB:-tahoe}
+                - REDIS_URL=redis://redis:6379/0
+                - GEMINI_API_KEY=${GEMINI_API_KEY}
+                - LOG_LEVEL=${LOG_LEVEL:-INFO}
+                - ENVIRONMENT=${ENVIRONMENT:-production}
+              volumes:
+                - ./config:/app/config:ro
+                - agent_logs:/app/logs
+                - agent_data:/app/data
+              ports:
+                - "${API_PORT:-8001}:8001"
+              depends_on:
+                postgres:
+                  condition: service_healthy
+                redis:
+                  condition: service_healthy
+              healthcheck:
+                test: ["CMD", "curl", "-f", "http://localhost:8001/health"]
+                interval: 30s
+                timeout: 10s
+                retries: 3
+                start_period: 40s
+              restart: unless-stopped
+              networks:
+                - tahoe-network
+              deploy:
+                resources:
+                  limits:
+                    memory: 2G
+                    cpus: '1.0'
+                  reservations:
+                    memory: 1G
+                    cpus: '0.5'
+            
+            nginx:
+              image: nginx:alpine
+              volumes:
+                - ./nginx/nginx.conf:/etc/nginx/nginx.conf:ro
+                - ./nginx/conf.d:/etc/nginx/conf.d:ro
+                - nginx_logs:/var/log/nginx
+              ports:
+                - "${NGINX_PORT:-80}:80"
+                - "${NGINX_SSL_PORT:-443}:443"
+              depends_on:
+                - agent-engine
+              restart: unless-stopped
+              networks:
+                - tahoe-network
+          
+          volumes:
+            postgres_data:
+            redis_data:
+            agent_logs:
+            agent_data:
+            nginx_logs:
+          
+          networks:
+            tahoe-network:
+              driver: bridge
+      
+      - path: "docker/docker-compose.prod.yml"
+        purpose: "Production-specific overrides"
+        content_structure: |
+          version: '3.8'
+          
+          services:
+            agent-engine:
+              environment:
+                - ENVIRONMENT=production
+                - LOG_LEVEL=WARNING
+                - WORKERS=4
+              deploy:
+                replicas: 2
+                resources:
+                  limits:
+                    memory: 4G
+                    cpus: '2.0'
+                  reservations:
+                    memory: 2G
+                    cpus: '1.0'
+                restart_policy:
+                  condition: on-failure
+                  max_attempts: 3
+              logging:
+                driver: "json-file"
+                options:
+                  max-size: "10m"
+                  max-file: "3"
+            
+            postgres:
+              environment:
+                - POSTGRES_SHARED_PRELOAD_LIBRARIES=pg_stat_statements
+                - POSTGRES_MAX_CONNECTIONS=200
+                - POSTGRES_SHARED_BUFFERS=256MB
+                - POSTGRES_EFFECTIVE_CACHE_SIZE=1GB
+              volumes:
+                - postgres_prod_data:/var/lib/postgresql/data
+                - ./postgres/prod-init:/docker-entrypoint-initdb.d
+              deploy:
+                resources:
+                  limits:
+                    memory: 2G
+                    cpus: '1.0'
+                  reservations:
+                    memory: 1G
+                    cpus: '0.5'
+              logging:
+                driver: "json-file"
+                options:
+                  max-size: "10m"
+                  max-file: "3"
+            
+            redis:
+              command: >
+                redis-server
+                --appendonly yes
+                --maxmemory 1gb
+                --maxmemory-policy allkeys-lru
+                --save 900 1
+                --save 300 10
+                --save 60 10000
+              deploy:
+                resources:
+                  limits:
+                    memory: 1.5G
+                    cpus: '0.5'
+                  reservations:
+                    memory: 1G
+                    cpus: '0.25'
+              logging:
+                driver: "json-file"
+                options:
+                  max-size: "5m"
+                  max-file: "3"
+            
+            nginx:
+              volumes:
+                - ./nginx/prod.conf:/etc/nginx/nginx.conf:ro
+                - ./ssl:/etc/nginx/ssl:ro
+              environment:
+                - NGINX_WORKER_PROCESSES=auto
+                - NGINX_WORKER_CONNECTIONS=1024
+              deploy:
+                resources:
+                  limits:
+                    memory: 512M
+                    cpus: '0.5'
+              logging:
+                driver: "json-file"
+                options:
+                  max-size: "10m"
+                  max-file: "5"
+          
+          volumes:
+            postgres_prod_data:
+      
+      - path: "docker/docker-compose.dev.yml"
+        purpose: "Development-specific overrides"
+        content_structure: |
+          version: '3.8'
+          
+          services:
+            agent-engine:
+              build:
+                context: ..
+                dockerfile: services/agent-engine/Dockerfile
+                target: development
+              environment:
+                - ENVIRONMENT=development
+                - LOG_LEVEL=DEBUG
+                - RELOAD=true
+              volumes:
+                - ../services/agent-engine/src:/app/services/agent-engine/src
+                - ../config:/app/config
+              command: >
+                uvicorn services.agent-engine.src.main:app
+                --host 0.0.0.0
+                --port 8001
+                --reload
+                --log-level debug
+            
+            postgres:
+              ports:
+                - "5432:5432"
+              environment:
+                - POSTGRES_DB=tahoe_dev
+                - POSTGRES_USER=tahoe
+                - POSTGRES_PASSWORD=tahoe123
+            
+            redis:
+              ports:
+                - "6379:6379"
+            
+            # Additional development services
+            pgadmin:
+              image: dpage/pgadmin4:latest
+              environment:
+                - PGADMIN_DEFAULT_EMAIL=admin@tahoe.dev
+                - PGADMIN_DEFAULT_PASSWORD=admin123
+              ports:
+                - "8080:80"
+              depends_on:
+                - postgres
+              networks:
+                - tahoe-network
+            
+            redis-commander:
+              image: rediscommander/redis-commander:latest
+              environment:
+                - REDIS_HOSTS=local:redis:6379
+              ports:
+                - "8081:8081"
+              depends_on:
+                - redis
+              networks:
+                - tahoe-network
+      
+      - path: "docker/nginx/nginx.conf"
+        purpose: "Nginx configuration"
+        content_structure: |
+          user nginx;
+          worker_processes auto;
+          error_log /var/log/nginx/error.log warn;
+          pid /var/run/nginx.pid;
+          
+          events {
+              worker_connections 1024;
+              use epoll;
+              multi_accept on;
+          }
+          
+          http {
+              include /etc/nginx/mime.types;
+              default_type application/octet-stream;
+              
+              # Logging
+              log_format main '$remote_addr - $remote_user [$time_local] "$request" '
+                              '$status $body_bytes_sent "$http_referer" '
+                              '"$http_user_agent" "$http_x_forwarded_for" '
+                              'rt=$request_time uct="$upstream_connect_time" '
+                              'uht="$upstream_header_time" urt="$upstream_response_time"';
+              
+              access_log /var/log/nginx/access.log main;
+              
+              # Performance
+              sendfile on;
+              tcp_nopush on;
+              tcp_nodelay on;
+              keepalive_timeout 65;
+              types_hash_max_size 2048;
+              client_max_body_size 10M;
+              
+              # Gzip compression
+              gzip on;
+              gzip_vary on;
+              gzip_min_length 10240;
+              gzip_proxied expired no-cache no-store private must-revalidate auth;
+              gzip_types text/plain text/css text/xml application/json application/javascript application/xml+rss application/atom+xml image/svg+xml;
+              
+              # Rate limiting
+              limit_req_zone $binary_remote_addr zone=api:10m rate=10r/s;
+              limit_req_zone $binary_remote_addr zone=ws:10m rate=5r/s;
+              
+              # Upstream backend
+              upstream tahoe_backend {
+                  least_conn;
+                  server agent-engine:8001 max_fails=3 fail_timeout=30s;
+                  keepalive 32;
+              }
+              
+              # HTTP server
+              server {
+                  listen 80;
+                  server_name localhost;
+                  
+                  # Security headers
+                  add_header X-Frame-Options DENY;
+                  add_header X-Content-Type-Options nosniff;
+                  add_header X-XSS-Protection "1; mode=block";
+                  add_header Strict-Transport-Security "max-age=31536000; includeSubDomains" always;
+                  
+                  # API endpoints
+                  location /api/ {
+                      limit_req zone=api burst=20 nodelay;
+                      
+                      proxy_pass http://tahoe_backend;
+                      proxy_http_version 1.1;
+                      proxy_set_header Upgrade $http_upgrade;
+                      proxy_set_header Connection 'upgrade';
+                      proxy_set_header Host $host;
+                      proxy_set_header X-Real-IP $remote_addr;
+                      proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+                      proxy_set_header X-Forwarded-Proto $scheme;
+                      proxy_cache_bypass $http_upgrade;
+                      
+                      # Timeouts
+                      proxy_connect_timeout 5s;
+                      proxy_send_timeout 60s;
+                      proxy_read_timeout 60s;
+                  }
+                  
+                  # WebSocket endpoint
+                  location /ws {
+                      limit_req zone=ws burst=10 nodelay;
+                      
+                      proxy_pass http://tahoe_backend;
+                      proxy_http_version 1.1;
+                      proxy_set_header Upgrade $http_upgrade;
+                      proxy_set_header Connection "upgrade";
+                      proxy_set_header Host $host;
+                      proxy_set_header X-Real-IP $remote_addr;
+                      proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+                      proxy_set_header X-Forwarded-Proto $scheme;
+                      
+                      # WebSocket timeouts
+                      proxy_read_timeout 86400s;
+                      proxy_send_timeout 86400s;
+                  }
+                  
+                  # GraphQL endpoint
+                  location /graphql {
+                      limit_req zone=api burst=15 nodelay;
+                      
+                      proxy_pass http://tahoe_backend;
+                      proxy_http_version 1.1;
+                      proxy_set_header Host $host;
+                      proxy_set_header X-Real-IP $remote_addr;
+                      proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+                      proxy_set_header X-Forwarded-Proto $scheme;
+                  }
+                  
+                  # Documentation
+                  location ~ ^/(docs|redoc|openapi.json) {
+                      proxy_pass http://tahoe_backend;
+                      proxy_set_header Host $host;
+                      proxy_set_header X-Real-IP $remote_addr;
+                      proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+                      proxy_set_header X-Forwarded-Proto $scheme;
+                  }
+                  
+                  # Health check
+                  location /health {
+                      proxy_pass http://tahoe_backend;
+                      access_log off;
+                  }
+                  
+                  # Default location
+                  location / {
+                      return 404;
+                  }
+              }
+          }
+      
+      - path: "docker/scripts/"
+        purpose: "Deployment scripts"
+        content:
+          - "deploy.sh"
+          - "backup.sh"
+          - "restore.sh"
+          - "health-check.sh"
+      
+      - path: "docker/scripts/deploy.sh"
+        purpose: "Production deployment script"
+        content_structure: |
+          #!/bin/bash
+          set -e
+          
+          # Configuration
+          ENVIRONMENT=${1:-production}
+          PROJECT_NAME="tahoe"
+          
+          echo "Deploying Tahoe to $ENVIRONMENT environment..."
+          
+          # Validate environment
+          if [ "$ENVIRONMENT" != "production" ] && [ "$ENVIRONMENT" != "staging" ]; then
+              echo "Error: Environment must be 'production' or 'staging'"
+              exit 1
+          fi
+          
+          # Load environment variables
+          if [ -f ".env.$ENVIRONMENT" ]; then
+              export $(cat .env.$ENVIRONMENT | xargs)
+          else
+              echo "Warning: .env.$ENVIRONMENT not found"
+          fi
+          
+          # Pre-deployment checks
+          echo "Running pre-deployment checks..."
+          
+          # Check required environment variables
+          required_vars=("GEMINI_API_KEY" "POSTGRES_PASSWORD" "SECRET_KEY")
+          for var in "${required_vars[@]}"; do
+              if [ -z "${!var}" ]; then
+                  echo "Error: Required environment variable $var is not set"
+                  exit 1
+              fi
+          done
+          
+          # Check Docker and docker-compose
+          if ! command -v docker &> /dev/null; then
+              echo "Error: Docker is not installed"
+              exit 1
+          fi
+          
+          if ! command -v docker-compose &> /dev/null; then
+              echo "Error: docker-compose is not installed"
+              exit 1
+          fi
+          
+          # Build images
+          echo "Building Docker images..."
+          docker-compose -f docker-compose.yml -f docker-compose.prod.yml build --no-cache
+          
+          # Run database migrations
+          echo "Running database migrations..."
+          docker-compose -f docker-compose.yml -f docker-compose.prod.yml run --rm agent-engine \
+              python -m alembic upgrade head
+          
+          # Deploy services
+          echo "Deploying services..."
+          docker-compose -f docker-compose.yml -f docker-compose.prod.yml up -d
+          
+          # Wait for services to be healthy
+          echo "Waiting for services to be healthy..."
+          timeout=300
+          elapsed=0
+          while [ $elapsed -lt $timeout ]; do
+              if docker-compose -f docker-compose.yml -f docker-compose.prod.yml ps | grep -q "Up (healthy)"; then
+                  echo "All services are healthy!"
+                  break
+              fi
+              
+              sleep 10
+              elapsed=$((elapsed + 10))
+              echo "Waiting... ($elapsed/$timeout seconds)"
+          done
+          
+          if [ $elapsed -ge $timeout ]; then
+              echo "Error: Services did not become healthy within $timeout seconds"
+              docker-compose -f docker-compose.yml -f docker-compose.prod.yml logs
+              exit 1
+          fi
+          
+          # Verify deployment
+          echo "Verifying deployment..."
+          if curl -f http://localhost:${API_PORT:-8001}/health > /dev/null 2>&1; then
+              echo "✅ Deployment successful!"
+              echo "API is available at http://localhost:${API_PORT:-8001}"
+              echo "Documentation: http://localhost:${API_PORT:-8001}/docs"
+          else
+              echo "❌ Deployment verification failed"
+              exit 1
+          fi
+      
+      - path: ".dockerignore"
+        purpose: "Docker ignore file"
+        content_structure: |
+          # Development files
+          .git
+          .gitignore
+          README.md
+          .env*
+          .vscode
+          .idea
+          
+          # Python
+          __pycache__
+          *.pyc
+          *.pyo
+          *.pyd
+          .Python
+          venv
+          .venv
+          pip-log.txt
+          pip-delete-this-directory.txt
+          .pytest_cache
+          htmlcov
+          .coverage
+          .nyc_output
+          coverage
+          
+          # Node.js (if any frontend assets)
+          node_modules
+          npm-debug.log*
+          yarn-debug.log*
+          yarn-error.log*
+          
+          # Logs
+          logs
+          *.log
+          
+          # Runtime data
+          pids
+          *.pid
+          *.seed
+          
+          # OS generated files
+          .DS_Store
+          .DS_Store?
+          ._*
+          .Spotlight-V100
+          .Trashes
+          ehthumbs.db
+          Thumbs.db
+          
+          # Docker
+          docker-compose.override.yml
+          Dockerfile.dev
+          
+          # Temporary files
+          tmp
+          temp
+      
+      - path: "services/agent-engine/tests/test_docker.py"
+        purpose: "Docker deployment tests"
+        test_categories:
+          - "Container building"
+          - "Service orchestration"
+          - "Health checks"
+          - "Network connectivity"
+          - "Volume persistence"
+    
+    uses_from_previous:
+      - source: "r6-t01"
+        component: "API endpoints"
+        usage: "Containerized API service"
+      - source: "r1-t04"
+        component: "Database setup"
+        usage: "PostgreSQL in containers"
+    
+  implementation_steps:
+    - step: "Create production Dockerfile"
+      implementation_notes: |
+        - Multi-stage build
+        - Security hardening
+        - Health checks
+        
+    - step: "Configure docker-compose"
+      implementation_notes: |
+        - Service orchestration
+        - Environment-specific overrides
+        - Volume management
+        
+    - step: "Setup nginx proxy"
+      implementation_notes: |
+        - Load balancing
+        - SSL termination
+        - Rate limiting
+        
+    - step: "Create deployment scripts"
+      implementation_notes: |
+        - Automated deployment
+        - Health verification
+        - Rollback procedures
+        
+  validation:
+    commands:
+      - description: "Build production image"
+        command: "cd docker && docker build -f Dockerfile.production -t tahoe-agent-engine .."
+        expected: "Image builds successfully"
+        
+      - description: "Start development environment"
+        command: "cd docker && docker-compose -f docker-compose.yml -f docker-compose.dev.yml up -d"
+        expected: "All services start healthy"
+        
+      - description: "Test deployment script"
+        command: "cd docker && ./scripts/deploy.sh staging"
+        expected: "Deployment completes successfully"
+        
+      - description: "Verify services"
+        command: "curl http://localhost:8001/health"
+        expected: "Health check passes"
+        
+    success_criteria:
+      - "Production images build"
+      - "Services orchestrate properly"
+      - "Health checks functional"
+      - "Deployment scripts work"
+      - "All tests pass"
+      
+  dependencies:
+    required_before:
+      - task: "r6-t01"
+        reason: "Need API endpoints to containerize"
+      - task: "r1-t04"
+        reason: "Need database for persistence"

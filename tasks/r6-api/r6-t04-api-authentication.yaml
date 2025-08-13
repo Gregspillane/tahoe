@@ -1,0 +1,681 @@
+task:
+  id: "r6-t04-api-authentication"
+  name: "Implement API Authentication and Authorization"
+  description: "Create comprehensive authentication system with API keys, JWT tokens, and role-based access control"
+  complexity: "complex"
+  estimated_hours: 4
+  
+  context:
+    why: "Secure API access is essential for multi-tenant agent orchestration platform"
+    architectural_role: "Security layer for all API endpoints and WebSocket connections"
+    depends_on_tasks: ["r6-t01", "r6-t02"]
+    enables_tasks: ["r6-t05", "r7-t04"]
+    references:
+      masterplan: "@MASTERPLAN.md#security-requirements"
+      architecture: "@memory-bank/architecture.md#authentication"
+    
+  implementation:
+    creates:
+      - path: "services/agent-engine/src/auth/"
+        purpose: "Authentication and authorization system"
+        content:
+          - "__init__.py"
+          - "models.py"
+          - "providers.py"
+          - "middleware.py"
+          - "permissions.py"
+          - "jwt_handler.py"
+          - "api_keys.py"
+      
+      - path: "services/agent-engine/src/auth/models.py"
+        purpose: "Authentication data models"
+        exports:
+          - "User: User model"
+          - "ApiKey: API key model"
+          - "Permission: Permission model"
+          - "Role: Role model"
+        content_structure: |
+          from typing import Dict, Any, List, Optional, Set
+          from datetime import datetime, timedelta
+          from pydantic import BaseModel, Field
+          from enum import Enum
+          import secrets
+          import hashlib
+          
+          class UserStatus(str, Enum):
+              ACTIVE = "active"
+              INACTIVE = "inactive"
+              SUSPENDED = "suspended"
+          
+          class ApiKeyStatus(str, Enum):
+              ACTIVE = "active"
+              REVOKED = "revoked"
+              EXPIRED = "expired"
+          
+          class PermissionAction(str, Enum):
+              READ = "read"
+              WRITE = "write"
+              DELETE = "delete"
+              EXECUTE = "execute"
+              ADMIN = "admin"
+          
+          class ResourceType(str, Enum):
+              AGENT = "agent"
+              SESSION = "session"
+              WORKFLOW = "workflow"
+              TOOL = "tool"
+              SYSTEM = "system"
+          
+          class Permission(BaseModel):
+              """Permission model"""
+              id: str
+              action: PermissionAction
+              resource_type: ResourceType
+              resource_id: Optional[str] = None  # None means all resources of type
+              conditions: Dict[str, Any] = Field(default_factory=dict)
+              created_at: datetime = Field(default_factory=datetime.now)
+              
+              def matches(self, action: PermissionAction, resource_type: ResourceType, resource_id: Optional[str] = None) -> bool:
+                  """Check if permission matches the request"""
+                  if self.action != action and self.action != PermissionAction.ADMIN:
+                      return False
+                  
+                  if self.resource_type != resource_type and self.resource_type != ResourceType.SYSTEM:
+                      return False
+                  
+                  if self.resource_id is not None and self.resource_id != resource_id:
+                      return False
+                  
+                  return True
+          
+          class Role(BaseModel):
+              """Role model"""
+              id: str
+              name: str
+              description: Optional[str] = None
+              permissions: List[Permission] = Field(default_factory=list)
+              is_system_role: bool = False
+              created_at: datetime = Field(default_factory=datetime.now)
+              updated_at: datetime = Field(default_factory=datetime.now)
+              
+              def has_permission(self, action: PermissionAction, resource_type: ResourceType, resource_id: Optional[str] = None) -> bool:
+                  """Check if role has specific permission"""
+                  return any(
+                      perm.matches(action, resource_type, resource_id)
+                      for perm in self.permissions
+                  )
+          
+          class User(BaseModel):
+              """User model"""
+              id: str
+              username: str
+              email: Optional[str] = None
+              full_name: Optional[str] = None
+              status: UserStatus = UserStatus.ACTIVE
+              roles: List[str] = Field(default_factory=list)  # Role IDs
+              permissions: List[Permission] = Field(default_factory=list)  # Direct permissions
+              metadata: Dict[str, Any] = Field(default_factory=dict)
+              created_at: datetime = Field(default_factory=datetime.now)
+              updated_at: datetime = Field(default_factory=datetime.now)
+              last_login: Optional[datetime] = None
+              
+              def has_permission(
+                  self,
+                  action: PermissionAction,
+                  resource_type: ResourceType,
+                  resource_id: Optional[str] = None,
+                  roles: Optional[List[Role]] = None
+              ) -> bool:
+                  """Check if user has specific permission"""
+                  # Check direct permissions
+                  if any(perm.matches(action, resource_type, resource_id) for perm in self.permissions):
+                      return True
+                  
+                  # Check role permissions
+                  if roles:
+                      user_roles = [role for role in roles if role.id in self.roles]
+                      return any(role.has_permission(action, resource_type, resource_id) for role in user_roles)
+                  
+                  return False
+          
+          class ApiKey(BaseModel):
+              """API key model"""
+              id: str
+              name: str
+              key_hash: str  # Hashed version of the key
+              key_prefix: str  # First 8 chars for identification
+              user_id: str
+              status: ApiKeyStatus = ApiKeyStatus.ACTIVE
+              permissions: List[Permission] = Field(default_factory=list)
+              rate_limit: Optional[int] = None  # Requests per minute
+              allowed_ips: List[str] = Field(default_factory=list)
+              metadata: Dict[str, Any] = Field(default_factory=dict)
+              created_at: datetime = Field(default_factory=datetime.now)
+              expires_at: Optional[datetime] = None
+              last_used: Optional[datetime] = None
+              usage_count: int = 0
+              
+              @classmethod
+              def create(
+                  cls,
+                  name: str,
+                  user_id: str,
+                  permissions: List[Permission] = None,
+                  expires_in_days: Optional[int] = None
+              ) -> tuple["ApiKey", str]:
+                  """Create new API key with raw key"""
+                  # Generate secure random key
+                  raw_key = f"tahoe_{secrets.token_urlsafe(32)}"
+                  key_hash = hashlib.sha256(raw_key.encode()).hexdigest()
+                  key_prefix = raw_key[:12]  # tahoe_ + 6 chars
+                  
+                  # Set expiration
+                  expires_at = None
+                  if expires_in_days:
+                      expires_at = datetime.now() + timedelta(days=expires_in_days)
+                  
+                  api_key = cls(
+                      id=f"key_{secrets.token_hex(8)}",
+                      name=name,
+                      key_hash=key_hash,
+                      key_prefix=key_prefix,
+                      user_id=user_id,
+                      permissions=permissions or [],
+                      expires_at=expires_at
+                  )
+                  
+                  return api_key, raw_key
+              
+              def verify_key(self, raw_key: str) -> bool:
+                  """Verify raw key against hash"""
+                  return hashlib.sha256(raw_key.encode()).hexdigest() == self.key_hash
+              
+              def is_valid(self) -> bool:
+                  """Check if API key is valid"""
+                  if self.status != ApiKeyStatus.ACTIVE:
+                      return False
+                  
+                  if self.expires_at and self.expires_at < datetime.now():
+                      return False
+                  
+                  return True
+              
+              def has_permission(
+                  self,
+                  action: PermissionAction,
+                  resource_type: ResourceType,
+                  resource_id: Optional[str] = None
+              ) -> bool:
+                  """Check if API key has specific permission"""
+                  return any(
+                      perm.matches(action, resource_type, resource_id)
+                      for perm in self.permissions
+                  )
+          
+          class JWTClaims(BaseModel):
+              """JWT token claims"""
+              sub: str  # Subject (user ID)
+              username: str
+              roles: List[str]
+              permissions: List[str]  # Serialized permissions
+              iat: int  # Issued at
+              exp: int  # Expires at
+              jti: Optional[str] = None  # JWT ID
+              scope: Optional[str] = None  # OAuth scope
+          
+          # Pre-defined system roles
+          SYSTEM_ROLES = {
+              "admin": Role(
+                  id="role_admin",
+                  name="Administrator",
+                  description="Full system access",
+                  is_system_role=True,
+                  permissions=[
+                      Permission(
+                          id="perm_admin_all",
+                          action=PermissionAction.ADMIN,
+                          resource_type=ResourceType.SYSTEM
+                      )
+                  ]
+              ),
+              "user": Role(
+                  id="role_user",
+                  name="User",
+                  description="Standard user access",
+                  is_system_role=True,
+                  permissions=[
+                      Permission(
+                          id="perm_user_agent_read",
+                          action=PermissionAction.READ,
+                          resource_type=ResourceType.AGENT
+                      ),
+                      Permission(
+                          id="perm_user_agent_execute",
+                          action=PermissionAction.EXECUTE,
+                          resource_type=ResourceType.AGENT
+                      ),
+                      Permission(
+                          id="perm_user_session_write",
+                          action=PermissionAction.WRITE,
+                          resource_type=ResourceType.SESSION
+                      )
+                  ]
+              ),
+              "readonly": Role(
+                  id="role_readonly",
+                  name="Read Only",
+                  description="Read-only access",
+                  is_system_role=True,
+                  permissions=[
+                      Permission(
+                          id="perm_readonly_agent",
+                          action=PermissionAction.READ,
+                          resource_type=ResourceType.AGENT
+                      ),
+                      Permission(
+                          id="perm_readonly_session",
+                          action=PermissionAction.READ,
+                          resource_type=ResourceType.SESSION
+                      ),
+                      Permission(
+                          id="perm_readonly_workflow",
+                          action=PermissionAction.READ,
+                          resource_type=ResourceType.WORKFLOW
+                      )
+                  ]
+              )
+          }
+      
+      - path: "services/agent-engine/src/auth/providers.py"
+        purpose: "Authentication providers"
+        exports:
+          - "AuthProvider: Base auth provider"
+          - "ApiKeyProvider: API key authentication"
+          - "JWTProvider: JWT token authentication"
+          - "BasicProvider: Basic auth provider"
+        content_structure: |
+          from typing import Optional, Dict, Any, List
+          from abc import ABC, abstractmethod
+          import logging
+          from datetime import datetime
+          
+          from .models import User, ApiKey, Role, SYSTEM_ROLES
+          from .jwt_handler import JWTHandler
+          from .api_keys import ApiKeyManager
+          
+          logger = logging.getLogger(__name__)
+          
+          class AuthProvider(ABC):
+              """Base authentication provider"""
+              
+              @abstractmethod
+              async def authenticate(self, credentials: Dict[str, Any]) -> Optional[User]:
+                  """Authenticate user with credentials"""
+                  pass
+              
+              @abstractmethod
+              async def get_user_roles(self, user_id: str) -> List[Role]:
+                  """Get user roles"""
+                  pass
+          
+          class ApiKeyProvider(AuthProvider):
+              """API key authentication provider"""
+              
+              def __init__(self, api_key_manager: ApiKeyManager):
+                  self.api_key_manager = api_key_manager
+              
+              async def authenticate(self, credentials: Dict[str, Any]) -> Optional[User]:
+                  """Authenticate using API key"""
+                  api_key = credentials.get("api_key")
+                  if not api_key:
+                      return None
+                  
+                  # Validate API key
+                  key_data = await self.api_key_manager.validate_key(api_key)
+                  if not key_data:
+                      return None
+                  
+                  # Update usage
+                  await self.api_key_manager.update_usage(key_data.id)
+                  
+                  # Create user from API key
+                  user = User(
+                      id=key_data.user_id,
+                      username=f"api_user_{key_data.user_id}",
+                      permissions=key_data.permissions,
+                      metadata={
+                          "auth_method": "api_key",
+                          "api_key_id": key_data.id,
+                          "api_key_name": key_data.name
+                      }
+                  )
+                  
+                  return user
+              
+              async def get_user_roles(self, user_id: str) -> List[Role]:
+                  """Get roles for API key user"""
+                  # API key users get basic user role by default
+                  return [SYSTEM_ROLES["user"]]
+          
+          class JWTProvider(AuthProvider):
+              """JWT token authentication provider"""
+              
+              def __init__(self, jwt_handler: JWTHandler, user_store):
+                  self.jwt_handler = jwt_handler
+                  self.user_store = user_store
+              
+              async def authenticate(self, credentials: Dict[str, Any]) -> Optional[User]:
+                  """Authenticate using JWT token"""
+                  token = credentials.get("token")
+                  if not token:
+                      return None
+                  
+                  # Validate and decode token
+                  claims = await self.jwt_handler.decode_token(token)
+                  if not claims:
+                      return None
+                  
+                  # Get user from store
+                  user = await self.user_store.get_user(claims.sub)
+                  if not user or user.status != "active":
+                      return None
+                  
+                  # Update last login
+                  user.last_login = datetime.now()
+                  await self.user_store.update_user(user)
+                  
+                  return user
+              
+              async def get_user_roles(self, user_id: str) -> List[Role]:
+                  """Get user roles from store"""
+                  user = await self.user_store.get_user(user_id)
+                  if not user:
+                      return []
+                  
+                  roles = []
+                  for role_id in user.roles:
+                      if role_id in SYSTEM_ROLES:
+                          roles.append(SYSTEM_ROLES[role_id])
+                      else:
+                          role = await self.user_store.get_role(role_id)
+                          if role:
+                              roles.append(role)
+                  
+                  return roles
+          
+          class BasicProvider(AuthProvider):
+              """Basic authentication provider (for development)"""
+              
+              def __init__(self, users: Dict[str, Dict[str, Any]] = None):
+                  self.users = users or {
+                      "admin": {
+                          "password": "admin123",
+                          "roles": ["admin"],
+                          "email": "admin@localhost"
+                      },
+                      "user": {
+                          "password": "user123",
+                          "roles": ["user"],
+                          "email": "user@localhost"
+                      }
+                  }
+              
+              async def authenticate(self, credentials: Dict[str, Any]) -> Optional[User]:
+                  """Authenticate using username/password"""
+                  username = credentials.get("username")
+                  password = credentials.get("password")
+                  
+                  if not username or not password:
+                      return None
+                  
+                  user_data = self.users.get(username)
+                  if not user_data or user_data["password"] != password:
+                      return None
+                  
+                  user = User(
+                      id=f"user_{username}",
+                      username=username,
+                      email=user_data.get("email"),
+                      roles=user_data.get("roles", []),
+                      metadata={
+                          "auth_method": "basic"
+                      }
+                  )
+                  
+                  return user
+              
+              async def get_user_roles(self, user_id: str) -> List[Role]:
+                  """Get user roles"""
+                  username = user_id.replace("user_", "")
+                  user_data = self.users.get(username, {})
+                  role_names = user_data.get("roles", [])
+                  
+                  roles = []
+                  for role_name in role_names:
+                      if role_name in SYSTEM_ROLES:
+                          roles.append(SYSTEM_ROLES[role_name])
+                  
+                  return roles
+      
+      - path: "services/agent-engine/src/auth/middleware.py"
+        purpose: "Authentication middleware for FastAPI"
+        exports:
+          - "AuthMiddleware: Authentication middleware"
+          - "require_auth: Authentication dependency"
+          - "require_permission: Permission dependency"
+        content_structure: |
+          from typing import Optional, List, Callable, Any
+          from fastapi import Request, HTTPException, Depends, status
+          from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
+          import logging
+          
+          from .models import User, PermissionAction, ResourceType
+          from .providers import AuthProvider, ApiKeyProvider, JWTProvider
+          
+          logger = logging.getLogger(__name__)
+          
+          class AuthContext:
+              """Authentication context"""
+              def __init__(self, user: User, auth_provider: AuthProvider):
+                  self.user = user
+                  self.auth_provider = auth_provider
+                  self._roles = None
+              
+              async def get_roles(self):
+                  """Get user roles (cached)"""
+                  if self._roles is None:
+                      self._roles = await self.auth_provider.get_user_roles(self.user.id)
+                  return self._roles
+              
+              async def has_permission(
+                  self,
+                  action: PermissionAction,
+                  resource_type: ResourceType,
+                  resource_id: Optional[str] = None
+              ) -> bool:
+                  """Check if user has permission"""
+                  roles = await self.get_roles()
+                  return self.user.has_permission(action, resource_type, resource_id, roles)
+          
+          class AuthMiddleware:
+              """Authentication middleware"""
+              
+              def __init__(self, providers: List[AuthProvider]):
+                  self.providers = providers
+                  self.security = HTTPBearer(auto_error=False)
+              
+              async def authenticate_request(self, request: Request) -> Optional[AuthContext]:
+                  """Authenticate incoming request"""
+                  # Try different authentication methods
+                  
+                  # 1. API Key from header
+                  api_key = request.headers.get("X-API-Key")
+                  if api_key:
+                      for provider in self.providers:
+                          if isinstance(provider, ApiKeyProvider):
+                              user = await provider.authenticate({"api_key": api_key})
+                              if user:
+                                  return AuthContext(user, provider)
+                  
+                  # 2. Bearer token
+                  auth_header = request.headers.get("Authorization")
+                  if auth_header and auth_header.startswith("Bearer "):
+                      token = auth_header[7:]
+                      for provider in self.providers:
+                          if isinstance(provider, JWTProvider):
+                              user = await provider.authenticate({"token": token})
+                              if user:
+                                  return AuthContext(user, provider)
+                  
+                  # 3. Basic auth (from request)
+                  # This would be handled by FastAPI's HTTPBasic if needed
+                  
+                  return None
+          
+          # Global auth middleware instance
+          auth_middleware = None
+          
+          def init_auth_middleware(providers: List[AuthProvider]):
+              """Initialize authentication middleware"""
+              global auth_middleware
+              auth_middleware = AuthMiddleware(providers)
+          
+          async def get_current_user(request: Request) -> Optional[AuthContext]:
+              """Get current authenticated user (optional)"""
+              if not auth_middleware:
+                  return None
+              
+              return await auth_middleware.authenticate_request(request)
+          
+          async def require_auth(request: Request) -> AuthContext:
+              """Require authentication"""
+              auth_context = await get_current_user(request)
+              if not auth_context:
+                  raise HTTPException(
+                      status_code=status.HTTP_401_UNAUTHORIZED,
+                      detail="Authentication required",
+                      headers={"WWW-Authenticate": "Bearer"}
+                  )
+              return auth_context
+          
+          def require_permission(
+              action: PermissionAction,
+              resource_type: ResourceType,
+              resource_id_param: Optional[str] = None
+          ) -> Callable:
+              """Require specific permission"""
+              def permission_dependency(
+                  auth_context: AuthContext = Depends(require_auth),
+                  request: Request = None
+              ) -> AuthContext:
+                  async def check_permission():
+                      # Extract resource ID from path if specified
+                      resource_id = None
+                      if resource_id_param and request:
+                          resource_id = request.path_params.get(resource_id_param)
+                      
+                      has_perm = await auth_context.has_permission(
+                          action,
+                          resource_type,
+                          resource_id
+                      )
+                      
+                      if not has_perm:
+                          raise HTTPException(
+                              status_code=status.HTTP_403_FORBIDDEN,
+                              detail=f"Permission denied: {action} on {resource_type}"
+                          )
+                      
+                      return auth_context
+                  
+                  # Note: This is a simplified version
+                  # In practice, you'd use async dependencies properly
+                  return auth_context
+              
+              return permission_dependency
+      
+      - path: "services/agent-engine/src/auth/jwt_handler.py"
+        purpose: "JWT token handling"
+        exports:
+          - "JWTHandler: JWT token management"
+      
+      - path: "services/agent-engine/src/auth/api_keys.py"
+        purpose: "API key management"
+        exports:
+          - "ApiKeyManager: API key storage and validation"
+      
+      - path: "services/agent-engine/tests/test_auth.py"
+        purpose: "Authentication tests"
+        test_categories:
+          - "API key authentication"
+          - "JWT token validation"
+          - "Permission checking"
+          - "Role-based access"
+          - "Middleware integration"
+    
+    uses_from_previous:
+      - source: "r6-t01"
+        component: "FastAPI dependencies"
+        usage: "Authentication integration"
+      - source: "r6-t02"
+        component: "WebSocket auth"
+        usage: "Secure WebSocket connections"
+    
+  implementation_steps:
+    - step: "Create auth models"
+      implementation_notes: |
+        - User, Role, Permission models
+        - API key model
+        - JWT claims structure
+        
+    - step: "Implement providers"
+      implementation_notes: |
+        - API key provider
+        - JWT provider
+        - Basic auth provider
+        
+    - step: "Build middleware"
+      implementation_notes: |
+        - Request authentication
+        - Permission checking
+        - FastAPI integration
+        
+    - step: "Add JWT handling"
+      implementation_notes: |
+        - Token generation
+        - Token validation
+        - Claims management
+        
+    - step: "Create API key system"
+      implementation_notes: |
+        - Key generation
+        - Key validation
+        - Usage tracking
+        
+  validation:
+    commands:
+      - description: "Test authentication"
+        command: "cd services/agent-engine && pytest tests/test_auth.py -v"
+        expected: "All tests pass"
+        
+      - description: "Test API key access"
+        command: "curl -H 'X-API-Key: tahoe_test_key' http://localhost:8001/api/v1/agents"
+        expected: "Authenticated request succeeds"
+        
+      - description: "Test unauthorized access"
+        command: "curl http://localhost:8001/api/v1/agents"
+        expected: "Returns 401 Unauthorized"
+        
+    success_criteria:
+      - "API key authentication working"
+      - "JWT token validation functional"
+      - "Permission system operational"
+      - "Middleware properly integrated"
+      - "All tests pass"
+      
+  dependencies:
+    required_before:
+      - task: "r6-t01"
+        reason: "Need REST API endpoints"
+      - task: "r6-t02"
+        reason: "Need WebSocket connections"

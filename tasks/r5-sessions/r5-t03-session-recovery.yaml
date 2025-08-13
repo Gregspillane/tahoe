@@ -1,0 +1,592 @@
+task:
+  id: "r5-t03-session-recovery"
+  name: "Implement Session Recovery and Resilience"
+  description: "Create session recovery mechanisms including checkpointing, restoration, and failure handling"
+  complexity: "medium"
+  estimated_hours: 3
+  
+  context:
+    why: "Session recovery ensures continuity of interactions despite failures and enables debugging capabilities"
+    architectural_role: "Provides resilience and debugging features for session management"
+    depends_on_tasks: ["r5-t01"]
+    enables_tasks: ["r5-t04"]
+    references:
+      masterplan: "@MASTERPLAN.md#session-management"
+      architecture: "@memory-bank/architecture.md#error-recovery"
+    
+  implementation:
+    creates:
+      - path: "services/agent-engine/src/core/session_recovery.py"
+        purpose: "Session recovery and resilience implementation"
+        exports:
+          - "SessionRecovery: Main recovery coordinator"
+          - "CheckpointManager: Session checkpoint management"
+          - "RecoveryStrategy: Recovery strategy interface"
+          - "AutoRecovery: Automatic recovery handler"
+          - "SessionReplay: Session replay functionality"
+        content_structure: |
+          from typing import Dict, Any, List, Optional, Callable, Tuple
+          from datetime import datetime, timedelta
+          from pydantic import BaseModel, Field
+          import logging
+          import asyncio
+          import pickle
+          import json
+          from enum import Enum
+          from abc import ABC, abstractmethod
+          
+          from .session import SessionContext, SessionState, SessionMetadata
+          
+          logger = logging.getLogger(__name__)
+          
+          class CheckpointType(str, Enum):
+              """Types of session checkpoints"""
+              MANUAL = "manual"
+              AUTOMATIC = "automatic"
+              ERROR = "error"
+              MILESTONE = "milestone"
+          
+          class SessionCheckpoint(BaseModel):
+              """Session checkpoint for recovery"""
+              checkpoint_id: str
+              session_id: str
+              checkpoint_type: CheckpointType
+              timestamp: datetime = Field(default_factory=datetime.now)
+              state: SessionState
+              metadata: SessionMetadata
+              context_snapshot: Dict[str, Any] = Field(default_factory=dict)
+              message_index: int = 0
+              description: Optional[str] = None
+              recoverable: bool = True
+              expires_at: Optional[datetime] = None
+          
+          class RecoveryResult(BaseModel):
+              """Result of recovery operation"""
+              success: bool
+              session_id: str
+              checkpoint_id: Optional[str] = None
+              recovered_at: datetime = Field(default_factory=datetime.now)
+              messages_recovered: int = 0
+              state_recovered: bool = False
+              error: Optional[str] = None
+          
+          class RecoveryStrategy(ABC):
+              """Abstract recovery strategy"""
+              
+              @abstractmethod
+              async def recover(
+                  self,
+                  checkpoint: SessionCheckpoint,
+                  target_session_id: Optional[str] = None
+              ) -> RecoveryResult:
+                  """Recover session from checkpoint"""
+                  pass
+              
+              @abstractmethod
+              def can_recover(self, checkpoint: SessionCheckpoint) -> bool:
+                  """Check if recovery is possible"""
+                  pass
+          
+          class FullRecoveryStrategy(RecoveryStrategy):
+              """Full state recovery strategy"""
+              
+              def __init__(self, session_orchestrator):
+                  self.orchestrator = session_orchestrator
+              
+              async def recover(
+                  self,
+                  checkpoint: SessionCheckpoint,
+                  target_session_id: Optional[str] = None
+              ) -> RecoveryResult:
+                  """Fully recover session state"""
+                  try:
+                      target_id = target_session_id or checkpoint.session_id
+                      
+                      # Create new session with checkpoint state
+                      context = await self.orchestrator.create_session(
+                          user_id=checkpoint.metadata.user_id,
+                          app_name=checkpoint.metadata.app_name,
+                          session_id=target_id,
+                          config=checkpoint.metadata.config,
+                          initial_state=checkpoint.context_snapshot
+                      )
+                      
+                      # Restore full state
+                      context.state = checkpoint.state
+                      context.metadata = checkpoint.metadata
+                      context.metadata.session_id = target_id
+                      
+                      # Update in backend
+                      await self.orchestrator.update_session(target_id, context)
+                      
+                      return RecoveryResult(
+                          success=True,
+                          session_id=target_id,
+                          checkpoint_id=checkpoint.checkpoint_id,
+                          messages_recovered=len(checkpoint.state.conversation_history),
+                          state_recovered=True
+                      )
+                      
+                  except Exception as e:
+                      logger.error(f"Full recovery failed: {e}")
+                      return RecoveryResult(
+                          success=False,
+                          session_id=target_session_id or checkpoint.session_id,
+                          error=str(e)
+                      )
+              
+              def can_recover(self, checkpoint: SessionCheckpoint) -> bool:
+                  """Check if full recovery is possible"""
+                  if not checkpoint.recoverable:
+                      return False
+                  if checkpoint.expires_at and checkpoint.expires_at < datetime.now():
+                      return False
+                  return True
+          
+          class PartialRecoveryStrategy(RecoveryStrategy):
+              """Partial state recovery strategy"""
+              
+              def __init__(self, session_orchestrator, recover_messages: bool = True):
+                  self.orchestrator = session_orchestrator
+                  self.recover_messages = recover_messages
+              
+              async def recover(
+                  self,
+                  checkpoint: SessionCheckpoint,
+                  target_session_id: Optional[str] = None
+              ) -> RecoveryResult:
+                  """Partially recover session state"""
+                  try:
+                      target_id = target_session_id or checkpoint.session_id
+                      
+                      # Get or create session
+                      context = await self.orchestrator.get_session(target_id)
+                      if not context:
+                          context = await self.orchestrator.create_session(
+                              user_id=checkpoint.metadata.user_id,
+                              app_name=checkpoint.metadata.app_name,
+                              session_id=target_id
+                          )
+                      
+                      # Recover conversation history if requested
+                      messages_recovered = 0
+                      if self.recover_messages:
+                          # Merge conversation histories
+                          existing_messages = set(
+                              msg.get("timestamp") for msg in context.state.conversation_history
+                          )
+                          
+                          for msg in checkpoint.state.conversation_history:
+                              if msg.get("timestamp") not in existing_messages:
+                                  context.state.conversation_history.append(msg)
+                                  messages_recovered += 1
+                      
+                      # Recover context and variables
+                      context.state.context.update(checkpoint.state.context)
+                      context.state.variables.update(checkpoint.state.variables)
+                      
+                      # Update session
+                      await self.orchestrator.update_session(target_id, context)
+                      
+                      return RecoveryResult(
+                          success=True,
+                          session_id=target_id,
+                          checkpoint_id=checkpoint.checkpoint_id,
+                          messages_recovered=messages_recovered,
+                          state_recovered=False
+                      )
+                      
+                  except Exception as e:
+                      logger.error(f"Partial recovery failed: {e}")
+                      return RecoveryResult(
+                          success=False,
+                          session_id=target_session_id or checkpoint.session_id,
+                          error=str(e)
+                      )
+              
+              def can_recover(self, checkpoint: SessionCheckpoint) -> bool:
+                  """Check if partial recovery is possible"""
+                  return checkpoint.state is not None
+          
+          class CheckpointManager:
+              """Manages session checkpoints"""
+              
+              def __init__(self, storage_backend):
+                  self.storage = storage_backend
+                  self.checkpoints: Dict[str, List[SessionCheckpoint]] = {}
+                  self.auto_checkpoint_interval = 300  # 5 minutes
+                  self.max_checkpoints_per_session = 10
+              
+              async def create_checkpoint(
+                  self,
+                  session_context: SessionContext,
+                  checkpoint_type: CheckpointType = CheckpointType.MANUAL,
+                  description: Optional[str] = None,
+                  ttl_hours: int = 24
+              ) -> SessionCheckpoint:
+                  """Create session checkpoint"""
+                  from uuid import uuid4
+                  
+                  checkpoint = SessionCheckpoint(
+                      checkpoint_id=f"cp_{uuid4().hex[:12]}",
+                      session_id=session_context.session_id,
+                      checkpoint_type=checkpoint_type,
+                      state=session_context.state.model_copy(deep=True),
+                      metadata=session_context.metadata.model_copy(deep=True),
+                      context_snapshot={
+                          "variables": session_context.state.variables.copy(),
+                          "context": session_context.state.context.copy()
+                      },
+                      message_index=len(session_context.state.conversation_history),
+                      description=description,
+                      expires_at=datetime.now() + timedelta(hours=ttl_hours)
+                  )
+                  
+                  # Store checkpoint
+                  await self._store_checkpoint(checkpoint)
+                  
+                  # Track in memory
+                  if session_context.session_id not in self.checkpoints:
+                      self.checkpoints[session_context.session_id] = []
+                  
+                  self.checkpoints[session_context.session_id].append(checkpoint)
+                  
+                  # Limit checkpoints per session
+                  await self._cleanup_old_checkpoints(session_context.session_id)
+                  
+                  logger.info(f"Created checkpoint {checkpoint.checkpoint_id} for session {session_context.session_id}")
+                  return checkpoint
+              
+              async def get_checkpoint(
+                  self,
+                  checkpoint_id: str
+              ) -> Optional[SessionCheckpoint]:
+                  """Get specific checkpoint"""
+                  checkpoint_data = await self.storage.load_state(f"checkpoint:{checkpoint_id}")
+                  if checkpoint_data:
+                      return SessionCheckpoint(**checkpoint_data)
+                  return None
+              
+              async def list_checkpoints(
+                  self,
+                  session_id: str,
+                  checkpoint_type: Optional[CheckpointType] = None
+              ) -> List[SessionCheckpoint]:
+                  """List session checkpoints"""
+                  checkpoints = self.checkpoints.get(session_id, [])
+                  
+                  # Filter by type if specified
+                  if checkpoint_type:
+                      checkpoints = [cp for cp in checkpoints if cp.checkpoint_type == checkpoint_type]
+                  
+                  # Filter out expired
+                  now = datetime.now()
+                  checkpoints = [
+                      cp for cp in checkpoints
+                      if not cp.expires_at or cp.expires_at > now
+                  ]
+                  
+                  return sorted(checkpoints, key=lambda x: x.timestamp, reverse=True)
+              
+              async def delete_checkpoint(self, checkpoint_id: str) -> bool:
+                  """Delete checkpoint"""
+                  return await self.storage.delete_state(f"checkpoint:{checkpoint_id}")
+              
+              async def _store_checkpoint(self, checkpoint: SessionCheckpoint):
+                  """Store checkpoint in backend"""
+                  checkpoint_key = f"checkpoint:{checkpoint.checkpoint_id}"
+                  await self.storage.save_state(
+                      checkpoint_key,
+                      checkpoint.model_dump(mode='json')
+                  )
+              
+              async def _cleanup_old_checkpoints(self, session_id: str):
+                  """Clean up old checkpoints for session"""
+                  if session_id not in self.checkpoints:
+                      return
+                  
+                  checkpoints = self.checkpoints[session_id]
+                  
+                  # Keep only recent checkpoints
+                  if len(checkpoints) > self.max_checkpoints_per_session:
+                      # Sort by timestamp
+                      checkpoints.sort(key=lambda x: x.timestamp)
+                      
+                      # Remove oldest
+                      to_remove = checkpoints[:len(checkpoints) - self.max_checkpoints_per_session]
+                      for cp in to_remove:
+                          await self.delete_checkpoint(cp.checkpoint_id)
+                          checkpoints.remove(cp)
+          
+          class AutoRecovery:
+              """Automatic session recovery handler"""
+              
+              def __init__(
+                  self,
+                  checkpoint_manager: CheckpointManager,
+                  recovery_strategy: RecoveryStrategy
+              ):
+                  self.checkpoint_manager = checkpoint_manager
+                  self.recovery_strategy = recovery_strategy
+                  self.recovery_attempts: Dict[str, int] = {}
+                  self.max_recovery_attempts = 3
+              
+              async def handle_failure(
+                  self,
+                  session_id: str,
+                  error: Exception,
+                  context: Optional[SessionContext] = None
+              ) -> Optional[RecoveryResult]:
+                  """Handle session failure with auto-recovery"""
+                  logger.error(f"Session {session_id} failed: {error}")
+                  
+                  # Check recovery attempts
+                  attempts = self.recovery_attempts.get(session_id, 0)
+                  if attempts >= self.max_recovery_attempts:
+                      logger.error(f"Max recovery attempts reached for session {session_id}")
+                      return None
+                  
+                  # Create error checkpoint if context available
+                  if context:
+                      await self.checkpoint_manager.create_checkpoint(
+                          context,
+                          CheckpointType.ERROR,
+                          description=f"Error checkpoint: {str(error)}"
+                      )
+                  
+                  # Find latest recoverable checkpoint
+                  checkpoints = await self.checkpoint_manager.list_checkpoints(session_id)
+                  
+                  for checkpoint in checkpoints:
+                      if self.recovery_strategy.can_recover(checkpoint):
+                          # Attempt recovery
+                          self.recovery_attempts[session_id] = attempts + 1
+                          
+                          result = await self.recovery_strategy.recover(checkpoint)
+                          
+                          if result.success:
+                              logger.info(f"Successfully recovered session {session_id}")
+                              self.recovery_attempts[session_id] = 0  # Reset counter
+                              return result
+                  
+                  logger.error(f"No recoverable checkpoint found for session {session_id}")
+                  return None
+              
+              def reset_attempts(self, session_id: str):
+                  """Reset recovery attempts counter"""
+                  if session_id in self.recovery_attempts:
+                      del self.recovery_attempts[session_id]
+          
+          class SessionReplay:
+              """Session replay functionality for debugging"""
+              
+              def __init__(self, session_orchestrator):
+                  self.orchestrator = session_orchestrator
+              
+              async def replay_session(
+                  self,
+                  checkpoint: SessionCheckpoint,
+                  start_index: int = 0,
+                  end_index: Optional[int] = None,
+                  speed: float = 1.0
+              ) -> AsyncIterator[Dict[str, Any]]:
+                  """Replay session messages from checkpoint"""
+                  messages = checkpoint.state.conversation_history[start_index:end_index]
+                  
+                  for i, message in enumerate(messages):
+                      # Calculate delay for realistic replay
+                      if i > 0 and speed > 0:
+                          delay = 1.0 / speed  # Simplified delay calculation
+                          await asyncio.sleep(delay)
+                      
+                      yield {
+                          "index": start_index + i,
+                          "message": message,
+                          "timestamp": message.get("timestamp"),
+                          "role": message.get("role")
+                      }
+              
+              async def replay_to_point(
+                  self,
+                  session_id: str,
+                  target_message_index: int
+              ) -> SessionContext:
+                  """Replay session up to specific message"""
+                  # Get latest checkpoint before target
+                  checkpoints = await self.checkpoint_manager.list_checkpoints(session_id)
+                  
+                  best_checkpoint = None
+                  for cp in checkpoints:
+                      if cp.message_index <= target_message_index:
+                          best_checkpoint = cp
+                          break
+                  
+                  if not best_checkpoint:
+                      raise ValueError(f"No checkpoint found before message {target_message_index}")
+                  
+                  # Recover from checkpoint
+                  recovery_strategy = FullRecoveryStrategy(self.orchestrator)
+                  result = await recovery_strategy.recover(
+                      best_checkpoint,
+                      f"{session_id}_replay"
+                  )
+                  
+                  if not result.success:
+                      raise RuntimeError(f"Failed to replay session: {result.error}")
+                  
+                  # Get recovered session
+                  context = await self.orchestrator.get_session(result.session_id)
+                  
+                  # Trim messages after target
+                  if context:
+                      context.state.conversation_history = \
+                          context.state.conversation_history[:target_message_index]
+                  
+                  return context
+          
+          class SessionRecovery:
+              """Main session recovery coordinator"""
+              
+              def __init__(
+                  self,
+                  session_orchestrator,
+                  storage_backend,
+                  enable_auto_recovery: bool = True
+              ):
+                  self.orchestrator = session_orchestrator
+                  self.checkpoint_manager = CheckpointManager(storage_backend)
+                  self.strategies = {
+                      "full": FullRecoveryStrategy(session_orchestrator),
+                      "partial": PartialRecoveryStrategy(session_orchestrator)
+                  }
+                  self.auto_recovery = AutoRecovery(
+                      self.checkpoint_manager,
+                      self.strategies["full"]
+                  ) if enable_auto_recovery else None
+                  self.replay = SessionReplay(session_orchestrator)
+              
+              async def create_checkpoint(
+                  self,
+                  session_id: str,
+                  checkpoint_type: CheckpointType = CheckpointType.MANUAL,
+                  description: Optional[str] = None
+              ) -> Optional[SessionCheckpoint]:
+                  """Create checkpoint for session"""
+                  context = await self.orchestrator.get_session(session_id)
+                  if not context:
+                      logger.error(f"Session {session_id} not found for checkpoint")
+                      return None
+                  
+                  return await self.checkpoint_manager.create_checkpoint(
+                      context,
+                      checkpoint_type,
+                      description
+                  )
+              
+              async def recover_session(
+                  self,
+                  checkpoint_id: str,
+                  strategy: str = "full",
+                  target_session_id: Optional[str] = None
+              ) -> RecoveryResult:
+                  """Recover session from checkpoint"""
+                  checkpoint = await self.checkpoint_manager.get_checkpoint(checkpoint_id)
+                  if not checkpoint:
+                      return RecoveryResult(
+                          success=False,
+                          session_id=target_session_id or "unknown",
+                          error=f"Checkpoint {checkpoint_id} not found"
+                      )
+                  
+                  recovery_strategy = self.strategies.get(strategy)
+                  if not recovery_strategy:
+                      return RecoveryResult(
+                          success=False,
+                          session_id=checkpoint.session_id,
+                          error=f"Unknown recovery strategy: {strategy}"
+                      )
+                  
+                  return await recovery_strategy.recover(checkpoint, target_session_id)
+              
+              async def handle_session_failure(
+                  self,
+                  session_id: str,
+                  error: Exception
+              ) -> Optional[RecoveryResult]:
+                  """Handle session failure with recovery"""
+                  if self.auto_recovery:
+                      context = await self.orchestrator.get_session(session_id)
+                      return await self.auto_recovery.handle_failure(
+                          session_id,
+                          error,
+                          context
+                      )
+                  return None
+              
+              def get_metrics(self) -> Dict:
+                  """Get recovery metrics"""
+                  return {
+                      "total_checkpoints": sum(
+                          len(cps) for cps in self.checkpoint_manager.checkpoints.values()
+                      ),
+                      "sessions_with_checkpoints": len(self.checkpoint_manager.checkpoints),
+                      "auto_recovery_enabled": self.auto_recovery is not None,
+                      "available_strategies": list(self.strategies.keys())
+                  }
+      
+      - path: "services/agent-engine/tests/test_session_recovery.py"
+        purpose: "Tests for session recovery"
+        test_categories:
+          - "Checkpoint creation"
+          - "Recovery strategies"
+          - "Auto-recovery"
+          - "Session replay"
+          - "Failure scenarios"
+    
+    uses_from_previous:
+      - source: "r5-t01"
+        component: "SessionOrchestrator"
+        usage: "Session management integration"
+    
+  implementation_steps:
+    - step: "Create checkpoint system"
+      implementation_notes: |
+        - Checkpoint models
+        - Storage integration
+        - Expiration handling
+        
+    - step: "Implement recovery strategies"
+      implementation_notes: |
+        - Full recovery
+        - Partial recovery
+        - Custom strategies
+        
+    - step: "Build auto-recovery"
+      implementation_notes: |
+        - Failure detection
+        - Automatic recovery
+        - Retry logic
+        
+    - step: "Add replay functionality"
+      implementation_notes: |
+        - Session replay
+        - Point-in-time recovery
+        - Debugging support
+        
+  validation:
+    commands:
+      - description: "Test session recovery"
+        command: "cd services/agent-engine && pytest tests/test_session_recovery.py -v"
+        expected: "All tests pass"
+        
+    success_criteria:
+      - "Checkpointing working"
+      - "Recovery strategies functional"
+      - "Auto-recovery tested"
+      - "Replay working"
+      - "All tests pass"
+      
+  dependencies:
+    required_before:
+      - task: "r5-t01"
+        reason: "Need session orchestration"

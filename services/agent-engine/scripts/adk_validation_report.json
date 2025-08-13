@@ -1,0 +1,19 @@
+{
+  "validation_date": "1755112891.817048",
+  "checks_passed": 7,
+  "checks_total": 8,
+  "success": false,
+  "results": {
+    "Import Patterns": true,
+    "Agent Creation Patterns": true,
+    "Runner Usage Patterns": true,
+    "Session Management Patterns": true,
+    "Tool Integration Patterns": true,
+    "Naming Conventions": true,
+    "Parameter Passing Patterns": true,
+    "Project File Patterns": false
+  },
+  "issues": [
+    "Project File Patterns: /Users/gregspillane/Documents/Projects/tahoe/services/agent-engine/scripts/validate_adk_patterns.py:351 - session_service is a property, not method"
+  ]
+}

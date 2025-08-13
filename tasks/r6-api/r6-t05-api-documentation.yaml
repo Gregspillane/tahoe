@@ -1,0 +1,609 @@
+task:
+  id: "r6-t05-api-documentation"
+  name: "Create Comprehensive API Documentation"
+  description: "Generate interactive API documentation with OpenAPI/Swagger, examples, and integration guides"
+  complexity: "simple"
+  estimated_hours: 2
+  
+  context:
+    why: "Comprehensive documentation enables easy API adoption and reduces integration friction"
+    architectural_role: "Developer experience layer for API consumers"
+    depends_on_tasks: ["r6-t01", "r6-t02", "r6-t03", "r6-t04"]
+    enables_tasks: ["r7-t02"]
+    references:
+      masterplan: "@MASTERPLAN.md#developer-experience"
+      architecture: "@memory-bank/architecture.md#documentation"
+    
+  implementation:
+    creates:
+      - path: "services/agent-engine/src/api/docs/"
+        purpose: "API documentation configuration"
+        content:
+          - "__init__.py"
+          - "openapi.py"
+          - "examples.py"
+          - "tags.py"
+      
+      - path: "services/agent-engine/src/api/docs/openapi.py"
+        purpose: "OpenAPI specification configuration"
+        exports:
+          - "get_openapi_config: OpenAPI configuration"
+          - "custom_openapi: Custom OpenAPI schema"
+        content_structure: |
+          from typing import Dict, Any
+          from fastapi.openapi.utils import get_openapi
+          from fastapi import FastAPI
+          
+          def get_openapi_config() -> Dict[str, Any]:
+              """Get OpenAPI configuration"""
+              return {
+                  "title": "Tahoe Agent Orchestration API",
+                  "version": "1.0.0",
+                  "description": """
+                  # Tahoe Agent Orchestration Platform API
+                  
+                  The Tahoe API provides comprehensive access to agent orchestration, 
+                  session management, and workflow execution capabilities.
+                  
+                  ## Authentication
+                  
+                  The API supports multiple authentication methods:
+                  
+                  - **API Keys**: Include `X-API-Key` header with your API key
+                  - **Bearer Tokens**: Include `Authorization: Bearer <token>` header
+                  - **Basic Auth**: Username/password for development
+                  
+                  ## Rate Limits
+                  
+                  API requests are rate-limited based on your authentication method:
+                  
+                  - API Keys: Configurable per key (default 1000/minute)
+                  - JWT Tokens: 500 requests per minute
+                  - Basic Auth: 100 requests per minute
+                  
+                  ## WebSocket Support
+                  
+                  Real-time features are available via WebSocket at `/ws`:
+                  
+                  - Agent execution streaming
+                  - Session state updates
+                  - Workflow progress events
+                  
+                  ## GraphQL Interface
+                  
+                  Advanced querying is available at `/graphql` with:
+                  
+                  - Flexible data querying
+                  - Real-time subscriptions
+                  - Relationship traversal
+                  
+                  ## SDKs and Libraries
+                  
+                  Official SDKs are available for:
+                  
+                  - Python: `pip install tahoe-client`
+                  - JavaScript: `npm install @tahoe/client`
+                  - Go: `go get github.com/tahoe/go-client`
+                  
+                  ## Support
+                  
+                  - Documentation: https://docs.tahoe.dev
+                  - GitHub: https://github.com/tahoe/tahoe
+                  - Discord: https://discord.gg/tahoe
+                  """,
+                  "terms_of_service": "https://tahoe.dev/terms",
+                  "contact": {
+                      "name": "Tahoe API Support",
+                      "email": "support@tahoe.dev",
+                      "url": "https://tahoe.dev/support"
+                  },
+                  "license_info": {
+                      "name": "MIT License",
+                      "url": "https://opensource.org/licenses/MIT"
+                  },
+                  "servers": [
+                      {
+                          "url": "http://localhost:8001",
+                          "description": "Development server"
+                      },
+                      {
+                          "url": "https://api.tahoe.dev",
+                          "description": "Production server"
+                      }
+                  ]
+              }
+          
+          def custom_openapi(app: FastAPI) -> Dict[str, Any]:
+              """Generate custom OpenAPI schema"""
+              if app.openapi_schema:
+                  return app.openapi_schema
+              
+              config = get_openapi_config()
+              
+              openapi_schema = get_openapi(
+                  title=config["title"],
+                  version=config["version"],
+                  description=config["description"],
+                  routes=app.routes,
+              )
+              
+              # Add custom configuration
+              openapi_schema["info"].update({
+                  "termsOfService": config["terms_of_service"],
+                  "contact": config["contact"],
+                  "license": config["license_info"]
+              })
+              
+              openapi_schema["servers"] = config["servers"]
+              
+              # Add security schemes
+              openapi_schema["components"]["securitySchemes"] = {
+                  "ApiKeyAuth": {
+                      "type": "apiKey",
+                      "in": "header",
+                      "name": "X-API-Key",
+                      "description": "API key for authentication"
+                  },
+                  "BearerAuth": {
+                      "type": "http",
+                      "scheme": "bearer",
+                      "bearerFormat": "JWT",
+                      "description": "JWT token for authentication"
+                  },
+                  "BasicAuth": {
+                      "type": "http",
+                      "scheme": "basic",
+                      "description": "Basic authentication for development"
+                  }
+              }
+              
+              # Add security requirements to all endpoints
+              security = [
+                  {"ApiKeyAuth": []},
+                  {"BearerAuth": []},
+                  {"BasicAuth": []}
+              ]
+              
+              for path in openapi_schema["paths"].values():
+                  for operation in path.values():
+                      if isinstance(operation, dict) and "operationId" in operation:
+                          operation["security"] = security
+              
+              # Add custom examples
+              from .examples import get_api_examples
+              examples = get_api_examples()
+              
+              # Inject examples into schema
+              for path, methods in openapi_schema["paths"].items():
+                  for method, operation in methods.items():
+                      if isinstance(operation, dict):
+                          operation_id = operation.get("operationId")
+                          if operation_id in examples:
+                              if "requestBody" in operation:
+                                  operation["requestBody"]["content"]["application/json"]["examples"] = examples[operation_id]
+              
+              app.openapi_schema = openapi_schema
+              return app.openapi_schema
+      
+      - path: "services/agent-engine/src/api/docs/examples.py"
+        purpose: "API request/response examples"
+        exports:
+          - "get_api_examples: Get all API examples"
+        content_structure: |
+          from typing import Dict, Any
+          
+          def get_api_examples() -> Dict[str, Dict[str, Any]]:
+              """Get API examples for documentation"""
+              return {
+                  "create_agent": {
+                      "llm_agent": {
+                          "summary": "Create LLM Agent",
+                          "description": "Create a simple LLM agent for text processing",
+                          "value": {
+                              "name": "Text Analyzer",
+                              "type": "llm",
+                              "specification": {
+                                  "model": "gemini-1.5-pro",
+                                  "system_instruction": "You are a text analyzer. Analyze the input text and provide insights.",
+                                  "tools": [],
+                                  "config": {
+                                      "temperature": 0.7,
+                                      "max_tokens": 1000
+                                  }
+                              },
+                              "description": "Analyzes text and provides insights",
+                              "tags": ["nlp", "analysis"]
+                          }
+                      },
+                      "workflow_agent": {
+                          "summary": "Create Workflow Agent",
+                          "description": "Create a sequential workflow agent",
+                          "value": {
+                              "name": "Data Processing Pipeline",
+                              "type": "sequential",
+                              "specification": {
+                                  "steps": [
+                                      {
+                                          "name": "extract",
+                                          "agent": {
+                                              "type": "llm",
+                                              "model": "gemini-1.5-pro",
+                                              "system_instruction": "Extract key information from the input."
+                                          }
+                                      },
+                                      {
+                                          "name": "analyze",
+                                          "agent": {
+                                              "type": "llm",
+                                              "model": "gemini-1.5-pro",
+                                              "system_instruction": "Analyze the extracted information."
+                                          }
+                                      }
+                                  ]
+                              },
+                              "description": "Multi-step data processing",
+                              "tags": ["workflow", "pipeline"]
+                          }
+                      }
+                  },
+                  "execute_agent": {
+                      "text_analysis": {
+                          "summary": "Text Analysis",
+                          "description": "Analyze a piece of text",
+                          "value": {
+                              "input_data": {
+                                  "text": "Artificial intelligence is transforming the way we work and live. Machine learning algorithms can now process vast amounts of data and identify patterns that humans might miss."
+                              },
+                              "context": {
+                                  "user_id": "user123",
+                                  "request_type": "analysis"
+                              },
+                              "timeout": 30
+                          }
+                      },
+                      "data_processing": {
+                          "summary": "Data Processing",
+                          "description": "Process structured data",
+                          "value": {
+                              "input_data": {
+                                  "data": {
+                                      "sales": [1000, 1500, 2000, 1800],
+                                      "months": ["Jan", "Feb", "Mar", "Apr"]
+                                  },
+                                  "task": "Calculate trends and provide summary"
+                              },
+                              "context": {
+                                  "format": "json",
+                                  "include_charts": True
+                              }
+                          }
+                      }
+                  },
+                  "create_session": {
+                      "basic_session": {
+                          "summary": "Basic Session",
+                          "description": "Create a basic user session",
+                          "value": {
+                              "user_id": "user123",
+                              "app_name": "my_app",
+                              "config": {
+                                  "max_history": 100,
+                                  "auto_save": True
+                              }
+                          }
+                      },
+                      "advanced_session": {
+                          "summary": "Advanced Session",
+                          "description": "Create session with custom configuration",
+                          "value": {
+                              "user_id": "user456",
+                              "app_name": "data_analyzer",
+                              "session_id": "custom_session_123",
+                              "config": {
+                                  "backend": "redis",
+                                  "ttl": 3600,
+                                  "encryption": True,
+                                  "max_history": 200,
+                                  "auto_checkpoint": True
+                              },
+                              "initial_state": {
+                                  "context": {
+                                      "workspace": "analytics",
+                                      "project": "q4_analysis"
+                                  }
+                              }
+                          }
+                      }
+                  },
+                  "create_workflow": {
+                      "simple_workflow": {
+                          "summary": "Simple Workflow",
+                          "description": "Create a simple sequential workflow",
+                          "value": {
+                              "name": "Content Generation Pipeline",
+                              "specification": {
+                                  "type": "sequential",
+                                  "steps": [
+                                      {
+                                          "name": "research",
+                                          "agent_spec": {
+                                              "type": "llm",
+                                              "model": "gemini-1.5-pro",
+                                              "system_instruction": "Research the given topic and gather key facts.",
+                                              "tools": ["web_search"]
+                                          },
+                                          "input_mapping": {
+                                              "topic": "$.input.topic"
+                                          }
+                                      },
+                                      {
+                                          "name": "write",
+                                          "agent_spec": {
+                                              "type": "llm",
+                                              "model": "gemini-1.5-pro",
+                                              "system_instruction": "Write a comprehensive article based on the research."
+                                          },
+                                          "input_mapping": {
+                                              "research_data": "$.steps.research.output",
+                                              "topic": "$.input.topic"
+                                          }
+                                      }
+                                  ]
+                              },
+                              "description": "Automated content generation from topic research",
+                              "tags": ["content", "automation"]
+                          }
+                      },
+                      "parallel_workflow": {
+                          "summary": "Parallel Workflow",
+                          "description": "Create workflow with parallel execution",
+                          "value": {
+                              "name": "Multi-Model Analysis",
+                              "specification": {
+                                  "type": "parallel",
+                                  "agents": [
+                                      {
+                                          "name": "sentiment_analysis",
+                                          "agent_spec": {
+                                              "type": "llm",
+                                              "model": "gemini-1.5-pro",
+                                              "system_instruction": "Analyze sentiment of the input text."
+                                          }
+                                      },
+                                      {
+                                          "name": "topic_extraction",
+                                          "agent_spec": {
+                                              "type": "llm",
+                                              "model": "gemini-1.5-pro",
+                                              "system_instruction": "Extract main topics from the input text."
+                                          }
+                                      },
+                                      {
+                                          "name": "summary_generation",
+                                          "agent_spec": {
+                                              "type": "llm",
+                                              "model": "gemini-1.5-pro",
+                                              "system_instruction": "Generate a concise summary of the input text."
+                                          }
+                                      }
+                                  ],
+                                  "aggregation": {
+                                      "type": "merge",
+                                      "strategy": "combine_results"
+                                  }
+                              },
+                              "description": "Parallel text analysis with multiple models",
+                              "tags": ["analysis", "parallel", "nlp"]
+                          }
+                      }
+                  },
+                  "execute_workflow": {
+                      "content_generation": {
+                          "summary": "Execute Content Generation",
+                          "description": "Generate content about AI trends",
+                          "value": {
+                              "template_name": "Content Generation Pipeline",
+                              "input_data": {
+                                  "topic": "Latest trends in artificial intelligence for 2024",
+                                  "target_length": 1500,
+                                  "tone": "professional",
+                                  "audience": "business executives"
+                              },
+                              "context": {
+                                  "source": "api",
+                                  "priority": "normal"
+                              }
+                          }
+                      },
+                      "text_analysis": {
+                          "summary": "Execute Multi-Model Analysis",
+                          "description": "Analyze customer feedback",
+                          "value": {
+                              "template_name": "Multi-Model Analysis",
+                              "input_data": {
+                                  "text": "I love the new features in the latest update! The interface is so much cleaner and the performance improvements are noticeable. However, I wish there were more customization options for the dashboard. Overall, great work on this release!"
+                              },
+                              "context": {
+                                  "source": "customer_feedback",
+                                  "category": "product_review"
+                              },
+                              "session_id": "analysis_session_123"
+                          }
+                      }
+                  }
+              }
+      
+      - path: "services/agent-engine/src/api/docs/tags.py"
+        purpose: "API endpoint tags and grouping"
+        exports:
+          - "get_tags_metadata: Get tag descriptions"
+        content_structure: |
+          from typing import List, Dict, Any
+          
+          def get_tags_metadata() -> List[Dict[str, Any]]:
+              """Get API tags metadata for documentation"""
+              return [
+                  {
+                      "name": "agents",
+                      "description": "Agent management operations - create, configure, and execute AI agents"
+                  },
+                  {
+                      "name": "sessions",
+                      "description": "Session management - maintain conversation state and context across interactions"
+                  },
+                  {
+                      "name": "workflows",
+                      "description": "Workflow orchestration - define and execute multi-step agent processes"
+                  },
+                  {
+                      "name": "tools",
+                      "description": "Tool management - register and configure external tools for agents"
+                  },
+                  {
+                      "name": "auth",
+                      "description": "Authentication and authorization - manage API keys and user permissions"
+                  },
+                  {
+                      "name": "health",
+                      "description": "System health and monitoring - check API status and performance metrics"
+                  }
+              ]
+      
+      - path: "docs/api/"
+        purpose: "Static API documentation"
+        content:
+          - "getting-started.md"
+          - "authentication.md"
+          - "examples/"
+          - "guides/"
+          - "reference/"
+      
+      - path: "docs/api/getting-started.md"
+        purpose: "Getting started guide"
+        content_structure: |
+          # Getting Started with Tahoe API
+          
+          Welcome to the Tahoe Agent Orchestration Platform API! This guide will help you get up and running quickly.
+          
+          ## Quick Start
+          
+          1. **Get an API Key**
+             ```bash
+             curl -X POST http://localhost:8001/api/v1/auth/keys \
+               -H "Content-Type: application/json" \
+               -d '{"name": "My App Key", "permissions": ["agent:read", "agent:execute"]}'
+             ```
+          
+          2. **Create Your First Agent**
+             ```bash
+             curl -X POST http://localhost:8001/api/v1/agents \
+               -H "X-API-Key: your-api-key" \
+               -H "Content-Type: application/json" \
+               -d '{
+                 "name": "Hello World Agent",
+                 "type": "llm",
+                 "specification": {
+                   "model": "gemini-1.5-pro",
+                   "system_instruction": "You are a helpful assistant."
+                 }
+               }'
+             ```
+          
+          3. **Execute the Agent**
+             ```bash
+             curl -X POST http://localhost:8001/api/v1/agents/{agent_id}/execute \
+               -H "X-API-Key: your-api-key" \
+               -H "Content-Type: application/json" \
+               -d '{
+                 "input_data": {
+                   "message": "Hello, how are you?"
+                 }
+               }'
+             ```
+          
+          ## Next Steps
+          
+          - [Authentication Guide](authentication.md)
+          - [Agent Examples](examples/agents.md)
+          - [Workflow Tutorials](examples/workflows.md)
+          - [WebSocket Guide](guides/websockets.md)
+      
+      - path: "services/agent-engine/tests/test_docs.py"
+        purpose: "Documentation tests"
+        test_categories:
+          - "OpenAPI schema validation"
+          - "Example correctness"
+          - "Documentation completeness"
+          - "Link validation"
+    
+    uses_from_previous:
+      - source: "r6-t01"
+        component: "REST API endpoints"
+        usage: "API documentation generation"
+      - source: "r6-t03"
+        component: "GraphQL schema"
+        usage: "GraphQL documentation"
+      - source: "r6-t04"
+        component: "Authentication system"
+        usage: "Auth documentation"
+    
+  implementation_steps:
+    - step: "Configure OpenAPI"
+      implementation_notes: |
+        - Custom schema generation
+        - Security schemes
+        - Server configurations
+        
+    - step: "Create examples"
+      implementation_notes: |
+        - Request examples
+        - Response examples
+        - Real-world scenarios
+        
+    - step: "Build guides"
+      implementation_notes: |
+        - Getting started
+        - Authentication
+        - Integration patterns
+        
+    - step: "Add interactive docs"
+      implementation_notes: |
+        - Swagger UI
+        - ReDoc interface
+        - GraphQL playground
+        
+  validation:
+    commands:
+      - description: "Test documentation generation"
+        command: "cd services/agent-engine && pytest tests/test_docs.py -v"
+        expected: "All tests pass"
+        
+      - description: "Access Swagger UI"
+        command: "curl http://localhost:8001/docs"
+        expected: "Swagger UI loads"
+        
+      - description: "Access ReDoc"
+        command: "curl http://localhost:8001/redoc"
+        expected: "ReDoc interface loads"
+        
+      - description: "Validate OpenAPI schema"
+        command: "curl http://localhost:8001/openapi.json | jq '.'"
+        expected: "Valid JSON schema returned"
+        
+    success_criteria:
+      - "OpenAPI schema complete"
+      - "Interactive docs working"
+      - "Examples comprehensive"
+      - "Guides helpful"
+      - "All tests pass"
+      
+  dependencies:
+    required_before:
+      - task: "r6-t01"
+        reason: "Need REST API endpoints"
+      - task: "r6-t02"
+        reason: "Need WebSocket documentation"
+      - task: "r6-t03"
+        reason: "Need GraphQL schema"
+      - task: "r6-t04"
+        reason: "Need authentication system"

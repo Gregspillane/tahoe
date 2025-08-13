@@ -186,6 +186,53 @@
 - Simple configuration
 **Impact**: Simplified local development
 
+## 2025-08-13 (ADK/Config Session): Critical Architecture Decisions
+
+### Decision: ADK Pattern Validation Required
+**Choice**: Validate all ADK usage against official documentation patterns
+**Alternatives Considered**:
+- Trial-and-error development (rejected - led to multiple errors)
+- Minimal validation (rejected - production issues)
+**Rationale**:
+- ADK has specific requirements that must be followed exactly
+- Validation prevents production issues
+- Establishes patterns for all future development
+**Impact**: Production-ready code from the start, avoids debugging later
+
+### Decision: Centralized Configuration Architecture
+**Choice**: Environment-aware configuration with single root .env file for development
+**Alternatives Considered**:
+- Service-level .env files (rejected - configuration sprawl)
+- Database configuration (rejected - bootstrap problems)
+- Hard-coded configuration (rejected - not environment-flexible)
+**Rationale**:
+- Supports development (.env) and production (Helm/Vault) patterns
+- Centralized management reduces configuration drift
+- Pydantic Settings provides validation and type safety
+**Impact**: Consistent configuration across all services and environments
+
+### Decision: Docker Multi-stage Production Builds
+**Choice**: Use multi-stage Dockerfile with production optimization
+**Alternatives Considered**:
+- Single-stage development builds (rejected - security issues)
+- No Docker (rejected - environment inconsistency)
+**Rationale**:
+- Smaller production images
+- Better security (non-root user, minimal dependencies)
+- Separates build and runtime concerns
+**Impact**: Production-ready containers with security best practices
+
+### Decision: ADK Anti-pattern Documentation
+**Choice**: Document all discovered ADK anti-patterns to prevent future errors
+**Alternatives Considered**:
+- Fix and forget (rejected - errors will repeat)
+- Minimal documentation (rejected - insufficient guidance)
+**Rationale**:
+- ADK patterns are not intuitive and must be learned
+- Team knowledge base prevents repeated mistakes
+- Enables faster development for new team members
+**Impact**: Faster development, fewer ADK-related bugs
+
 ## Future Decisions Needed
 
 ### Pending: CI/CD Pipeline

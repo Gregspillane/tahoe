@@ -1,0 +1,123 @@
+task:
+  id: "r5-t04-session-testing"
+  name: "Create Comprehensive Session Testing Framework"
+  description: "Build testing framework for all session components including orchestration, backends, and recovery"
+  complexity: "simple"
+  estimated_hours: 2
+  
+  context:
+    why: "Comprehensive testing ensures session reliability across different backends and failure scenarios"
+    architectural_role: "Quality assurance layer for session management system"
+    depends_on_tasks: ["r5-t01", "r5-t02", "r5-t03"]
+    enables_tasks: []
+    references:
+      masterplan: "@MASTERPLAN.md#testing-standards"
+      decisions: "@memory-bank/decisions.md#test-driven-development"
+    
+  implementation:
+    creates:
+      - path: "services/agent-engine/tests/sessions/"
+        purpose: "Session testing directory"
+        content:
+          - "__init__.py"
+          - "test_session_integration.py"
+          - "test_session_scenarios.py"
+          - "test_session_performance.py"
+          - "fixtures.py"
+      
+      - path: "services/agent-engine/tests/sessions/test_session_integration.py"
+        purpose: "Integration tests for session system"
+        test_categories:
+          - "End-to-end session lifecycle"
+          - "Multi-backend operations"
+          - "Session forking and merging"
+          - "Recovery scenarios"
+      
+      - path: "services/agent-engine/tests/sessions/test_session_scenarios.py"
+        purpose: "Real-world session scenarios"
+        test_categories:
+          - "Long-running sessions"
+          - "Concurrent sessions"
+          - "Session migration"
+          - "Failure and recovery"
+      
+      - path: "services/agent-engine/tests/sessions/test_session_performance.py"
+        purpose: "Performance and load tests"
+        test_categories:
+          - "Session creation throughput"
+          - "Backend performance comparison"
+          - "Recovery performance"
+          - "Memory usage"
+      
+      - path: "services/agent-engine/tests/sessions/fixtures.py"
+        purpose: "Test fixtures and utilities"
+        exports:
+          - "create_test_session"
+          - "mock_session_backend"
+          - "session_test_data"
+          - "benchmark_suite"
+    
+    uses_from_previous:
+      - source: "r5-t01"
+        component: "SessionOrchestrator"
+        usage: "Core testing target"
+      - source: "r5-t02"
+        component: "Multi-backend support"
+        usage: "Backend testing"
+      - source: "r5-t03"
+        component: "SessionRecovery"
+        usage: "Recovery testing"
+    
+  implementation_steps:
+    - step: "Create test fixtures"
+      implementation_notes: |
+        - Mock backends
+        - Test data generators
+        - Helper utilities
+        
+    - step: "Write integration tests"
+      implementation_notes: |
+        - Full lifecycle tests
+        - Backend switching
+        - Error scenarios
+        
+    - step: "Build scenario tests"
+      implementation_notes: |
+        - Real-world patterns
+        - Edge cases
+        - Stress scenarios
+        
+    - step: "Add performance tests"
+      implementation_notes: |
+        - Benchmark suite
+        - Load testing
+        - Memory profiling
+        
+  validation:
+    commands:
+      - description: "Run all session tests"
+        command: "cd services/agent-engine && pytest tests/sessions/ -v"
+        expected: "All tests pass"
+        
+      - description: "Check test coverage"
+        command: "cd services/agent-engine && pytest tests/sessions/ --cov=src/core --cov-report=term-missing"
+        expected: "Coverage > 80%"
+        
+      - description: "Run performance tests"
+        command: "cd services/agent-engine && pytest tests/sessions/test_session_performance.py -v --benchmark"
+        expected: "Performance benchmarks pass"
+        
+    success_criteria:
+      - "All session components tested"
+      - "Integration tests passing"
+      - "Performance benchmarks established"
+      - "Coverage > 80%"
+      
+  dependencies:
+    required_before:
+      - task: "r5-t01"
+        reason: "Need session orchestration"
+      - task: "r5-t02"
+        reason: "Need multi-backend support"
+      - task: "r5-t03"
+        reason: "Need recovery system"

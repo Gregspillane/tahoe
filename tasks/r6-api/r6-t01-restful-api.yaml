@@ -1,0 +1,669 @@
+task:
+  id: "r6-t01-restful-api"
+  name: "Create RESTful API Implementation"
+  description: "Build RESTful API endpoints for agent orchestration, session management, and workflow execution"
+  complexity: "medium"
+  estimated_hours: 4
+  
+  context:
+    why: "RESTful API provides standard HTTP interface for agent orchestration platform"
+    architectural_role: "External API layer for client applications"
+    depends_on_tasks: ["r5-t01", "r4-t01", "r3-t01"]
+    enables_tasks: ["r6-t03", "r7-t01"]
+    references:
+      masterplan: "@MASTERPLAN.md#api-interface"
+      architecture: "@memory-bank/architecture.md#api-design"
+    
+  implementation:
+    creates:
+      - path: "services/agent-engine/src/api/routes/"
+        purpose: "API route definitions"
+        content:
+          - "__init__.py"
+          - "agents.py"
+          - "sessions.py"
+          - "workflows.py"
+          - "tools.py"
+          - "health.py"
+      
+      - path: "services/agent-engine/src/api/routes/agents.py"
+        purpose: "Agent management API endpoints"
+        exports:
+          - "router: FastAPI router for agent endpoints"
+          - "create_agent: POST /agents"
+          - "get_agent: GET /agents/{agent_id}"
+          - "list_agents: GET /agents"
+          - "execute_agent: POST /agents/{agent_id}/execute"
+        content_structure: |
+          from typing import Dict, Any, List, Optional
+          from fastapi import APIRouter, HTTPException, Depends, Query, Body
+          from fastapi.responses import JSONResponse, StreamingResponse
+          from pydantic import BaseModel, Field
+          import logging
+          from uuid import uuid4
+          
+          from ...core.agent_factory import AgentFactory
+          from ...core.specification import SpecificationParser
+          from ..models import (
+              AgentCreateRequest,
+              AgentResponse,
+              AgentExecuteRequest,
+              AgentExecuteResponse,
+              AgentListResponse
+          )
+          from ..auth import get_current_user
+          from ..dependencies import get_agent_factory, get_runner
+          
+          logger = logging.getLogger(__name__)
+          router = APIRouter(prefix="/agents", tags=["agents"])
+          
+          class AgentRepository:
+              """In-memory agent repository"""
+              def __init__(self):
+                  self.agents: Dict[str, Dict] = {}
+              
+              def create(self, agent_spec: Dict) -> str:
+                  agent_id = f"agent_{uuid4().hex[:12]}"
+                  self.agents[agent_id] = {
+                      "id": agent_id,
+                      "spec": agent_spec,
+                      "created_at": datetime.now(),
+                      "status": "ready"
+                  }
+                  return agent_id
+              
+              def get(self, agent_id: str) -> Optional[Dict]:
+                  return self.agents.get(agent_id)
+              
+              def list(self, filters: Optional[Dict] = None) -> List[Dict]:
+                  agents = list(self.agents.values())
+                  if filters:
+                      # Apply filters
+                      if "type" in filters:
+                          agents = [a for a in agents if a["spec"].get("type") == filters["type"]]
+                      if "status" in filters:
+                          agents = [a for a in agents if a.get("status") == filters["status"]]
+                  return agents
+          
+          # Global repository instance
+          agent_repo = AgentRepository()
+          
+          @router.post("/", response_model=AgentResponse)
+          async def create_agent(
+              request: AgentCreateRequest,
+              user = Depends(get_current_user),
+              factory: AgentFactory = Depends(get_agent_factory)
+          ):
+              """Create a new agent from specification"""
+              try:
+                  # Parse specification
+                  if request.spec_type == "yaml":
+                      parser = SpecificationParser()
+                      agent_spec = parser.parse_yaml(request.specification)
+                  else:
+                      agent_spec = request.specification
+                  
+                  # Validate specification
+                  if not factory.validate_spec(agent_spec):
+                      raise HTTPException(status_code=400, detail="Invalid agent specification")
+                  
+                  # Store agent
+                  agent_id = agent_repo.create(agent_spec)
+                  
+                  # Build agent instance to verify it works
+                  agent_instance = factory.create_agent(agent_spec)
+                  
+                  return AgentResponse(
+                      id=agent_id,
+                      name=agent_spec.get("name", "Unnamed Agent"),
+                      type=agent_spec.get("type", "unknown"),
+                      status="ready",
+                      created_at=datetime.now(),
+                      specification=agent_spec
+                  )
+                  
+              except Exception as e:
+                  logger.error(f"Failed to create agent: {e}")
+                  raise HTTPException(status_code=400, detail=str(e))
+          
+          @router.get("/{agent_id}", response_model=AgentResponse)
+          async def get_agent(
+              agent_id: str,
+              user = Depends(get_current_user)
+          ):
+              """Get agent by ID"""
+              agent_data = agent_repo.get(agent_id)
+              if not agent_data:
+                  raise HTTPException(status_code=404, detail=f"Agent {agent_id} not found")
+              
+              return AgentResponse(
+                  id=agent_data["id"],
+                  name=agent_data["spec"].get("name", "Unnamed Agent"),
+                  type=agent_data["spec"].get("type", "unknown"),
+                  status=agent_data.get("status", "unknown"),
+                  created_at=agent_data.get("created_at"),
+                  specification=agent_data["spec"]
+              )
+          
+          @router.get("/", response_model=AgentListResponse)
+          async def list_agents(
+              type: Optional[str] = Query(None, description="Filter by agent type"),
+              status: Optional[str] = Query(None, description="Filter by status"),
+              limit: int = Query(100, ge=1, le=1000),
+              offset: int = Query(0, ge=0),
+              user = Depends(get_current_user)
+          ):
+              """List all agents with optional filters"""
+              filters = {}
+              if type:
+                  filters["type"] = type
+              if status:
+                  filters["status"] = status
+              
+              agents = agent_repo.list(filters)
+              
+              # Apply pagination
+              total = len(agents)
+              agents = agents[offset:offset + limit]
+              
+              return AgentListResponse(
+                  agents=[
+                      AgentResponse(
+                          id=a["id"],
+                          name=a["spec"].get("name", "Unnamed"),
+                          type=a["spec"].get("type", "unknown"),
+                          status=a.get("status", "unknown"),
+                          created_at=a.get("created_at"),
+                          specification=a["spec"]
+                      ) for a in agents
+                  ],
+                  total=total,
+                  limit=limit,
+                  offset=offset
+              )
+          
+          @router.post("/{agent_id}/execute")
+          async def execute_agent(
+              agent_id: str,
+              request: AgentExecuteRequest,
+              stream: bool = Query(False, description="Stream response"),
+              user = Depends(get_current_user),
+              factory: AgentFactory = Depends(get_agent_factory),
+              runner = Depends(get_runner)
+          ):
+              """Execute an agent with input data"""
+              # Get agent
+              agent_data = agent_repo.get(agent_id)
+              if not agent_data:
+                  raise HTTPException(status_code=404, detail=f"Agent {agent_id} not found")
+              
+              try:
+                  # Build agent
+                  agent = factory.create_agent(agent_data["spec"])
+                  
+                  # Execute based on stream preference
+                  if stream:
+                      # Return streaming response
+                      async def generate():
+                          async for event in runner.run_stream(
+                              agent,
+                              request.input_data,
+                              context=request.context
+                          ):
+                              yield f"data: {json.dumps(event)}\n\n"
+                      
+                      return StreamingResponse(
+                          generate(),
+                          media_type="text/event-stream"
+                      )
+                  else:
+                      # Run synchronously
+                      result = await runner.run(
+                          agent,
+                          request.input_data,
+                          context=request.context
+                      )
+                      
+                      return AgentExecuteResponse(
+                          agent_id=agent_id,
+                          execution_id=f"exec_{uuid4().hex[:12]}",
+                          status="completed",
+                          result=result,
+                          metadata={
+                              "duration_ms": 0,  # Would track actual duration
+                              "model_calls": 0   # Would track LLM calls
+                          }
+                      )
+                  
+              except Exception as e:
+                  logger.error(f"Agent execution failed: {e}")
+                  raise HTTPException(status_code=500, detail=str(e))
+          
+          @router.delete("/{agent_id}")
+          async def delete_agent(
+              agent_id: str,
+              user = Depends(get_current_user)
+          ):
+              """Delete an agent"""
+              if agent_id not in agent_repo.agents:
+                  raise HTTPException(status_code=404, detail=f"Agent {agent_id} not found")
+              
+              del agent_repo.agents[agent_id]
+              return {"status": "deleted", "agent_id": agent_id}
+      
+      - path: "services/agent-engine/src/api/routes/sessions.py"
+        purpose: "Session management API endpoints"
+        exports:
+          - "router: Session API router"
+          - "create_session: POST /sessions"
+          - "get_session: GET /sessions/{session_id}"
+          - "update_session: PUT /sessions/{session_id}"
+          - "fork_session: POST /sessions/{session_id}/fork"
+        content_structure: |
+          from fastapi import APIRouter, HTTPException, Depends
+          from ...core.session import SessionOrchestrator
+          from ..models import (
+              SessionCreateRequest,
+              SessionResponse,
+              SessionUpdateRequest,
+              SessionForkRequest
+          )
+          from ..dependencies import get_session_orchestrator
+          
+          router = APIRouter(prefix="/sessions", tags=["sessions"])
+          
+          @router.post("/", response_model=SessionResponse)
+          async def create_session(
+              request: SessionCreateRequest,
+              orchestrator: SessionOrchestrator = Depends(get_session_orchestrator)
+          ):
+              """Create a new session"""
+              context = await orchestrator.create_session(
+                  user_id=request.user_id,
+                  app_name=request.app_name,
+                  session_id=request.session_id,
+                  config=request.config
+              )
+              return SessionResponse.from_context(context)
+          
+          @router.get("/{session_id}", response_model=SessionResponse)
+          async def get_session(
+              session_id: str,
+              orchestrator: SessionOrchestrator = Depends(get_session_orchestrator)
+          ):
+              """Get session by ID"""
+              context = await orchestrator.get_session(session_id)
+              if not context:
+                  raise HTTPException(status_code=404, detail="Session not found")
+              return SessionResponse.from_context(context)
+          
+          @router.put("/{session_id}")
+          async def update_session(
+              session_id: str,
+              request: SessionUpdateRequest,
+              orchestrator: SessionOrchestrator = Depends(get_session_orchestrator)
+          ):
+              """Update session state"""
+              success = await orchestrator.update_session(
+                  session_id,
+                  state_update=request.state,
+                  metadata_update=request.metadata
+              )
+              if not success:
+                  raise HTTPException(status_code=400, detail="Update failed")
+              return {"status": "updated"}
+          
+          @router.post("/{session_id}/fork", response_model=SessionResponse)
+          async def fork_session(
+              session_id: str,
+              request: SessionForkRequest,
+              orchestrator: SessionOrchestrator = Depends(get_session_orchestrator)
+          ):
+              """Fork a session"""
+              new_context = await orchestrator.fork_session(
+                  source_session_id=session_id,
+                  new_session_id=request.new_session_id
+              )
+              if not new_context:
+                  raise HTTPException(status_code=400, detail="Fork failed")
+              return SessionResponse.from_context(new_context)
+      
+      - path: "services/agent-engine/src/api/routes/workflows.py"
+        purpose: "Workflow execution API endpoints"
+        exports:
+          - "router: Workflow API router"
+          - "create_workflow: POST /workflows"
+          - "execute_workflow: POST /workflows/execute"
+          - "get_workflow_status: GET /workflows/{workflow_id}/status"
+        content_structure: |
+          from fastapi import APIRouter, HTTPException, Depends, Query
+          from fastapi.responses import StreamingResponse
+          from ...core.workflow import WorkflowEngine
+          from ..models import (
+              WorkflowCreateRequest,
+              WorkflowExecuteRequest,
+              WorkflowResponse,
+              WorkflowStatusResponse
+          )
+          from ..dependencies import get_workflow_engine
+          
+          router = APIRouter(prefix="/workflows", tags=["workflows"])
+          
+          @router.post("/", response_model=WorkflowResponse)
+          async def create_workflow(
+              request: WorkflowCreateRequest,
+              engine: WorkflowEngine = Depends(get_workflow_engine)
+          ):
+              """Create a workflow template"""
+              template_id = await engine.register_template(
+                  name=request.name,
+                  specification=request.specification,
+                  description=request.description
+              )
+              return WorkflowResponse(
+                  id=template_id,
+                  name=request.name,
+                  status="created"
+              )
+          
+          @router.post("/execute")
+          async def execute_workflow(
+              request: WorkflowExecuteRequest,
+              stream: bool = Query(False),
+              engine: WorkflowEngine = Depends(get_workflow_engine)
+          ):
+              """Execute a workflow"""
+              if stream:
+                  async def generate():
+                      async for event in engine.execute_workflow_stream(
+                          template_name=request.template_name,
+                          input_data=request.input_data,
+                          context=request.context
+                      ):
+                          yield f"data: {json.dumps(event)}\n\n"
+                  
+                  return StreamingResponse(
+                      generate(),
+                      media_type="text/event-stream"
+                  )
+              else:
+                  result = await engine.execute_workflow(
+                      template_name=request.template_name,
+                      input_data=request.input_data,
+                      context=request.context
+                  )
+                  return result
+          
+          @router.get("/{workflow_id}/status", response_model=WorkflowStatusResponse)
+          async def get_workflow_status(
+              workflow_id: str,
+              engine: WorkflowEngine = Depends(get_workflow_engine)
+          ):
+              """Get workflow execution status"""
+              status = await engine.get_workflow_status(workflow_id)
+              if not status:
+                  raise HTTPException(status_code=404, detail="Workflow not found")
+              return WorkflowStatusResponse(**status)
+      
+      - path: "services/agent-engine/src/api/models.py"
+        purpose: "API request/response models"
+        exports:
+          - "AgentCreateRequest"
+          - "AgentResponse"
+          - "SessionCreateRequest"
+          - "SessionResponse"
+          - "WorkflowCreateRequest"
+          - "WorkflowResponse"
+        content_structure: |
+          from typing import Dict, Any, List, Optional
+          from datetime import datetime
+          from pydantic import BaseModel, Field
+          from enum import Enum
+          
+          class AgentType(str, Enum):
+              LLM = "llm"
+              SEQUENTIAL = "sequential"
+              PARALLEL = "parallel"
+              LOOP = "loop"
+              CUSTOM = "custom"
+          
+          class AgentCreateRequest(BaseModel):
+              """Request to create an agent"""
+              name: str = Field(..., description="Agent name")
+              type: AgentType = Field(..., description="Agent type")
+              specification: Dict[str, Any] = Field(..., description="Agent specification")
+              spec_type: str = Field("json", description="Specification format (json/yaml)")
+              description: Optional[str] = None
+              tags: List[str] = Field(default_factory=list)
+          
+          class AgentResponse(BaseModel):
+              """Agent information response"""
+              id: str
+              name: str
+              type: str
+              status: str
+              created_at: datetime
+              specification: Dict[str, Any]
+              metadata: Dict[str, Any] = Field(default_factory=dict)
+          
+          class AgentExecuteRequest(BaseModel):
+              """Request to execute an agent"""
+              input_data: Dict[str, Any] = Field(..., description="Input data for agent")
+              context: Dict[str, Any] = Field(default_factory=dict, description="Execution context")
+              session_id: Optional[str] = Field(None, description="Session ID for stateful execution")
+              timeout: Optional[int] = Field(None, description="Execution timeout in seconds")
+          
+          class AgentExecuteResponse(BaseModel):
+              """Agent execution response"""
+              agent_id: str
+              execution_id: str
+              status: str
+              result: Dict[str, Any]
+              metadata: Dict[str, Any] = Field(default_factory=dict)
+              errors: List[str] = Field(default_factory=list)
+          
+          class AgentListResponse(BaseModel):
+              """List of agents response"""
+              agents: List[AgentResponse]
+              total: int
+              limit: int
+              offset: int
+          
+          class SessionCreateRequest(BaseModel):
+              """Request to create a session"""
+              user_id: str
+              app_name: str
+              session_id: Optional[str] = None
+              config: Dict[str, Any] = Field(default_factory=dict)
+              initial_state: Dict[str, Any] = Field(default_factory=dict)
+          
+          class SessionResponse(BaseModel):
+              """Session information response"""
+              session_id: str
+              user_id: str
+              app_name: str
+              created_at: datetime
+              updated_at: datetime
+              is_active: bool
+              state: Dict[str, Any]
+              metadata: Dict[str, Any]
+              
+              @classmethod
+              def from_context(cls, context):
+                  """Create from SessionContext"""
+                  return cls(
+                      session_id=context.session_id,
+                      user_id=context.metadata.user_id,
+                      app_name=context.metadata.app_name,
+                      created_at=context.metadata.created_at,
+                      updated_at=context.metadata.updated_at,
+                      is_active=context.metadata.is_active,
+                      state=context.state.model_dump(mode='json'),
+                      metadata=context.metadata.model_dump(mode='json')
+                  )
+          
+          class SessionUpdateRequest(BaseModel):
+              """Request to update session"""
+              state: Optional[Dict[str, Any]] = None
+              metadata: Optional[Dict[str, Any]] = None
+              append_messages: bool = Field(False, description="Append to conversation history")
+          
+          class SessionForkRequest(BaseModel):
+              """Request to fork a session"""
+              new_session_id: Optional[str] = None
+              copy_messages: bool = Field(True, description="Copy conversation history")
+              metadata_overrides: Dict[str, Any] = Field(default_factory=dict)
+          
+          class WorkflowCreateRequest(BaseModel):
+              """Request to create a workflow"""
+              name: str
+              specification: Dict[str, Any]
+              description: Optional[str] = None
+              tags: List[str] = Field(default_factory=list)
+          
+          class WorkflowExecuteRequest(BaseModel):
+              """Request to execute a workflow"""
+              template_name: str
+              input_data: Dict[str, Any]
+              context: Dict[str, Any] = Field(default_factory=dict)
+              session_id: Optional[str] = None
+          
+          class WorkflowResponse(BaseModel):
+              """Workflow information response"""
+              id: str
+              name: str
+              status: str
+              created_at: datetime = Field(default_factory=datetime.now)
+              metadata: Dict[str, Any] = Field(default_factory=dict)
+          
+          class WorkflowStatusResponse(BaseModel):
+              """Workflow execution status"""
+              workflow_id: str
+              status: str
+              current_step: Optional[str] = None
+              progress: float = Field(0.0, ge=0.0, le=1.0)
+              result: Optional[Dict[str, Any]] = None
+              errors: List[str] = Field(default_factory=list)
+              started_at: datetime
+              completed_at: Optional[datetime] = None
+      
+      - path: "services/agent-engine/src/api/dependencies.py"
+        purpose: "FastAPI dependency injection"
+        exports:
+          - "get_agent_factory"
+          - "get_session_orchestrator"
+          - "get_workflow_engine"
+          - "get_runner"
+        content_structure: |
+          from functools import lru_cache
+          from ..core.agent_factory import AgentFactory
+          from ..core.session import SessionOrchestrator
+          from ..core.workflow import WorkflowEngine
+          from google.genai.adk import InMemoryRunner
+          
+          @lru_cache()
+          def get_agent_factory() -> AgentFactory:
+              return AgentFactory()
+          
+          @lru_cache()
+          def get_session_orchestrator() -> SessionOrchestrator:
+              # Would be configured from settings
+              return SessionOrchestrator(backend_type="memory")
+          
+          @lru_cache()
+          def get_workflow_engine() -> WorkflowEngine:
+              return WorkflowEngine()
+          
+          @lru_cache()
+          def get_runner() -> InMemoryRunner:
+              return InMemoryRunner()
+      
+      - path: "services/agent-engine/src/api/auth.py"
+        purpose: "API authentication and authorization"
+        exports:
+          - "get_current_user"
+          - "require_api_key"
+          - "check_permissions"
+      
+      - path: "services/agent-engine/tests/test_api.py"
+        purpose: "API endpoint tests"
+        test_categories:
+          - "Agent endpoints"
+          - "Session endpoints"
+          - "Workflow endpoints"
+          - "Authentication"
+          - "Error handling"
+    
+    uses_from_previous:
+      - source: "r5-t01"
+        component: "SessionOrchestrator"
+        usage: "Session API implementation"
+      - source: "r4-t01"
+        component: "WorkflowEngine"
+        usage: "Workflow API implementation"
+      - source: "r2-t01"
+        component: "AgentFactory"
+        usage: "Agent creation and management"
+    
+  implementation_steps:
+    - step: "Create API models"
+      implementation_notes: |
+        - Request/response schemas
+        - Pydantic models
+        - Validation rules
+        
+    - step: "Implement agent endpoints"
+      implementation_notes: |
+        - CRUD operations
+        - Execution endpoint
+        - Streaming support
+        
+    - step: "Build session endpoints"
+      implementation_notes: |
+        - Session lifecycle
+        - Fork operations
+        - State management
+        
+    - step: "Add workflow endpoints"
+      implementation_notes: |
+        - Template management
+        - Execution API
+        - Status tracking
+        
+    - step: "Implement authentication"
+      implementation_notes: |
+        - API key validation
+        - User context
+        - Permission checks
+        
+  validation:
+    commands:
+      - description: "Test API endpoints"
+        command: "cd services/agent-engine && pytest tests/test_api.py -v"
+        expected: "All tests pass"
+        
+      - description: "Run API server"
+        command: "cd services/agent-engine && uvicorn src.main:app --reload"
+        expected: "Server starts on port 8001"
+        
+      - description: "Test with curl"
+        command: "curl -X GET http://localhost:8001/api/v1/health"
+        expected: "Health check passes"
+        
+    success_criteria:
+      - "All endpoints implemented"
+      - "Authentication working"
+      - "Streaming responses functional"
+      - "Error handling robust"
+      - "All tests pass"
+      
+  dependencies:
+    required_before:
+      - task: "r5-t01"
+        reason: "Need session orchestration"
+      - task: "r4-t01"
+        reason: "Need workflow engine"
+      - task: "r3-t01"
+        reason: "Need tool registry"
+      - task: "r2-t01"
+        reason: "Need agent factory"
