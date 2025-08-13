@@ -1,0 +1,202 @@
+# Project Tahoe - Key Decisions Log
+
+## 2025-08-13: Task Structure Design
+
+### Decision: Comprehensive YAML Task Files
+**Choice**: Create highly detailed task files (~500 lines each) with complete implementation instructions
+**Alternatives Considered**:
+- Minimal task outlines (rejected - insufficient for autonomous execution)
+- Markdown format (rejected - less structured than YAML)
+- JSON format (rejected - less readable than YAML)
+**Rationale**: 
+- Future Claude Code sessions need complete context
+- YAML provides structure with readability
+- Detailed tasks reduce ambiguity during implementation
+**Impact**: Higher upfront effort but smoother implementation phase
+
+### Decision: R1 Foundation First
+**Choice**: Complete all R1 Foundation tasks before other releases
+**Alternatives Considered**:
+- Parallel release development (rejected - dependencies unclear)
+- Bottom-up from R7 (rejected - no foundation)
+**Rationale**:
+- Establishes development environment
+- Verifies ADK integration early
+- Creates patterns for subsequent tasks
+**Impact**: Sequential but lower risk approach
+
+### Decision: Task Validation Script
+**Choice**: Python script to validate all task files
+**Alternatives Considered**:
+- Manual validation (rejected - error prone)
+- GitHub Actions only (rejected - need local validation)
+- JSON Schema validation (rejected - too rigid)
+**Rationale**:
+- Catches errors before implementation
+- Ensures consistency across tasks
+- Validates dependencies exist
+**Impact**: Higher quality task files, fewer implementation issues
+
+## 2025-08-13: ADK Integration Approach
+
+### Decision: Use InMemoryRunner Exclusively
+**Choice**: Standardize on InMemoryRunner for all agent execution
+**Alternatives Considered**:
+- Custom runner implementation (rejected - ADK advises against)
+- Multiple runner types (rejected - unnecessary complexity)
+**Rationale**:
+- ADK documentation recommends this approach
+- Provides all needed functionality
+- Simpler to maintain
+**Impact**: Consistent execution pattern throughout system
+
+### Decision: Automatic Tool Wrapping Default
+**Choice**: Use automatic function wrapping, FunctionTool only when needed
+**Alternatives Considered**:
+- Always use FunctionTool (rejected - unnecessary overhead)
+- Custom tool wrapper (rejected - ADK handles this)
+**Rationale**:
+- ADK handles most cases automatically
+- Reduces boilerplate code
+- FunctionTool available for complex cases
+**Impact**: Cleaner code, easier tool integration
+
+### Decision: Specification-Driven Everything
+**Choice**: All configuration via YAML/JSON specifications
+**Alternatives Considered**:
+- Code-based configuration (rejected - requires rebuilds)
+- Database configuration (rejected - less transparent)
+- Mixed approach (rejected - inconsistent)
+**Rationale**:
+- No code changes for new agents
+- Version control friendly
+- Clear audit trail
+**Impact**: More flexible system, easier to modify
+
+## 2025-08-13: Project Structure
+
+### Decision: Monorepo Architecture
+**Choice**: Single repository with services directory
+**Alternatives Considered**:
+- Multiple repositories (rejected - harder to coordinate)
+- Flat structure (rejected - less organized)
+**Rationale**:
+- Easier dependency management
+- Simplified deployment
+- Better code sharing
+**Impact**: All code in one place, simpler CI/CD
+
+### Decision: Tasks Directory at Root
+**Choice**: Place tasks/ directory at repository root
+**Alternatives Considered**:
+- Inside docs/ (rejected - tasks are executable)
+- Inside each service (rejected - tasks span services)
+- Separate repo (rejected - needs to be with code)
+**Rationale**:
+- Tasks are project-wide, not service-specific
+- Easy to find and access
+- Clear separation from implementation
+**Impact**: Clear task organization, easy navigation
+
+## 2025-08-13: Technology Stack
+
+### Decision: FastAPI for REST API
+**Choice**: FastAPI as the web framework
+**Alternatives Considered**:
+- Flask (rejected - less async support)
+- Django (rejected - too heavyweight)
+- aiohttp (rejected - less features)
+**Rationale**:
+- Native async support
+- Automatic API documentation
+- Pydantic integration
+- Modern and performant
+**Impact**: Better performance, automatic docs
+
+### Decision: Prisma ORM
+**Choice**: Prisma for database access
+**Alternatives Considered**:
+- SQLAlchemy (rejected - less type safety)
+- Raw SQL (rejected - more error prone)
+- Django ORM (rejected - tied to Django)
+**Rationale**:
+- Type-safe database access
+- Good migration support
+- Modern approach
+**Impact**: Safer database operations, better DX
+
+### Decision: PostgreSQL Database
+**Choice**: PostgreSQL as primary database
+**Alternatives Considered**:
+- MySQL (rejected - less features)
+- MongoDB (rejected - less suitable for relational data)
+- SQLite (rejected - not production ready)
+**Rationale**:
+- Robust and reliable
+- JSON support for flexible data
+- Good performance
+**Impact**: Solid foundation for data storage
+
+## 2025-08-13: Development Process
+
+### Decision: Test-Driven Development
+**Choice**: Write tests before implementation
+**Alternatives Considered**:
+- Tests after implementation (rejected - more bugs)
+- No formal testing (rejected - too risky)
+**Rationale**:
+- Catches issues early
+- Documents expected behavior
+- Ensures code works as designed
+**Impact**: Higher quality code, fewer bugs
+
+### Decision: 80% Test Coverage Minimum
+**Choice**: Require 80% code coverage
+**Alternatives Considered**:
+- 100% coverage (rejected - diminishing returns)
+- 60% coverage (rejected - too low)
+- No requirement (rejected - inconsistent quality)
+**Rationale**:
+- Balances quality with effort
+- Industry standard
+- Achievable target
+**Impact**: Good test coverage without perfectionism
+
+## Future Decisions Needed
+
+### Pending: CI/CD Pipeline
+- GitHub Actions vs GitLab CI vs Jenkins
+- Deployment strategy (blue-green, canary, rolling)
+- Container registry choice
+
+### Pending: Monitoring Solution
+- Prometheus + Grafana vs DataDog vs New Relic
+- Log aggregation strategy
+- APM tool selection
+
+### Pending: Authentication Method
+- JWT vs OAuth2 vs API Keys
+- Session management approach
+- Authorization strategy (RBAC vs ABAC)
+
+### Pending: Model Provider Strategy
+- Gemini-only vs multi-provider
+- Fallback strategies
+- Cost optimization approach
+
+## Decision Framework
+
+### Criteria for Technical Decisions
+1. **Alignment with ADK**: Does it follow ADK patterns?
+2. **Simplicity**: Is it the simplest solution that works?
+3. **Maintainability**: Can it be easily maintained?
+4. **Performance**: Does it meet performance requirements?
+5. **Flexibility**: Does it allow for future changes?
+
+### Decision Process
+1. Identify the problem/need
+2. List alternatives
+3. Evaluate against criteria
+4. Document choice and rationale
+5. Implement and validate
+6. Review and adjust if needed

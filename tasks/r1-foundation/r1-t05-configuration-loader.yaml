@@ -1,0 +1,439 @@
+task:
+  id: "r1-t05-configuration-loader"
+  name: "Build Hierarchical Configuration System"
+  description: "Create configuration loader with environment overrides and runtime settings"
+  complexity: "medium"
+  estimated_hours: 2
+  
+  context:
+    why: "Centralized configuration management with environment-specific overrides"
+    architectural_role: "Provides flexible configuration for all system components"
+    depends_on_tasks: ["r1-t01", "r1-t03"]
+    enables_tasks: ["r2-t01", "r3-t01", "r4-t01"]
+    references:
+      masterplan: "@MASTERPLAN.md#configuration-management"
+      adk_docs: 
+        - "https://google.github.io/adk-docs/configuration"
+      verification_notes: "Configuration system supports ADK model settings and service parameters"
+    
+  adk_components:
+    imports_needed:
+      - "import os"
+      - "from dotenv import load_dotenv"
+      - "from pydantic import BaseSettings, Field"
+      - "from typing import Dict, Any, Optional, List"
+      - "from pathlib import Path"
+    verified_patterns:
+      - pattern: "Environment-based ADK configuration"
+        doc_ref: "https://google.github.io/adk-docs/configuration#environment"
+      - pattern: "Model parameter configuration"
+        doc_ref: "https://google.github.io/adk-docs/models#configuration"
+    avoid_antipatterns:
+      - "Don't hardcode configuration values"
+      - "Don't expose sensitive keys in logs"
+      - "Don't mix environment configs"
+    
+  implementation:
+    creates:
+      - path: "services/agent-engine/src/core/configuration.py"
+        purpose: "Configuration management system"
+        exports:
+          - "class ConfigurationLoader"
+          - "class ServiceConfig"
+          - "get_config()"
+          - "reload_config()"
+      - path: "services/agent-engine/src/models/configuration.py"
+        purpose: "Configuration models"
+        exports:
+          - "class AgentEngineConfig"
+          - "class DatabaseConfig"
+          - "class RedisConfig"
+          - "class ADKConfig"
+      - path: "services/agent-engine/src/utils/env_loader.py"
+        purpose: "Environment loading utilities"
+        exports:
+          - "load_environment()"
+          - "get_env_value()"
+          - "mask_sensitive()"
+      - path: "config/development.env"
+        purpose: "Development environment overrides"
+      - path: "config/staging.env"
+        purpose: "Staging environment settings"
+      - path: "config/production.env"
+        purpose: "Production configuration"
+      - path: "services/agent-engine/tests/test_configuration.py"
+        purpose: "Configuration system tests"
+        
+    modifies:
+      - path: ".env"
+        changes: ["Add all configuration variables with defaults"]
+      - path: "services/agent-engine/src/main.py"
+        changes: ["Integrate configuration loader"]
+        
+    uses_from_previous:
+      - component: "Environment setup"
+        from_task: "r1-t01"
+        usage: "Base .env file"
+      - component: "Specification system"
+        from_task: "r1-t03"
+        usage: "Load runtime specifications"
+      - component: "Database models"
+        from_task: "r1-t04"
+        usage: "Store configuration versions"
+    
+  implementation_steps:
+    - step: "Create configuration models"
+      focus:
+        - "Define Pydantic settings models"
+        - "Add validation rules"
+        - "Support type conversion"
+        - "Include defaults"
+      code_template: |
+        from pydantic import BaseSettings, Field, validator
+        from typing import Optional, List, Dict, Any
+        import os
+        
+        class DatabaseConfig(BaseSettings):
+            host: str = Field(default="localhost", env="DATABASE_HOST")
+            port: int = Field(default=5432, env="DATABASE_PORT")
+            user: str = Field(default="tahoe", env="DATABASE_USER")
+            password: str = Field(default="tahoe123", env="DATABASE_PASSWORD")
+            database: str = Field(default="agent_engine", env="DATABASE_NAME")
+            
+            @property
+            def url(self) -> str:
+                return f"postgresql://{self.user}:{self.password}@{self.host}:{self.port}/{self.database}"
+            
+            class Config:
+                env_prefix = ""
+        
+        class RedisConfig(BaseSettings):
+            host: str = Field(default="localhost", env="REDIS_HOST")
+            port: int = Field(default=6379, env="REDIS_PORT")
+            db: int = Field(default=0, env="REDIS_DB")
+            password: Optional[str] = Field(default=None, env="REDIS_PASSWORD")
+            
+            @property
+            def url(self) -> str:
+                if self.password:
+                    return f"redis://:{self.password}@{self.host}:{self.port}/{self.db}"
+                return f"redis://{self.host}:{self.port}/{self.db}"
+            
+            class Config:
+                env_prefix = ""
+        
+        class ADKConfig(BaseSettings):
+            gemini_api_key: str = Field(env="GEMINI_API_KEY")
+            default_model: str = Field(default="gemini-2.0-flash", env="ADK_DEFAULT_MODEL")
+            temperature: float = Field(default=0.2, env="ADK_TEMPERATURE")
+            max_tokens: int = Field(default=8192, env="ADK_MAX_TOKENS")
+            session_service: str = Field(default="memory", env="ADK_SESSION_SERVICE")
+            timeout: int = Field(default=300, env="ADK_TIMEOUT")
+            retry_attempts: int = Field(default=3, env="ADK_RETRY_ATTEMPTS")
+            
+            @validator("gemini_api_key")
+            def validate_api_key(cls, v):
+                if v.startswith("CHANGE_THIS_"):
+                    raise ValueError("API key not configured - update GEMINI_API_KEY")
+                return v
+            
+            class Config:
+                env_prefix = ""
+        
+        class AgentEngineConfig(BaseSettings):
+            # Service settings
+            service_name: str = Field(default="agent-engine", env="AGENT_ENGINE_SERVICE_NAME")
+            port: int = Field(default=8001, env="AGENT_ENGINE_PORT")
+            host: str = Field(default="0.0.0.0", env="AGENT_ENGINE_HOST")
+            log_level: str = Field(default="INFO", env="AGENT_ENGINE_LOG_LEVEL")
+            environment: str = Field(default="development", env="ENVIRONMENT")
+            
+            # Feature flags
+            enable_metrics: bool = Field(default=True, env="AGENT_ENGINE_ENABLE_METRICS")
+            enable_tracing: bool = Field(default=False, env="AGENT_ENGINE_ENABLE_TRACING")
+            enable_audit: bool = Field(default=True, env="AGENT_ENGINE_ENABLE_AUDIT")
+            
+            # Performance settings
+            max_concurrent_executions: int = Field(default=10, env="AGENT_ENGINE_MAX_CONCURRENT")
+            cache_ttl: int = Field(default=3600, env="AGENT_ENGINE_CACHE_TTL")
+            
+            # Sub-configurations
+            database: DatabaseConfig = DatabaseConfig()
+            redis: RedisConfig = RedisConfig()
+            adk: ADKConfig = ADKConfig()
+            
+            class Config:
+                env_prefix = "AGENT_ENGINE_"
+                case_sensitive = False
+    
+    - step: "Create configuration loader"
+      focus:
+        - "Load hierarchical configuration"
+        - "Apply environment overrides"
+        - "Support runtime updates"
+        - "Cache configuration"
+      code_template: |
+        from pathlib import Path
+        from typing import Dict, Any, Optional
+        import os
+        import json
+        import yaml
+        from dotenv import load_dotenv
+        
+        class ConfigurationLoader:
+            def __init__(self, base_dir: str = None):
+                self.base_dir = Path(base_dir or os.getcwd())
+                self.config_cache: Dict[str, Any] = {}
+                self._config: Optional[AgentEngineConfig] = None
+            
+            def load(self) -> AgentEngineConfig:
+                """Load configuration with hierarchy."""
+                # 1. Load base .env file
+                base_env = self.base_dir / ".env"
+                if base_env.exists():
+                    load_dotenv(base_env)
+                
+                # 2. Load environment-specific overrides
+                environment = os.getenv("ENVIRONMENT", "development")
+                env_file = self.base_dir / "config" / f"{environment}.env"
+                if env_file.exists():
+                    load_dotenv(env_file, override=True)
+                
+                # 3. Create configuration object
+                self._config = AgentEngineConfig()
+                
+                # 4. Load runtime specifications
+                self._load_runtime_specs()
+                
+                return self._config
+            
+            def _load_runtime_specs(self):
+                """Load runtime specification overrides."""
+                specs_dir = self.base_dir / "specs" / "config"
+                if not specs_dir.exists():
+                    return
+                
+                for spec_file in specs_dir.glob("*.yaml"):
+                    with open(spec_file) as f:
+                        spec = yaml.safe_load(f)
+                        self._apply_spec_overrides(spec)
+            
+            def _apply_spec_overrides(self, spec: Dict[str, Any]):
+                """Apply specification overrides to configuration."""
+                if spec.get("kind") == "ConfigOverride":
+                    overrides = spec.get("spec", {})
+                    for key, value in overrides.items():
+                        if hasattr(self._config, key):
+                            setattr(self._config, key, value)
+            
+            def get(self, key: str, default: Any = None) -> Any:
+                """Get configuration value by key."""
+                if not self._config:
+                    self.load()
+                
+                # Support nested keys (e.g., "database.host")
+                keys = key.split(".")
+                value = self._config
+                
+                for k in keys:
+                    if hasattr(value, k):
+                        value = getattr(value, k)
+                    else:
+                        return default
+                
+                return value
+            
+            def reload(self):
+                """Reload configuration from sources."""
+                self.config_cache.clear()
+                self._config = None
+                return self.load()
+            
+            def to_dict(self, mask_sensitive: bool = True) -> Dict[str, Any]:
+                """Convert configuration to dictionary."""
+                if not self._config:
+                    self.load()
+                
+                config_dict = self._config.dict()
+                
+                if mask_sensitive:
+                    # Mask sensitive values
+                    if "adk" in config_dict:
+                        config_dict["adk"]["gemini_api_key"] = "***MASKED***"
+                    if "database" in config_dict:
+                        config_dict["database"]["password"] = "***MASKED***"
+                    if "redis" in config_dict and config_dict["redis"].get("password"):
+                        config_dict["redis"]["password"] = "***MASKED***"
+                
+                return config_dict
+        
+        # Global configuration instance
+        _config_loader = ConfigurationLoader()
+        
+        def get_config() -> AgentEngineConfig:
+            """Get global configuration."""
+            return _config_loader.load()
+        
+        def reload_config() -> AgentEngineConfig:
+            """Reload global configuration."""
+            return _config_loader.reload()
+      
+    - step: "Create environment files"
+      focus:
+        - "Define base configuration"
+        - "Add development overrides"
+        - "Create staging settings"
+        - "Prepare production config"
+      env_template: |
+        # Base .env file
+        # Infrastructure
+        DATABASE_HOST=localhost
+        DATABASE_PORT=5432
+        DATABASE_USER=tahoe
+        DATABASE_PASSWORD=tahoe123
+        DATABASE_NAME=agent_engine
+        
+        REDIS_HOST=localhost
+        REDIS_PORT=6379
+        REDIS_DB=0
+        
+        # Agent Engine Service
+        AGENT_ENGINE_SERVICE_NAME=agent-engine
+        AGENT_ENGINE_PORT=8001
+        AGENT_ENGINE_HOST=0.0.0.0
+        AGENT_ENGINE_LOG_LEVEL=INFO
+        AGENT_ENGINE_ENABLE_METRICS=true
+        AGENT_ENGINE_ENABLE_AUDIT=true
+        AGENT_ENGINE_MAX_CONCURRENT=10
+        AGENT_ENGINE_CACHE_TTL=3600
+        
+        # ADK Configuration
+        GEMINI_API_KEY=CHANGE_THIS_your-gemini-api-key
+        ADK_DEFAULT_MODEL=gemini-2.0-flash
+        ADK_TEMPERATURE=0.2
+        ADK_MAX_TOKENS=8192
+        ADK_SESSION_SERVICE=memory
+        ADK_TIMEOUT=300
+        ADK_RETRY_ATTEMPTS=3
+        
+        # Environment
+        ENVIRONMENT=development
+        
+        ---
+        # config/development.env
+        AGENT_ENGINE_LOG_LEVEL=DEBUG
+        AGENT_ENGINE_ENABLE_TRACING=true
+        ADK_SESSION_SERVICE=memory
+        
+        ---
+        # config/staging.env
+        AGENT_ENGINE_LOG_LEVEL=INFO
+        AGENT_ENGINE_ENABLE_TRACING=true
+        ADK_SESSION_SERVICE=redis
+        DATABASE_HOST=staging-db.internal
+        REDIS_HOST=staging-redis.internal
+        
+        ---
+        # config/production.env
+        AGENT_ENGINE_LOG_LEVEL=WARNING
+        AGENT_ENGINE_ENABLE_TRACING=true
+        ADK_SESSION_SERVICE=vertex
+        DATABASE_HOST=prod-db.internal
+        REDIS_HOST=prod-redis.internal
+        AGENT_ENGINE_MAX_CONCURRENT=50
+    
+    - step: "Add configuration endpoint"
+      focus:
+        - "Add /config endpoint"
+        - "Mask sensitive values"
+        - "Allow runtime reload"
+        - "Show active configuration"
+      code_template: |
+        @app.get("/config")
+        async def get_configuration(show_sensitive: bool = False):
+            """Get current configuration."""
+            config = get_config()
+            return config.to_dict(mask_sensitive=not show_sensitive)
+        
+        @app.post("/config/reload")
+        async def reload_configuration():
+            """Reload configuration from sources."""
+            config = reload_config()
+            return {"status": "reloaded", "environment": config.environment}
+    
+    - step: "Create configuration tests"
+      focus:
+        - "Test hierarchy loading"
+        - "Test environment overrides"
+        - "Test validation rules"
+        - "Test sensitive masking"
+    
+  validation:
+    commands:
+      - desc: "Test configuration loading"
+        run: "python -c 'from core.configuration import get_config; config = get_config(); print(f\"Config loaded: {config.environment}\")'"
+        expects: "Config loaded: development"
+        
+      - desc: "Test environment override"
+        run: "ENVIRONMENT=staging python -c 'from core.configuration import get_config; config = get_config(); print(config.environment)'"
+        expects: "staging"
+        
+      - desc: "Run configuration tests"
+        run: "pytest services/agent-engine/tests/test_configuration.py -v"
+        expects: "All tests pass"
+        
+      - desc: "Test configuration endpoint"
+        run: "curl localhost:8001/config"
+        expects: "Configuration with masked sensitive values"
+        
+      - desc: "Test configuration reload"
+        run: "curl -X POST localhost:8001/config/reload"
+        expects: '{"status": "reloaded", "environment": "development"}'
+        
+      - desc: "Verify ADK configuration"
+        run: "python -c 'from core.configuration import get_config; config = get_config(); print(f\"ADK Model: {config.adk.default_model}\")'"
+        expects: "ADK Model: gemini-2.0-flash"
+        
+    endpoints:
+      - method: "GET"
+        path: "/config"
+        expects: "Configuration object with masked sensitive values"
+      - method: "POST"
+        path: "/config/reload"
+        expects: '{"status": "reloaded"}'
+        
+    integration:
+      - desc: "Complete configuration test"
+        steps:
+          - "Load base configuration"
+          - "Apply environment overrides"
+          - "Load runtime specs"
+          - "Validate all settings"
+          - "Test reload functionality"
+    
+  success_criteria:
+    - "Configuration loads from .env files"
+    - "Environment overrides work correctly"
+    - "Sensitive values are masked"
+    - "Validation catches invalid settings"
+    - "Runtime reload functions"
+    - "ADK settings configured"
+    - "Tests pass with coverage"
+    - "Configuration endpoint operational"
+    
+  session_notes:
+    decisions_made:
+      - "Hierarchical configuration with overrides"
+      - "Pydantic for validation and type safety"
+      - "Mask sensitive values by default"
+      - "Support runtime configuration reload"
+    patterns_established:
+      - "Configuration hierarchy pattern"
+      - "Environment override pattern"
+      - "Sensitive value masking"
+      - "Global configuration access"
+    context_for_next:
+      - "Configuration system ready"
+      - "All settings accessible"
+      - "Environment-specific configs work"
+      - "Foundation complete for R2"

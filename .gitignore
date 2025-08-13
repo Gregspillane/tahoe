@@ -1,8 +1,12 @@
-# Python
+# Byte-compiled / optimized / DLL files
 __pycache__/
 *.py[cod]
 *$py.class
+
+# C extensions
 *.so
+
+# Distribution / packaging
 .Python
 build/
 develop-eggs/
@@ -21,29 +25,18 @@ share/python-wheels/
 .installed.cfg
 *.egg
 MANIFEST
+
+# PyInstaller
+#  Usually these files are written by a python script from a template
+#  before PyInstaller builds the exe, so as to inject date/other info into it.
 *.manifest
 *.spec
+
+# Installer logs
 pip-log.txt
 pip-delete-this-directory.txt
 
-# Virtual Environments
-.venv
-env/
-venv/
-ENV/
-env.bak/
-venv.bak/
-.python-version
-
-# IDE
-.vscode/
-.idea/
-*.swp
-*.swo
-*~
-.DS_Store
-
-# Testing
+# Unit test / coverage reports
 htmlcov/
 .tox/
 .nox/
@@ -56,22 +49,80 @@ coverage.xml
 *.py,cover
 .hypothesis/
 .pytest_cache/
-cover/
+
+# Translations
+*.mo
+*.pot
+
+# Django stuff:
+*.log
+local_settings.py
+db.sqlite3
+db.sqlite3-journal
+
+# Flask stuff:
+instance/
+.webassets-cache
+
+# Scrapy stuff:
+.scrapy
+
+# Sphinx documentation
+docs/_build/
+doc/_build/
+
+# PyBuilder
+.pybuilder/
+target/
 
 # Jupyter Notebook
 .ipynb_checkpoints
-*.ipynb
+
+# IPython
+profile_default/
+ipython_config.py
 
 # pyenv
 .python-version
 
-# Celery
+# pipenv
+#   According to pypa/pipenv#598, it is recommended to include Pipfile.lock in version control.
+#   However, in case of collaboration, if having platform-specific dependencies or dependencies
+#   having no cross-platform support, Pipfile.lock can be ignored.
+#Pipfile.lock
+
+# poetry
+#   Comment out if you want to track poetry.lock
+#poetry.lock
+
+# PEP 582; used by e.g. github.com/David-OConnor/pyflow
+__pypackages__/
+
+# Celery stuff
 celerybeat-schedule
 celerybeat.pid
 
 # SageMath parsed files
 *.sage.py
 
+# Environments
+.env
+.venv
+env/
+venv/
+ENV/
+env.bak/
+venv.bak/
+
+# Spyder project settings
+.spyderproject
+.spyproject
+
+# Rope project settings
+.ropeproject
+
+# mkdocs documentation
+/site
 
 # mypy
 .mypy_cache/
@@ -87,103 +138,5 @@ dmypy.json
 # Cython debug symbols
 cython_debug/
 
-# Prisma
-prisma/migrations/dev/
-
-# Docker
-*.log
-docker-compose.override.yml
-
-# Database
-*.db
-*.sqlite
-*.sqlite3
-
-# Redis
-dump.rdb
-
-# Logs
-logs/
-*.log
-npm-debug.log*
-yarn-debug.log*
-yarn-error.log*
-lerna-debug.log*
-.pnpm-debug.log*
-
-# OS files
-.DS_Store
-.DS_Store?
-._*
-.Spotlight-V100
-.Trashes
-ehthumbs.db
-Thumbs.db
-
-# Temporary files
-*.tmp
-*.temp
-*.bak
-*.backup
-*.old
-tmp/
-temp/
-
-# Claude
-.claude/
-
-# Service-specific
-services/*/node_modules/
-services/*/.env
-services/*/.env.*
-!services/*/.env.example
-services/*/dist/
-services/*/build/
-services/*/__pycache__/
-services/*/.pytest_cache/
-services/*/.coverage
-services/*/htmlcov/
-
-# Infrastructure
-services/infrastructure/data/
-postgres_data/
-redis_data/
-
-# Certificates and secrets
-*.pem
-*.key
-*.crt
-*.cer
-*.pfx
-*.p12
-secrets/
-certificates/
-
-# Backup files
-*.backup
-*.sql
-*.dump
-
-# Editor directories and files
-.idea/
+# VS Code settings
 .vscode/
-*.sublime-project
-*.sublime-workspace
-
-# Mac
-.AppleDouble
-.LSOverride
-Icon
-._*
-
-# Windows
-Thumbs.db
-ehthumbs.db
-Desktop.ini
-$RECYCLE.BIN/
-*.cab
-*.msi
-*.msix
-*.msm
-*.msp
-*.lnk

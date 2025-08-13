@@ -1,0 +1,186 @@
+project:
+  name: "tahoe-agent-engine"
+  description: "Universal agent orchestration platform using Google ADK for dynamic agent composition"
+  architecture: "Specification-driven with plugin-based tools and multi-backend sessions"
+  adk_version: "google-adk (latest)"
+  python_version: "3.9+"
+  
+releases:
+  - id: "r1-foundation"
+    name: "Foundation Infrastructure"
+    description: "Core project setup with ADK integration and specification system"
+    builds: "Basic infrastructure with ADK verification and specification parsing"
+    tasks: ["r1-t01", "r1-t02", "r1-t03", "r1-t04", "r1-t05"]
+    working_functionality:
+      - "ADK imports and basic agent creation works"
+      - "Specifications parse and validate"
+      - "Database connected with Prisma"
+      - "Configuration system operational"
+      - "FastAPI application running with health endpoints"
+    validates_with: |
+      docker-compose up -d
+      python -c "from google.adk.agents import LlmAgent; print('ADK OK')"
+      curl localhost:8001/health
+      pytest tests/test_specifications.py
+    deliverables:
+      - "Monorepo structure with Python environment"
+      - "ADK installation and verification"
+      - "Specification parser and validator"
+      - "Database schema and migrations"
+      - "Configuration loading system"
+    
+  - id: "r2-composition"
+    name: "Universal Agent Composition"
+    description: "Dynamic agent factory supporting all ADK agent types"
+    builds: "Complete agent composition engine from specifications"
+    requires: ["r1-foundation"]
+    tasks: ["r2-t01", "r2-t02", "r2-t03", "r2-t04", "r2-t05", "r2-t06"]
+    working_functionality:
+      - "LlmAgent creation from specifications"
+      - "SequentialAgent, ParallelAgent, LoopAgent builders"
+      - "Custom agent support via BaseAgent"
+      - "InMemoryRunner integration"
+      - "Dynamic tool loading and attachment"
+    validates_with: |
+      python tests/test_agent_factory.py
+      curl -X POST localhost:8001/agents/compose -d @specs/agents/examples/analyzer.yaml
+      python examples/create_workflow_agent.py
+      pytest tests/test_composition.py -v
+    deliverables:
+      - "Universal agent factory"
+      - "All ADK agent type builders"
+      - "Custom agent support"
+      - "Runner integration"
+      - "Comprehensive test suite"
+
+  - id: "r3-tools"
+    name: "Universal Tool System"
+    description: "Plugin-based tool registry with runtime registration"
+    builds: "Dynamic tool loading system with validation"
+    requires: ["r1-foundation", "r2-composition"]
+    tasks: ["r3-t01", "r3-t02", "r3-t03", "r3-t04"]
+    working_functionality:
+      - "Tool registry with registration API"
+      - "Dynamic tool loading and FunctionTool wrapping"
+      - "Built-in tool library"
+      - "Tool collections and categories"
+      - "Tool validation and testing"
+    validates_with: |
+      python tests/test_tool_registry.py
+      curl -X POST localhost:8001/tools/register -d @specs/tools/examples/analyzer.yaml
+      python examples/register_custom_tool.py
+      pytest tests/test_tools.py -v
+    deliverables:
+      - "Tool registry system"
+      - "Dynamic tool loader"
+      - "Built-in tool library"
+      - "Tool collections"
+
+  - id: "r4-workflows"
+    name: "Workflow Engine"
+    description: "Template-driven workflow execution with conditional logic"
+    builds: "Complete workflow engine with all patterns"
+    requires: ["r1-foundation", "r2-composition", "r3-tools"]
+    tasks: ["r4-t01", "r4-t02", "r4-t03", "r4-t04", "r4-t05"]
+    working_functionality:
+      - "Workflow template parsing and validation"
+      - "Sequential, parallel, conditional execution"
+      - "Loop patterns and custom workflows"
+      - "State management between steps"
+      - "Real-time workflow monitoring"
+    validates_with: |
+      python tests/test_workflow_engine.py
+      curl -X POST localhost:8001/workflows/execute -d @specs/workflows/examples/parallel-analysis.yaml
+      python examples/run_conditional_workflow.py
+      pytest tests/test_workflows.py -v
+    deliverables:
+      - "Template system"
+      - "Workflow engine"
+      - "Conditional logic"
+      - "Test suite"
+      - "Example workflows"
+
+  - id: "r5-sessions"
+    name: "Session Orchestration"
+    description: "Multi-backend session management with persistence"
+    builds: "Complete session management system"
+    requires: ["r1-foundation", "r2-composition"]
+    tasks: ["r5-t01", "r5-t02", "r5-t03", "r5-t04"]
+    working_functionality:
+      - "Multi-backend session orchestration"
+      - "InMemorySessionService integration"
+      - "Redis session persistence"
+      - "Session forking and merging"
+      - "Session lifecycle management"
+    validates_with: |
+      python tests/test_session_orchestrator.py
+      curl -X POST localhost:8001/sessions/create -d '{"persistence": "redis"}'
+      python examples/fork_session.py
+      pytest tests/test_sessions.py -v
+    deliverables:
+      - "Session orchestrator"
+      - "Memory backend"
+      - "Redis backend"
+      - "Session tests"
+
+  - id: "r6-api"
+    name: "REST API Layer"
+    description: "Complete REST API with all endpoints"
+    builds: "Full API implementation with validation"
+    requires: ["r1-foundation", "r2-composition", "r3-tools", "r4-workflows", "r5-sessions"]
+    tasks: ["r6-t01", "r6-t02", "r6-t03", "r6-t04", "r6-t05"]
+    working_functionality:
+      - "Health, metrics, and configuration endpoints"
+      - "Agent composition and management APIs"
+      - "Workflow execution and monitoring"
+      - "Tool registry management"
+      - "Session operations"
+    validates_with: |
+      curl localhost:8001/health
+      curl localhost:8001/api/docs
+      python tests/test_api_endpoints.py
+      pytest tests/test_api.py -v
+    deliverables:
+      - "Core endpoints"
+      - "Agent endpoints"
+      - "Workflow endpoints"
+      - "Tool endpoints"
+      - "API test suite"
+
+  - id: "r7-integration"
+    name: "System Integration"
+    description: "Complete system integration and production readiness"
+    builds: "Production-ready integrated system"
+    requires: ["r1-foundation", "r2-composition", "r3-tools", "r4-workflows", "r5-sessions", "r6-api"]
+    tasks: ["r7-t01", "r7-t02", "r7-t03", "r7-t04"]
+    working_functionality:
+      - "All components integrated and working together"
+      - "End-to-end scenarios execute successfully"
+      - "Performance meets requirements"
+      - "Docker deployment works"
+      - "Documentation complete"
+    validates_with: |
+      python tests/test_e2e.py
+      python tests/test_performance.py
+      docker-compose up -d && docker-compose ps
+      curl localhost:8001/health
+    deliverables:
+      - "Integrated system"
+      - "E2E test suite"
+      - "Performance tests"
+      - "Docker deployment"
+
+summary:
+  total_releases: 7
+  total_tasks: 33
+  estimated_hours: "80-120"
+  dependencies:
+    - "Each release depends on previous releases"
+    - "Tasks within releases may have inter-dependencies"
+    - "All tasks require r1-foundation"
+  success_metrics:
+    - "All validation commands pass"
+    - "Test coverage > 80%"
+    - "API response time < 500ms"
+    - "Agent composition < 100ms"
+    - "Workflow execution streaming works"

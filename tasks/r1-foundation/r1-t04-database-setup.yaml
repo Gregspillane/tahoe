@@ -1,0 +1,468 @@
+task:
+  id: "r1-t04-database-setup"
+  name: "Set Up Database with Prisma"
+  description: "Configure PostgreSQL database with Prisma ORM for execution and audit storage"
+  complexity: "medium"
+  estimated_hours: 2
+  
+  context:
+    why: "Persistent storage for execution history, audit logs, and session state"
+    architectural_role: "Data persistence layer for tracking all system operations"
+    depends_on_tasks: ["r1-t01"]
+    enables_tasks: ["r5-t01", "r5-t03", "r6-t01"]
+    references:
+      masterplan: "@MASTERPLAN.md#database-entities"
+      adk_docs: 
+        - "https://google.github.io/adk-docs/sessions#persistence"
+      verification_notes: "Database schema designed to support ADK session and execution tracking"
+    
+  adk_components:
+    imports_needed:
+      - "from prisma import Prisma"
+      - "from prisma.models import Session, Execution, Result, AuditLog"
+      - "import asyncio"
+      - "from datetime import datetime"
+    verified_patterns:
+      - pattern: "Store ADK session metadata"
+        doc_ref: "https://google.github.io/adk-docs/sessions#metadata"
+      - pattern: "Track execution history"
+        doc_ref: "https://google.github.io/adk-docs/runners#history"
+    avoid_antipatterns:
+      - "Don't store sensitive API keys in database"
+      - "Don't bypass Prisma for raw SQL"
+      - "Don't store large blobs directly"
+    
+  implementation:
+    creates:
+      - path: "services/infrastructure/prisma/schema.prisma"
+        purpose: "Database schema definition"
+        models:
+          - "Session"
+          - "Execution"
+          - "Result"
+          - "AuditLog"
+          - "ToolRegistry"
+          - "ConfigurationVersion"
+      - path: "services/agent-engine/src/services/database.py"
+        purpose: "Database service layer"
+        exports:
+          - "class DatabaseService"
+          - "get_db()"
+          - "init_database()"
+      - path: "services/agent-engine/src/models/database.py"
+        purpose: "Database model extensions"
+        exports:
+          - "class SessionModel"
+          - "class ExecutionModel"
+          - "class ResultModel"
+      - path: "services/infrastructure/prisma/migrations/"
+        purpose: "Database migration files"
+      - path: "scripts/init_db.py"
+        purpose: "Database initialization script"
+        exports:
+          - "create_database()"
+          - "run_migrations()"
+          - "seed_data()"
+        
+    modifies:
+      - path: "services/agent-engine/requirements.txt"
+        changes: ["Add prisma dependency"]
+      - path: "docker-compose.yml"
+        changes: ["Configure postgres service"]
+      - path: ".env"
+        changes: ["Add database configuration"]
+        
+    uses_from_previous:
+      - component: "Docker infrastructure"
+        from_task: "r1-t01"
+        usage: "PostgreSQL container"
+      - component: "Environment configuration"
+        from_task: "r1-t01"
+        usage: "Database connection settings"
+    
+  implementation_steps:
+    - step: "Create Prisma schema"
+      focus:
+        - "Define all data models"
+        - "Set up relationships"
+        - "Add indexes for performance"
+        - "Include audit fields"
+      schema_template: |
+        generator client {
+          provider = "prisma-client-py"
+          recursive_type_depth = 5
+        }
+        
+        datasource db {
+          provider = "postgresql"
+          url      = env("DATABASE_URL")
+        }
+        
+        model Session {
+          id            String      @id @default(uuid())
+          app_name      String
+          user_id       String
+          session_id    String      @unique
+          state         Json?
+          metadata      Json?
+          created_at    DateTime    @default(now())
+          updated_at    DateTime    @updatedAt
+          expires_at    DateTime?
+          
+          executions    Execution[]
+          audit_logs    AuditLog[]
+          
+          @@index([user_id])
+          @@index([app_name])
+          @@index([created_at])
+        }
+        
+        model Execution {
+          id                String      @id @default(uuid())
+          session_id        String
+          agent_name        String
+          agent_type        String
+          workflow_name     String?
+          input_data        Json
+          output_data       Json?
+          status            String      // pending, running, completed, failed
+          error_message     String?
+          started_at        DateTime    @default(now())
+          completed_at      DateTime?
+          duration_ms       Int?
+          token_usage       Json?
+          
+          session           Session     @relation(fields: [session_id], references: [id])
+          results           Result[]
+          audit_logs        AuditLog[]
+          
+          @@index([session_id])
+          @@index([agent_name])
+          @@index([status])
+          @@index([started_at])
+        }
+        
+        model Result {
+          id            String      @id @default(uuid())
+          execution_id  String
+          result_type   String      // intermediate, final, error
+          data          Json
+          metadata      Json?
+          created_at    DateTime    @default(now())
+          
+          execution     Execution   @relation(fields: [execution_id], references: [id])
+          
+          @@index([execution_id])
+          @@index([result_type])
+        }
+        
+        model AuditLog {
+          id            String      @id @default(uuid())
+          session_id    String?
+          execution_id  String?
+          user_id       String
+          action        String
+          resource      String
+          details       Json?
+          ip_address    String?
+          user_agent    String?
+          created_at    DateTime    @default(now())
+          
+          session       Session?    @relation(fields: [session_id], references: [id])
+          execution     Execution?  @relation(fields: [execution_id], references: [id])
+          
+          @@index([user_id])
+          @@index([action])
+          @@index([created_at])
+        }
+        
+        model ToolRegistry {
+          id            String      @id @default(uuid())
+          name          String      @unique
+          version       String
+          description   String?
+          specification Json
+          function_def  String?
+          categories    String[]
+          dependencies  String[]
+          active        Boolean     @default(true)
+          created_at    DateTime    @default(now())
+          updated_at    DateTime    @updatedAt
+          
+          @@index([name])
+          @@index([categories])
+          @@index([active])
+        }
+        
+        model ConfigurationVersion {
+          id            String      @id @default(uuid())
+          type          String      // agent, workflow, tool, model
+          name          String
+          version       String
+          specification Json
+          active        Boolean     @default(true)
+          created_by    String
+          created_at    DateTime    @default(now())
+          
+          @@unique([type, name, version])
+          @@index([type])
+          @@index([name])
+          @@index([active])
+        }
+    
+    - step: "Create database service"
+      focus:
+        - "Initialize Prisma client"
+        - "Create service methods"
+        - "Handle connections"
+        - "Add error handling"
+      code_template: |
+        from prisma import Prisma
+        from typing import Optional, Dict, Any, List
+        from datetime import datetime
+        import json
+        
+        class DatabaseService:
+            def __init__(self):
+                self.prisma = Prisma()
+            
+            async def connect(self):
+                """Connect to database."""
+                await self.prisma.connect()
+            
+            async def disconnect(self):
+                """Disconnect from database."""
+                await self.prisma.disconnect()
+            
+            # Session operations
+            async def create_session(self, app_name: str, user_id: str, 
+                                   session_id: str, state: Dict[str, Any] = None) -> str:
+                """Create new session record."""
+                session = await self.prisma.session.create(
+                    data={
+                        "app_name": app_name,
+                        "user_id": user_id,
+                        "session_id": session_id,
+                        "state": json.dumps(state) if state else None,
+                        "metadata": json.dumps({"source": "adk"})
+                    }
+                )
+                return session.id
+            
+            async def get_session(self, session_id: str):
+                """Get session by ID."""
+                return await self.prisma.session.find_unique(
+                    where={"session_id": session_id},
+                    include={"executions": True}
+                )
+            
+            # Execution tracking
+            async def create_execution(self, session_id: str, agent_name: str,
+                                      agent_type: str, input_data: Dict[str, Any]):
+                """Create execution record."""
+                execution = await self.prisma.execution.create(
+                    data={
+                        "session_id": session_id,
+                        "agent_name": agent_name,
+                        "agent_type": agent_type,
+                        "input_data": json.dumps(input_data),
+                        "status": "pending"
+                    }
+                )
+                return execution.id
+            
+            async def update_execution(self, execution_id: str, status: str,
+                                      output_data: Dict[str, Any] = None,
+                                      error_message: str = None):
+                """Update execution status."""
+                data = {
+                    "status": status,
+                    "completed_at": datetime.now() if status in ["completed", "failed"] else None
+                }
+                if output_data:
+                    data["output_data"] = json.dumps(output_data)
+                if error_message:
+                    data["error_message"] = error_message
+                
+                return await self.prisma.execution.update(
+                    where={"id": execution_id},
+                    data=data
+                )
+            
+            # Audit logging
+            async def create_audit_log(self, user_id: str, action: str,
+                                      resource: str, details: Dict[str, Any] = None):
+                """Create audit log entry."""
+                return await self.prisma.auditlog.create(
+                    data={
+                        "user_id": user_id,
+                        "action": action,
+                        "resource": resource,
+                        "details": json.dumps(details) if details else None
+                    }
+                )
+      
+    - step: "Initialize database"
+      focus:
+        - "Create database if not exists"
+        - "Run Prisma migrations"
+        - "Seed initial data"
+        - "Verify connections"
+      code_template: |
+        import asyncio
+        from prisma import Prisma
+        
+        async def init_database():
+            """Initialize database with schema."""
+            # Generate Prisma client
+            import subprocess
+            subprocess.run(["prisma", "generate"], check=True)
+            
+            # Run migrations
+            subprocess.run(["prisma", "migrate", "deploy"], check=True)
+            
+            # Test connection
+            prisma = Prisma()
+            await prisma.connect()
+            
+            # Seed initial data
+            await seed_initial_data(prisma)
+            
+            await prisma.disconnect()
+            print("Database initialized successfully")
+        
+        async def seed_initial_data(prisma: Prisma):
+            """Seed initial configuration data."""
+            # Check if already seeded
+            existing = await prisma.configurationversion.find_first()
+            if existing:
+                return
+            
+            # Add default configurations
+            await prisma.configurationversion.create(
+                data={
+                    "type": "model",
+                    "name": "default",
+                    "version": "1.0.0",
+                    "specification": {
+                        "provider": "google",
+                        "model": "gemini-2.0-flash",
+                        "parameters": {
+                            "temperature": 0.2,
+                            "max_tokens": 8192
+                        }
+                    },
+                    "created_by": "system"
+                }
+            )
+    
+    - step: "Configure Docker PostgreSQL"
+      focus:
+        - "Set up PostgreSQL container"
+        - "Configure volumes for persistence"
+        - "Set environment variables"
+        - "Add health checks"
+      docker_template: |
+        services:
+          postgres:
+            image: postgres:15-alpine
+            container_name: tahoe-postgres
+            environment:
+              POSTGRES_USER: tahoe
+              POSTGRES_PASSWORD: tahoe123
+              POSTGRES_DB: agent_engine
+            ports:
+              - "5432:5432"
+            volumes:
+              - postgres_data:/var/lib/postgresql/data
+            healthcheck:
+              test: ["CMD-SHELL", "pg_isready -U tahoe"]
+              interval: 10s
+              timeout: 5s
+              retries: 5
+        
+        volumes:
+          postgres_data:
+    
+    - step: "Add database endpoints"
+      focus:
+        - "Add /db/health endpoint"
+        - "Add /db/stats endpoint"
+        - "Add audit log endpoint"
+    
+    - step: "Create database tests"
+      focus:
+        - "Test CRUD operations"
+        - "Test relationships"
+        - "Test concurrent access"
+        - "Test audit logging"
+    
+  validation:
+    commands:
+      - desc: "Generate Prisma client"
+        run: "cd services/infrastructure && prisma generate"
+        expects: "Client generated successfully"
+        
+      - desc: "Run migrations"
+        run: "cd services/infrastructure && prisma migrate deploy"
+        expects: "Migrations applied"
+        
+      - desc: "Test database connection"
+        run: "python scripts/init_db.py"
+        expects: "Database initialized successfully"
+        
+      - desc: "Run database tests"
+        run: "pytest services/agent-engine/tests/test_database.py -v"
+        expects: "All tests pass"
+        
+      - desc: "Check database health"
+        run: "curl localhost:8001/db/health"
+        expects: '{"status": "healthy", "connected": true}'
+        
+      - desc: "Verify schema"
+        run: "cd services/infrastructure && prisma validate"
+        expects: "Schema is valid"
+        
+    endpoints:
+      - method: "GET"
+        path: "/db/health"
+        expects: '{"status": "healthy", "connected": true}'
+      - method: "GET"
+        path: "/db/stats"
+        expects: "Database statistics returned"
+        
+    integration:
+      - desc: "Complete database setup"
+        steps:
+          - "Start PostgreSQL container"
+          - "Run migrations"
+          - "Seed initial data"
+          - "Test CRUD operations"
+          - "Verify audit logging"
+    
+  success_criteria:
+    - "PostgreSQL container running"
+    - "Prisma schema defined and valid"
+    - "Migrations applied successfully"
+    - "Database service functional"
+    - "CRUD operations working"
+    - "Audit logging operational"
+    - "Tests pass with coverage"
+    - "Health endpoint responds"
+    
+  session_notes:
+    decisions_made:
+      - "Use PostgreSQL 15 for stability"
+      - "Prisma ORM for type safety"
+      - "JSON fields for flexible data"
+      - "UUID primary keys"
+    patterns_established:
+      - "Database service pattern"
+      - "Audit logging pattern"
+      - "Migration strategy"
+      - "Connection management"
+    context_for_next:
+      - "Database ready for use"
+      - "Audit logging available"
+      - "Session storage prepared"
+      - "Ready for configuration loader"

@@ -1,0 +1,305 @@
+task:
+  id: "r1-t02-adk-verification"
+  name: "Verify and Test ADK Components"
+  description: "Comprehensive verification of all ADK components with test scripts and examples"
+  complexity: "medium"
+  estimated_hours: 2
+  
+  context:
+    why: "Ensure all ADK components work correctly before building the universal platform"
+    architectural_role: "Validates that ADK foundation is solid for agent composition"
+    depends_on_tasks: ["r1-t01"]
+    enables_tasks: ["r2-t01", "r2-t02", "r2-t03"]
+    references:
+      masterplan: "@MASTERPLAN.md#adk-integration-architecture"
+      adk_docs: 
+        - "https://google.github.io/adk-docs/agents"
+        - "https://google.github.io/adk-docs/runners"
+        - "https://google.github.io/adk-docs/sessions"
+        - "https://google.github.io/adk-docs/tools"
+      verification_notes: "All ADK component imports and basic usage patterns verified"
+    
+  adk_components:
+    imports_needed:
+      - "from google.adk.agents import LlmAgent, Agent, SequentialAgent, ParallelAgent, LoopAgent, BaseAgent"
+      - "from google.adk.runners import InMemoryRunner"
+      - "from google.adk.sessions import InMemorySessionService"
+      - "from google.adk.tools import FunctionTool, google_search"
+      - "from google.adk.events import Event"
+    verified_patterns:
+      - pattern: "LlmAgent aliased as Agent for primary agent type"
+        doc_ref: "https://google.github.io/adk-docs/agents#llmagent"
+      - pattern: "InMemoryRunner with run and run_async methods"
+        doc_ref: "https://google.github.io/adk-docs/runners#inmemoryrunner"
+      - pattern: "Automatic function wrapping for most tools"
+        doc_ref: "https://google.github.io/adk-docs/tools#function-wrapping"
+    avoid_antipatterns:
+      - "Don't create custom runners"
+      - "Don't bypass ADK session management"
+      - "Don't wrap simple functions unnecessarily"
+    
+  implementation:
+    creates:
+      - path: "services/agent-engine/scripts/verify_adk.py"
+        purpose: "Comprehensive ADK verification script"
+        exports:
+          - "verify_all_components()"
+          - "test_agent_creation()"
+          - "test_runner_execution()"
+      - path: "services/agent-engine/tests/test_adk_integration.py"
+        purpose: "ADK integration test suite"
+        exports:
+          - "TestADKComponents"
+          - "TestAgentTypes"
+          - "TestRunnerPatterns"
+      - path: "services/agent-engine/examples/basic_agent.py"
+        purpose: "Basic agent creation example"
+        exports:
+          - "create_basic_agent()"
+          - "execute_agent()"
+      - path: "services/agent-engine/examples/workflow_agent.py"
+        purpose: "Workflow agent examples"
+        exports:
+          - "create_sequential_workflow()"
+          - "create_parallel_workflow()"
+      - path: "services/agent-engine/examples/tool_usage.py"
+        purpose: "Tool integration examples"
+        exports:
+          - "automatic_wrapping_example()"
+          - "explicit_wrapping_example()"
+        
+    modifies:
+      - path: "services/agent-engine/src/main.py"
+        changes: ["Add ADK verification endpoint"]
+        
+    uses_from_previous:
+      - component: "FastAPI app"
+        from_task: "r1-t01"
+        usage: "Add verification endpoints"
+      - component: "Environment configuration"
+        from_task: "r1-t01"
+        usage: "Load ADK settings"
+    
+  implementation_steps:
+    - step: "Create ADK verification script"
+      focus:
+        - "Test all agent type imports"
+        - "Verify runner functionality"
+        - "Check session management"
+        - "Test tool wrapping"
+      code_template: |
+        import os
+        import sys
+        from typing import Dict, Any
+        
+        def verify_imports():
+            """Verify all ADK imports work."""
+            try:
+                from google.adk.agents import LlmAgent, Agent, SequentialAgent, ParallelAgent, LoopAgent, BaseAgent
+                print("✓ Agent imports successful")
+                
+                from google.adk.runners import InMemoryRunner
+                print("✓ Runner imports successful")
+                
+                from google.adk.sessions import InMemorySessionService
+                print("✓ Session imports successful")
+                
+                from google.adk.tools import FunctionTool, google_search
+                print("✓ Tool imports successful")
+                
+                return True
+            except ImportError as e:
+                print(f"✗ Import failed: {e}")
+                return False
+        
+        def test_agent_creation():
+            """Test creating different agent types."""
+            from google.adk.agents import LlmAgent, SequentialAgent, ParallelAgent
+            
+            # Test LlmAgent
+            llm_agent = LlmAgent(
+                name="test-llm",
+                model="gemini-2.0-flash",
+                instruction="You are a test agent"
+            )
+            print(f"✓ Created LlmAgent: {llm_agent.name}")
+            
+            # Test SequentialAgent
+            seq_agent = SequentialAgent(
+                name="test-sequential",
+                sub_agents=[llm_agent],
+                description="Test sequential workflow"
+            )
+            print(f"✓ Created SequentialAgent: {seq_agent.name}")
+            
+            # Test ParallelAgent
+            par_agent = ParallelAgent(
+                name="test-parallel",
+                sub_agents=[llm_agent],
+                description="Test parallel workflow"
+            )
+            print(f"✓ Created ParallelAgent: {par_agent.name}")
+            
+            return True
+    
+    - step: "Create integration tests"
+      focus:
+        - "Test agent creation patterns"
+        - "Test runner execution"
+        - "Test session management"
+        - "Test tool integration"
+      code_template: |
+        import pytest
+        from google.adk.agents import LlmAgent
+        from google.adk.runners import InMemoryRunner
+        
+        class TestADKComponents:
+            def test_llm_agent_creation(self):
+                agent = LlmAgent(
+                    name="test",
+                    model="gemini-2.0-flash",
+                    instruction="Test instruction"
+                )
+                assert agent.name == "test"
+                assert agent.model == "gemini-2.0-flash"
+            
+            def test_runner_creation(self):
+                agent = LlmAgent(name="test", model="gemini-2.0-flash", instruction="Test")
+                runner = InMemoryRunner(agent, app_name="test-app")
+                assert runner is not None
+            
+            def test_session_creation(self):
+                agent = LlmAgent(name="test", model="gemini-2.0-flash", instruction="Test")
+                runner = InMemoryRunner(agent, app_name="test-app")
+                session_service = runner.session_service()
+                session = session_service.create_session(
+                    app_name="test-app",
+                    user_id="test-user"
+                )
+                assert session.id is not None
+      
+    - step: "Create basic examples"
+      focus:
+        - "Simple agent creation"
+        - "Basic execution pattern"
+        - "Tool usage examples"
+        - "Session management examples"
+    
+    - step: "Create workflow examples"
+      focus:
+        - "Sequential workflow pattern"
+        - "Parallel execution pattern"
+        - "Loop agent pattern"
+        - "Custom agent extension"
+    
+    - step: "Add verification endpoint"
+      focus:
+        - "Add /adk/verify endpoint to FastAPI"
+        - "Run verification checks"
+        - "Return component status"
+      code_template: |
+        @app.get("/adk/verify")
+        async def verify_adk():
+            """Verify ADK components are working."""
+            results = {}
+            
+            # Test imports
+            try:
+                from google.adk.agents import LlmAgent
+                results["imports"] = "success"
+            except:
+                results["imports"] = "failed"
+            
+            # Test agent creation
+            try:
+                agent = LlmAgent(
+                    name="verify",
+                    model="gemini-2.0-flash",
+                    instruction="Verification agent"
+                )
+                results["agent_creation"] = "success"
+            except Exception as e:
+                results["agent_creation"] = f"failed: {str(e)}"
+            
+            # Test runner
+            try:
+                from google.adk.runners import InMemoryRunner
+                runner = InMemoryRunner(agent, app_name="verify")
+                results["runner"] = "success"
+            except Exception as e:
+                results["runner"] = f"failed: {str(e)}"
+            
+            return results
+    
+    - step: "Create tool examples"
+      focus:
+        - "Automatic function wrapping"
+        - "Explicit FunctionTool usage"
+        - "Built-in tool usage"
+        - "Custom tool creation"
+    
+  validation:
+    commands:
+      - desc: "Run verification script"
+        run: "python services/agent-engine/scripts/verify_adk.py"
+        expects: "All components verified successfully"
+        
+      - desc: "Run integration tests"
+        run: "pytest services/agent-engine/tests/test_adk_integration.py -v"
+        expects: "All tests pass"
+        
+      - desc: "Test basic agent example"
+        run: "python services/agent-engine/examples/basic_agent.py"
+        expects: "Agent created and executed"
+        
+      - desc: "Test workflow examples"
+        run: "python services/agent-engine/examples/workflow_agent.py"
+        expects: "Workflow agents created"
+        
+      - desc: "Test verification endpoint"
+        run: "curl localhost:8001/adk/verify"
+        expects: "All components show success"
+        
+      - desc: "Test tool examples"
+        run: "python services/agent-engine/examples/tool_usage.py"
+        expects: "Tool examples execute"
+        
+    endpoints:
+      - method: "GET"
+        path: "/adk/verify"
+        expects: '{"imports": "success", "agent_creation": "success", "runner": "success"}'
+        
+    integration:
+      - desc: "Complete ADK verification"
+        steps:
+          - "Run verification script"
+          - "Execute all examples"
+          - "Run integration tests"
+          - "Test API endpoint"
+    
+  success_criteria:
+    - "All ADK components import successfully"
+    - "All agent types can be created"
+    - "InMemoryRunner initializes correctly"
+    - "Session management works"
+    - "Tool wrapping functions properly"
+    - "Examples execute without errors"
+    - "Integration tests pass"
+    - "Verification endpoint returns success"
+    
+  session_notes:
+    decisions_made:
+      - "Use InMemoryRunner as primary runner"
+      - "Focus on core agent types first"
+      - "Test automatic tool wrapping"
+      - "Verify session management patterns"
+    patterns_established:
+      - "Agent creation pattern verified"
+      - "Runner initialization pattern"
+      - "Session creation pattern"
+      - "Tool integration approach"
+    context_for_next:
+      - "ADK components verified and working"
+      - "Basic patterns established"
+      - "Examples available for reference"
+      - "Ready to build specification system"

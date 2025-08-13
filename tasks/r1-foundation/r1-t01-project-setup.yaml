@@ -1,0 +1,242 @@
+task:
+  id: "r1-t01-project-setup"
+  name: "Build Project Foundation and ADK Environment"
+  description: "Initialize monorepo structure with Python environment and Google ADK installation"
+  complexity: "simple"
+  estimated_hours: 2
+  
+  context:
+    why: "Establish the foundational development environment for the universal agent engine"
+    architectural_role: "Creates the base infrastructure that all other components will build upon"
+    depends_on_tasks: []
+    enables_tasks: ["r1-t02", "r1-t03", "r1-t04", "r1-t05"]
+    references:
+      masterplan: "@MASTERPLAN.md#project-structure"
+      adk_docs: 
+        - "https://google.github.io/adk-docs/getting-started"
+        - "https://google.github.io/adk-docs/installation"
+      verification_notes: "ADK installation via pip install google-adk verified in documentation"
+    
+  adk_components:
+    imports_needed:
+      - "from google.adk.agents import LlmAgent, SequentialAgent, ParallelAgent, LoopAgent, BaseAgent"
+      - "from google.adk.runners import InMemoryRunner"
+      - "from google.adk.sessions import InMemorySessionService"
+      - "from google.adk.tools import FunctionTool"
+    verified_patterns:
+      - pattern: "Use pip install google-adk for installation"
+        doc_ref: "https://google.github.io/adk-docs/installation"
+      - pattern: "Python 3.9+ required for ADK"
+        doc_ref: "https://google.github.io/adk-docs/requirements"
+    avoid_antipatterns:
+      - "Don't use Python < 3.9"
+      - "Don't install from source unless necessary"
+      - "Don't mix virtual environments"
+    
+  implementation:
+    creates:
+      - path: "services/agent-engine/"
+        purpose: "Main service directory"
+        structure:
+          - "src/"
+          - "tests/"
+          - "specs/"
+          - "examples/"
+          - "requirements.txt"
+          - "Dockerfile"
+          - "README.md"
+      - path: "services/agent-engine/src/main.py"
+        purpose: "FastAPI application entry point"
+        exports:
+          - "app: FastAPI instance"
+      - path: "services/agent-engine/src/__init__.py"
+        purpose: "Package initialization"
+      - path: "services/agent-engine/requirements.txt"
+        purpose: "Python dependencies"
+        content_summary: |
+          google-adk
+          fastapi>=0.104.0
+          uvicorn[standard]>=0.24.0
+          pydantic>=2.0.0
+          python-dotenv>=1.0.0
+          prisma>=0.11.0
+          redis>=5.0.0
+          pyyaml>=6.0.1
+          pytest>=7.4.0
+          pytest-cov>=4.1.0
+          pytest-asyncio>=0.21.0
+      - path: ".env"
+        purpose: "Base environment configuration"
+        content_summary: |
+          # Infrastructure
+          DATABASE_HOST=localhost
+          DATABASE_PORT=5432
+          REDIS_HOST=localhost
+          REDIS_PORT=6379
+          
+          # Agent Engine Service
+          AGENT_ENGINE_PORT=8001
+          AGENT_ENGINE_LOG_LEVEL=INFO
+          
+          # ADK Configuration
+          GEMINI_API_KEY=CHANGE_THIS_your-gemini-key
+          ADK_DEFAULT_MODEL=gemini-2.0-flash
+      - path: "config/development.env"
+        purpose: "Development environment overrides"
+      - path: "docker-compose.yml"
+        purpose: "Local infrastructure services"
+        services:
+          - "postgres"
+          - "redis"
+          - "agent-engine"
+        
+    modifies: []
+        
+    uses_from_previous: []
+    
+  implementation_steps:
+    - step: "Create monorepo structure"
+      commands:
+        - "mkdir -p services/agent-engine/{src,tests,specs,examples}"
+        - "mkdir -p services/infrastructure/prisma"
+        - "mkdir -p config scripts docs"
+        - "touch services/agent-engine/src/__init__.py"
+      focus:
+        - "Set up proper directory hierarchy"
+        - "Create all necessary subdirectories"
+        - "Initialize Python packages"
+    
+    - step: "Set up Python environment"
+      commands:
+        - "python3 -m venv venv"
+        - "source venv/bin/activate"
+        - "pip install --upgrade pip"
+      focus:
+        - "Create isolated Python environment"
+        - "Use Python 3.9 or higher"
+        - "Activate virtual environment"
+      
+    - step: "Install ADK and dependencies"
+      commands:
+        - "pip install google-adk"
+        - "pip install -r services/agent-engine/requirements.txt"
+      focus:
+        - "Install Google ADK package"
+        - "Install all required dependencies"
+        - "Verify installations succeed"
+    
+    - step: "Create FastAPI application"
+      focus:
+        - "Initialize FastAPI app in main.py"
+        - "Add basic health endpoint"
+        - "Configure CORS and middleware"
+        - "Set up async support"
+      code_template: |
+        from fastapi import FastAPI
+        from fastapi.middleware.cors import CORSMiddleware
+        import os
+        from dotenv import load_dotenv
+        
+        load_dotenv()
+        load_dotenv(f"config/{os.getenv('ENVIRONMENT', 'development')}.env")
+        
+        app = FastAPI(
+            title="Agent Engine",
+            description="Universal agent orchestration platform",
+            version="0.1.0"
+        )
+        
+        app.add_middleware(
+            CORSMiddleware,
+            allow_origins=["*"],
+            allow_methods=["*"],
+            allow_headers=["*"]
+        )
+        
+        @app.get("/health")
+        async def health():
+            return {"status": "healthy", "service": "agent-engine"}
+    
+    - step: "Create Docker configuration"
+      focus:
+        - "Create multi-stage Dockerfile"
+        - "Set up docker-compose.yml"
+        - "Configure service networking"
+      
+    - step: "Initialize environment configuration"
+      focus:
+        - "Create .env with base configuration"
+        - "Set up development overrides"
+        - "Add placeholder for API keys"
+        - "Document all environment variables"
+    
+    - step: "Verify ADK installation"
+      commands:
+        - "python -c 'from google.adk.agents import LlmAgent; print(\"ADK import successful\")'"
+        - "python -c 'from google.adk.runners import InMemoryRunner; print(\"Runner import successful\")'"
+      focus:
+        - "Confirm ADK imports work"
+        - "Test basic ADK functionality"
+        - "Document any issues found"
+    
+  validation:
+    commands:
+      - desc: "Verify Python version"
+        run: "python --version"
+        expects: "Python 3.9+ displayed"
+        
+      - desc: "Verify ADK installation"
+        run: "pip show google-adk"
+        expects: "Package information displayed"
+        
+      - desc: "Test ADK imports"
+        run: "python -c 'from google.adk.agents import LlmAgent, SequentialAgent, ParallelAgent'"
+        expects: "No import errors"
+        
+      - desc: "Start FastAPI application"
+        run: "cd services/agent-engine && uvicorn src.main:app --port 8001"
+        expects: "Application starts on port 8001"
+        
+      - desc: "Test health endpoint"
+        run: "curl localhost:8001/health"
+        expects: '{"status": "healthy", "service": "agent-engine"}'
+        
+      - desc: "Run docker services"
+        run: "docker-compose up -d postgres redis"
+        expects: "Services start successfully"
+        
+    integration:
+      - desc: "Complete environment setup"
+        steps:
+          - "Activate virtual environment"
+          - "Install all dependencies"
+          - "Start infrastructure services"
+          - "Run FastAPI application"
+          - "Verify health endpoint"
+    
+  success_criteria:
+    - "Python 3.9+ virtual environment created and activated"
+    - "Google ADK package installed successfully"
+    - "All dependencies installed without conflicts"
+    - "FastAPI application starts without errors"
+    - "Health endpoint returns 200 OK"
+    - "Docker services (postgres, redis) running"
+    - "All ADK imports work correctly"
+    - "Environment configuration properly structured"
+    
+  session_notes:
+    decisions_made:
+      - "Use Python 3.9+ for ADK compatibility"
+      - "FastAPI for async REST API framework"
+      - "Docker Compose for local development"
+      - "Hierarchical environment configuration"
+    patterns_established:
+      - "Monorepo structure with services directory"
+      - "Virtual environment for Python isolation"
+      - "Environment-based configuration loading"
+      - "Health check pattern for services"
+    context_for_next:
+      - "ADK is installed and ready for use"
+      - "FastAPI application structure established"
+      - "Environment configuration system in place"
+      - "Docker infrastructure available"
