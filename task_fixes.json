@@ -1,0 +1,40 @@
+{
+  "fixes": [
+    {
+      "issue": "circular_imports",
+      "description": "Fix circular import dependencies using dependency injection",
+      "affected_tasks": [
+        "r2-t01-agent-factory-base.yaml",
+        "r2-t02-llm-agent-builder.yaml",
+        "r2-t03-workflow-agents.yaml",
+        "r2-t04-custom-agents.yaml",
+        "r2-t05-runner-integration.yaml"
+      ],
+      "pattern": "\n# BEFORE (Circular import):\nfrom ..composition import UniversalAgentFactory\n\n# AFTER (Dependency injection):\nclass LlmAgentBuilder(AgentBuilder):\n    def __init__(self, tool_registry=None):\n        self.instruction_builder = InstructionBuilder()\n        self.tool_loader = ToolLoader(tool_registry)\n        self.sub_agent_factory = None  # Will be set by factory\n    \n    def set_factory(self, factory):\n        '''Set the factory reference for sub-agent creation.'''\n        self.sub_agent_factory = factory\n        return self\n\n# In factory registration:\nbuilder = LlmAgentBuilder()\nbuilder.set_factory(self)\nfactory.register_builder(\"llm\", builder)\n"
+    },
+    {
+      "issue": "session_patterns",
+      "description": "Fix session service access to use property pattern",
+      "affected_tasks": [
+        "r2-t05-runner-integration.yaml",
+        "r4-t01-workflow-engine-base.yaml",
+        "r4-t04-event-streaming.yaml",
+        "r5-t01-session-orchestration.yaml",
+        "r5-t02-multi-backend-support.yaml",
+        "r5-t03-session-recovery.yaml"
+      ],
+      "pattern": "\n# BEFORE (Incorrect method call):\nsession_service = runner.session_service()\nsession = session_service.create_session(...)\n\n# OR\nsession = runner.session_service().create_session(...)\n\n# AFTER (Correct property access):\nsession_service = runner.session_service  # No parentheses - it's a property!\nsession = session_service.create_session(...)\n"
+    },
+    {
+      "issue": "agent_naming",
+      "description": "Add agent name validation for Python identifier compliance",
+      "affected_tasks": [
+        "r2-t01-agent-factory-base.yaml",
+        "r2-t02-llm-agent-builder.yaml",
+        "r2-t03-workflow-agents.yaml",
+        "r2-t04-custom-agents.yaml"
+      ],
+      "pattern": "\n# Add this validation method to builders:\ndef validate_agent_name(self, name: str) -> str:\n    '''Validate and fix agent name to be a valid Python identifier.'''\n    import re\n    \n    # Replace hyphens and spaces with underscores\n    fixed_name = name.replace('-', '_').replace(' ', '_')\n    \n    # Remove any characters that aren't alphanumeric or underscore\n    fixed_name = re.sub(r'[^a-zA-Z0-9_]', '', fixed_name)\n    \n    # Ensure it doesn't start with a number\n    if fixed_name and fixed_name[0].isdigit():\n        fixed_name = f\"agent_{fixed_name}\"\n    \n    # Ensure it's not empty\n    if not fixed_name:\n        fixed_name = \"unnamed_agent\"\n    \n    # Validate it's a proper Python identifier\n    if not fixed_name.isidentifier():\n        logger.warning(f\"Agent name '{name}' is not valid, using '{fixed_name}'\")\n    \n    return fixed_name\n\n# Use in agent creation:\nagent = LlmAgent(\n    name=self.validate_agent_name(metadata.get(\"name\", \"unnamed_agent\")),\n    # ... other parameters\n)\n"
+    }
+  ]
+}
