@@ -39,21 +39,24 @@ ruff format src/
 
 ### Docker Development
 ```bash
-# Start all services (PostgreSQL, Redis, agent-engine)
-make up  # From project root
-docker-compose up -d  # Alternative
+# Start infrastructure services (PostgreSQL, Redis)
+cd services/infrastructure
+make up
+
+# Start agent-engine service
+cd services/agent-engine
+make docker-up
 
 # View logs
-make logs
-docker-compose logs -f agent-engine
+cd services/infrastructure && make logs  # Infrastructure logs
+cd services/agent-engine && make docker-logs  # Agent-engine logs
 
 # Stop services
-make down
-docker-compose down
+cd services/agent-engine && make docker-down
+cd services/infrastructure && make down
 
 # Clean up (remove volumes)
-make clean
-docker-compose down -v
+cd services/infrastructure && make clean
 ```
 
 ### Database Management

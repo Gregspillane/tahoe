@@ -66,7 +66,20 @@ class UniversalAgentFactory:
 - Service isolation via database schemas and Redis namespaces
 - Sensitive value masking for security
 
-### 6. Service Isolation Architecture ✅ **NEW**
+### 6. ADK Dev UI Integration Pattern ✅ **NEW**
+**Pattern**: Visual development interface for agent testing and debugging
+**Implementation**:
+- DevUILauncher service with automatic agent discovery
+- AgentDiscovery utility with YAML specification parsing
+- Environment-aware configuration (port 8002, avoiding conflicts)
+- One-command setup via Makefile targets
+**Benefits**:
+- Real-time visual agent testing and debugging
+- Interactive development workflow with immediate feedback
+- Browser-based interface with Events tab for trace inspection
+- Foundation for R2 Composition visual validation
+
+### 7. Service Isolation Architecture ✅ **NEW**
 **Pattern**: Multi-service sharing with logical isolation
 **Implementation**:
 - **Database**: PostgreSQL schemas (`agent_engine`, `auth_service`, etc.)
@@ -170,6 +183,34 @@ User Request → API Gateway → Specification Loader → Agent Factory
 - **CRUD Operations**: Type-safe operations via Prisma client
 - **JSON Fields**: Flexible data storage for state, metadata, specifications
 - **Health Monitoring**: Built-in health checks and statistics
+
+## Dev UI Integration Architecture ✅ **NEW**
+
+### Visual Development Interface
+- **Browser-based testing**: http://localhost:8002 for interactive agent testing
+- **Agent selection dropdown**: Dynamically populated from specs/agents/ directory
+- **Events tab debugging**: Real-time trace logs with function call inspection
+- **Multi-agent testing**: Switch between 6 example agents for comprehensive testing
+
+### Dev UI Components
+```
+DevUILauncher
+├── AgentDiscovery (YAML spec parsing)
+├── DevUIConfiguration (port 8002, environment-aware)
+├── Environment Setup (GEMINI_API_KEY validation)
+└── ADK Integration (google.adk.agents import)
+```
+
+### Development Workflow Integration
+- **One-command launch**: `make dev-ui` for immediate visual testing
+- **Validation pipeline**: `make dev-ui-validate` for setup verification
+- **Docker support**: `make dev-ui-docker` for containerized development
+- **Agent discovery**: Automatic loading of all agents from specifications
+
+### Port Configuration Strategy
+- **Port 8002**: Configured throughout all components to avoid port 8000 conflicts
+- **Environment awareness**: Dev UI adapts to development/staging/production contexts
+- **Network integration**: tahoe-network Docker networking for service communication
 
 ## API Design Principles
 

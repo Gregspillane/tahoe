@@ -31,8 +31,8 @@ services:
       timeout: 10s
       retries: 3
     networks:
-      - tahoe-network
+      - infrastructure_tahoe-network
 
 networks:
-  tahoe-network:
+  infrastructure_tahoe-network:
     external: true

@@ -1,940 +1,521 @@
+# CORRECTED: Completely rewritten to align with MASTERPLAN.md architecture
+# CORRECTED: Changed from external client SDKs to internal API interface layer
+# ADDED: Missing masterplan section requirement fulfilled via API architecture
+# VERIFIED: ADK docs show no client SDK patterns - this is internal service architecture
+
 task:
-  id: "r7-t03-client-sdks"
-  name: "Create Client SDKs and Libraries"
-  description: "Build Python and JavaScript client SDKs with TypeScript support for easy API integration"
+  id: "r7-t03-api-interfaces"
+  name: "Create Internal API Interface Layer"
+  description: "Build standardized API interface layer for internal service communication and future service discovery"
   complexity: "medium"
-  estimated_hours: 3
+  estimated_hours: 4
+
+context:
+  why: "Standardized API interfaces enable clean separation between agent orchestration and service layers, supporting the microservices architecture"
+  architectural_role: "API abstraction layer providing structured interfaces for agent-engine operations per MASTERPLAN.md"
+  depends_on_tasks: ["r6-t01", "r6-t02", "r6-t03"]
+  enables_tasks: ["r7-t04"]
+  references:
+    masterplan: "@MASTERPLAN.md#api-architecture"
+    architecture: "@memory-bank/architecture.md#service-interfaces"
   
-  context:
-    why: "Client SDKs simplify API integration and provide type-safe, idiomatic interfaces for developers"
-    architectural_role: "Developer experience layer providing language-specific API clients"
-    depends_on_tasks: ["r6-t01", "r6-t02", "r6-t03"]
-    enables_tasks: ["r7-t04"]
-    references:
-      masterplan: "@MASTERPLAN.md#client-libraries"
-      architecture: "@memory-bank/architecture.md#sdk-design"
+implementation:
+  creates:
+    # CORRECTED: Changed from external SDK to internal API interfaces
+    - path: "services/agent-engine/src/interfaces/"
+      purpose: "API interface definitions and contracts"
+      content:
+        - "agents.py"
+        - "workflows.py" 
+        - "sessions.py"
+        - "tools.py"
+        - "models.py"
+        - "__init__.py"
     
-  implementation:
-    creates:
-      - path: "sdks/"
-        purpose: "Client SDKs and libraries"
-        content:
-          - "python/"
-          - "javascript/"
-          - "examples/"
-      
-      - path: "sdks/python/"
-        purpose: "Python SDK"
-        content:
-          - "tahoe_client/"
-          - "pyproject.toml"
-          - "README.md"
-          - "examples/"
-          - "tests/"
-      
-      - path: "sdks/python/tahoe_client/"
-        purpose: "Python client library"
-        content:
-          - "__init__.py"
-          - "client.py"
-          - "agents.py"
-          - "sessions.py"
-          - "workflows.py"
-          - "websocket.py"
-          - "models.py"
-          - "exceptions.py"
-          - "utils.py"
-      
-      - path: "sdks/python/tahoe_client/__init__.py"
-        purpose: "Python SDK main module"
-        content_structure: |
-          """Tahoe Agent Orchestration Platform - Python Client SDK"""
-          
-          from .client import TahoeClient
-          from .models import (
-              Agent,
-              Session,
-              Workflow,
-              AgentExecution,
-              WorkflowExecution,
-              AgentSpec,
-              SessionConfig
-          )
-          from .exceptions import (
-              TahoeError,
-              AuthenticationError,
-              NotFoundError,
-              ValidationError,
-              RateLimitError
-          )
-          
-          __version__ = "1.0.0"
-          __author__ = "Tahoe Team"
-          __email__ = "support@tahoe.dev"
-          
-          __all__ = [
-              "TahoeClient",
-              "Agent",
-              "Session", 
-              "Workflow",
-              "AgentExecution",
-              "WorkflowExecution",
-              "AgentSpec",
-              "SessionConfig",
-              "TahoeError",
-              "AuthenticationError",
-              "NotFoundError",
-              "ValidationError",
-              "RateLimitError"
-          ]
-      
-      - path: "sdks/python/tahoe_client/client.py"
-        purpose: "Main Python client class"
-        content_structure: |
-          """Main Tahoe client class"""
-          
-          from typing import Dict, Any, Optional, List, AsyncIterator
-          import httpx
-          import asyncio
-          from urllib.parse import urljoin
-          
-          from .agents import AgentClient
-          from .sessions import SessionClient
-          from .workflows import WorkflowClient
-          from .websocket import WebSocketClient
-          from .exceptions import TahoeError, AuthenticationError
-          from .models import Agent, Session, Workflow
-          
-          class TahoeClient:
-              """Main client for Tahoe Agent Orchestration Platform"""
-              
-              def __init__(
-                  self,
-                  base_url: str = "http://localhost:8001",
-                  api_key: Optional[str] = None,
-                  jwt_token: Optional[str] = None,
-                  timeout: float = 30.0,
-                  max_retries: int = 3
-              ):
-                  """Initialize Tahoe client
-                  
-                  Args:
-                      base_url: Base URL of Tahoe API
-                      api_key: API key for authentication
-                      jwt_token: JWT token for authentication
-                      timeout: Request timeout in seconds
-                      max_retries: Maximum number of retries for failed requests
-                  """
-                  self.base_url = base_url.rstrip('/')
-                  self.timeout = timeout
-                  self.max_retries = max_retries
-                  
-                  # Setup authentication headers
-                  headers = {
-                      "User-Agent": f"tahoe-python-sdk/1.0.0",
-                      "Accept": "application/json",
-                      "Content-Type": "application/json"
-                  }
-                  
-                  if api_key:
-                      headers["X-API-Key"] = api_key
-                  elif jwt_token:
-                      headers["Authorization"] = f"Bearer {jwt_token}"
-                  else:
-                      raise ValueError("Either api_key or jwt_token must be provided")
-                  
-                  # Create HTTP client
-                  self._client = httpx.AsyncClient(
-                      base_url=self.base_url,
-                      headers=headers,
-                      timeout=timeout
-                  )
-                  
-                  # Initialize service clients
-                  self.agents = AgentClient(self)
-                  self.sessions = SessionClient(self)
-                  self.workflows = WorkflowClient(self)
-                  self.websocket = WebSocketClient(self)
-              
-              async def __aenter__(self):
-                  return self
-              
-              async def __aexit__(self, exc_type, exc_val, exc_tb):
-                  await self.close()
-              
-              async def close(self):
-                  """Close the client and cleanup resources"""
-                  await self._client.aclose()
-              
-              async def request(
-                  self,
-                  method: str,
-                  path: str,
-                  json: Optional[Dict[str, Any]] = None,
-                  params: Optional[Dict[str, Any]] = None,
-                  **kwargs
-              ) -> Dict[str, Any]:
-                  """Make HTTP request with error handling and retries"""
-                  
-                  url = f"/api/v1{path}" if not path.startswith('/api/') else path
-                  
-                  for attempt in range(self.max_retries + 1):
-                      try:
-                          response = await self._client.request(
-                              method,
-                              url,
-                              json=json,
-                              params=params,
-                              **kwargs
-                          )
-                          
-                          if response.status_code == 401:
-                              raise AuthenticationError("Authentication failed")
-                          elif response.status_code == 404:
-                              from .exceptions import NotFoundError
-                              raise NotFoundError("Resource not found")
-                          elif response.status_code == 429:
-                              from .exceptions import RateLimitError
-                              raise RateLimitError("Rate limit exceeded")
-                          elif response.status_code >= 400:
-                              error_data = response.json() if response.headers.get('content-type') == 'application/json' else {}
-                              raise TahoeError(
-                                  f"HTTP {response.status_code}: {error_data.get('detail', 'Unknown error')}",
-                                  status_code=response.status_code
-                              )
-                          
-                          return response.json() if response.content else {}
-                          
-                      except (httpx.TimeoutException, httpx.ConnectError) as e:
-                          if attempt == self.max_retries:
-                              raise TahoeError(f"Request failed after {self.max_retries + 1} attempts: {e}")
-                          
-                          # Exponential backoff
-                          await asyncio.sleep(2 ** attempt)
-                          continue
-              
-              async def health(self) -> Dict[str, Any]:
-                  """Check API health status"""
-                  return await self.request("GET", "/health")
-              
-              async def get_metrics(self) -> str:
-                  """Get Prometheus metrics"""
-                  response = await self._client.get("/metrics")
-                  return response.text
-              
-              # Convenience methods
-              async def create_agent(
-                  self,
-                  name: str,
-                  agent_type: str,
-                  specification: Dict[str, Any],
-                  **kwargs
-              ) -> Agent:
-                  """Create a new agent"""
-                  return await self.agents.create(
-                      name=name,
-                      agent_type=agent_type,
-                      specification=specification,
-                      **kwargs
-                  )
-              
-              async def execute_agent(
-                  self,
-                  agent_id: str,
-                  input_data: Dict[str, Any],
-                  **kwargs
-              ) -> Dict[str, Any]:
-                  """Execute an agent"""
-                  return await self.agents.execute(
-                      agent_id=agent_id,
-                      input_data=input_data,
-                      **kwargs
-                  )
-              
-              async def create_session(
-                  self,
-                  user_id: str,
-                  app_name: str,
-                  **kwargs
-              ) -> Session:
-                  """Create a new session"""
-                  return await self.sessions.create(
-                      user_id=user_id,
-                      app_name=app_name,
-                      **kwargs
-                  )
-      
-      - path: "sdks/python/tahoe_client/agents.py"
-        purpose: "Agent client implementation"
-        content_structure: |
-          """Agent management client"""
-          
-          from typing import Dict, Any, Optional, List, AsyncIterator
-          import json
-          
-          from .models import Agent, AgentExecution, AgentSpec
-          from .exceptions import ValidationError
-          
-          class AgentClient:
-              """Client for agent operations"""
-              
-              def __init__(self, client):
-                  self._client = client
-              
-              async def create(
-                  self,
-                  name: str,
-                  agent_type: str,
-                  specification: Dict[str, Any],
-                  description: Optional[str] = None,
-                  tags: Optional[List[str]] = None
-              ) -> Agent:
-                  """Create a new agent"""
-                  payload = {
-                      "name": name,
-                      "type": agent_type,
-                      "specification": specification
-                  }
-                  
-                  if description:
-                      payload["description"] = description
-                  if tags:
-                      payload["tags"] = tags
-                  
-                  data = await self._client.request("POST", "/agents", json=payload)
-                  return Agent(**data)
-              
-              async def get(self, agent_id: str) -> Agent:
-                  """Get agent by ID"""
-                  data = await self._client.request("GET", f"/agents/{agent_id}")
-                  return Agent(**data)
-              
-              async def list(
-                  self,
-                  agent_type: Optional[str] = None,
-                  status: Optional[str] = None,
-                  limit: int = 100,
-                  offset: int = 0
-              ) -> List[Agent]:
-                  """List agents with optional filters"""
-                  params = {
-                      "limit": limit,
-                      "offset": offset
-                  }
-                  
-                  if agent_type:
-                      params["type"] = agent_type
-                  if status:
-                      params["status"] = status
-                  
-                  data = await self._client.request("GET", "/agents", params=params)
-                  return [Agent(**agent) for agent in data["agents"]]
-              
-              async def delete(self, agent_id: str) -> bool:
-                  """Delete an agent"""
-                  await self._client.request("DELETE", f"/agents/{agent_id}")
-                  return True
-              
-              async def execute(
-                  self,
-                  agent_id: str,
-                  input_data: Dict[str, Any],
-                  context: Optional[Dict[str, Any]] = None,
-                  session_id: Optional[str] = None,
-                  timeout: Optional[int] = None
-              ) -> Dict[str, Any]:
-                  """Execute an agent synchronously"""
-                  payload = {
-                      "input_data": input_data
-                  }
-                  
-                  if context:
-                      payload["context"] = context
-                  if session_id:
-                      payload["session_id"] = session_id
-                  if timeout:
-                      payload["timeout"] = timeout
-                  
-                  return await self._client.request(
-                      "POST",
-                      f"/agents/{agent_id}/execute",
-                      json=payload
-                  )
-              
-              async def execute_stream(
-                  self,
-                  agent_id: str,
-                  input_data: Dict[str, Any],
-                  context: Optional[Dict[str, Any]] = None,
-                  session_id: Optional[str] = None
-              ) -> AsyncIterator[Dict[str, Any]]:
-                  """Execute an agent with streaming response"""
-                  payload = {
-                      "input_data": input_data
-                  }
-                  
-                  if context:
-                      payload["context"] = context
-                  if session_id:
-                      payload["session_id"] = session_id
-                  
-                  async with self._client._client.stream(
-                      "POST",
-                      f"/api/v1/agents/{agent_id}/execute?stream=true",
-                      json=payload
-                  ) as response:
-                      async for line in response.aiter_lines():
-                          if line.startswith("data: "):
-                              data = line[6:]
-                              if data.strip():
-                                  yield json.loads(data)
-      
-      - path: "sdks/javascript/"
-        purpose: "JavaScript/TypeScript SDK"
-        content:
-          - "package.json"
-          - "src/"
-          - "dist/"
-          - "examples/"
-          - "tests/"
-      
-      - path: "sdks/javascript/package.json"
-        purpose: "NPM package configuration"
-        content_structure: |
-          {
-            "name": "@tahoe/client",
-            "version": "1.0.0",
-            "description": "Official JavaScript/TypeScript client for Tahoe Agent Orchestration Platform",
-            "main": "dist/index.js",
-            "types": "dist/index.d.ts",
-            "scripts": {
-              "build": "tsc",
-              "test": "jest",
-              "lint": "eslint src/**/*.ts",
-              "prepare": "npm run build"
-            },
-            "keywords": [
-              "tahoe",
-              "agent",
-              "orchestration",
-              "ai",
-              "llm",
-              "workflow"
-            ],
-            "author": "Tahoe Team <support@tahoe.dev>",
-            "license": "MIT",
-            "repository": {
-              "type": "git",
-              "url": "https://github.com/tahoe/tahoe.git",
-              "directory": "sdks/javascript"
-            },
-            "dependencies": {
-              "axios": "^1.6.0",
-              "ws": "^8.14.0"
-            },
-            "devDependencies": {
-              "@types/node": "^20.0.0",
-              "@types/ws": "^8.5.0",
-              "@typescript-eslint/eslint-plugin": "^6.0.0",
-              "@typescript-eslint/parser": "^6.0.0",
-              "eslint": "^8.50.0",
-              "jest": "^29.0.0",
-              "typescript": "^5.0.0"
-            },
-            "files": [
-              "dist/**/*",
-              "README.md",
-              "LICENSE"
-            ]
-          }
-      
-      - path: "sdks/javascript/src/"
-        purpose: "TypeScript source code"
-        content:
-          - "index.ts"
-          - "client.ts"
-          - "agents.ts"
-          - "sessions.ts"
-          - "workflows.ts"
-          - "websocket.ts"
-          - "types.ts"
-          - "errors.ts"
-      
-      - path: "sdks/javascript/src/index.ts"
-        purpose: "Main TypeScript module"
-        content_structure: |
-          /**
-           * Tahoe Agent Orchestration Platform - JavaScript/TypeScript Client SDK
-           */
-          
-          export { TahoeClient } from './client';
-          export { AgentClient } from './agents';
-          export { SessionClient } from './sessions';
-          export { WorkflowClient } from './workflows';
-          export { WebSocketClient } from './websocket';
-          
-          export * from './types';
-          export * from './errors';
-          
-          // Re-export for convenience
-          export { TahoeClient as default } from './client';
-      
-      - path: "sdks/javascript/src/client.ts"
-        purpose: "Main TypeScript client class"
-        content_structure: |
-          import axios, { AxiosInstance, AxiosRequestConfig } from 'axios';
-          import { AgentClient } from './agents';
-          import { SessionClient } from './sessions';
-          import { WorkflowClient } from './workflows';
-          import { WebSocketClient } from './websocket';
-          import { TahoeError, AuthenticationError, NotFoundError, RateLimitError } from './errors';
-          import { 
-              Agent, 
-              Session, 
-              Workflow, 
-              AgentCreateRequest, 
-              SessionCreateRequest,
-              HealthStatus 
-          } from './types';
-          
-          export interface TahoeClientConfig {
-              baseUrl?: string;
-              apiKey?: string;
-              jwtToken?: string;
-              timeout?: number;
-              maxRetries?: number;
-          }
-          
-          export class TahoeClient {
-              private readonly http: AxiosInstance;
-              private readonly maxRetries: number;
-              
-              public readonly agents: AgentClient;
-              public readonly sessions: SessionClient;
-              public readonly workflows: WorkflowClient;
-              public readonly websocket: WebSocketClient;
-              
-              constructor(config: TahoeClientConfig = {}) {
-                  const {
-                      baseUrl = 'http://localhost:8001',
-                      apiKey,
-                      jwtToken,
-                      timeout = 30000,
-                      maxRetries = 3
-                  } = config;
-                  
-                  if (!apiKey && !jwtToken) {
-                      throw new Error('Either apiKey or jwtToken must be provided');
-                  }
-                  
-                  this.maxRetries = maxRetries;
-                  
-                  // Setup axios instance
-                  const headers: Record<string, string> = {
-                      'User-Agent': 'tahoe-js-sdk/1.0.0',
-                      'Accept': 'application/json',
-                      'Content-Type': 'application/json'
-                  };
-                  
-                  if (apiKey) {
-                      headers['X-API-Key'] = apiKey;
-                  } else if (jwtToken) {
-                      headers['Authorization'] = `Bearer ${jwtToken}`;
-                  }
-                  
-                  this.http = axios.create({
-                      baseURL: `${baseUrl.replace(/\/$/, '')}/api/v1`,
-                      headers,
-                      timeout
-                  });
-                  
-                  // Setup response interceptor for error handling
-                  this.http.interceptors.response.use(
-                      (response) => response,
-                      (error) => {
-                          if (error.response) {
-                              const { status, data } = error.response;
-                              
-                              switch (status) {
-                                  case 401:
-                                      throw new AuthenticationError('Authentication failed');
-                                  case 404:
-                                      throw new NotFoundError('Resource not found');
-                                  case 429:
-                                      throw new RateLimitError('Rate limit exceeded');
-                                  default:
-                                      throw new TahoeError(
-                                          `HTTP ${status}: ${data?.detail || 'Unknown error'}`,
-                                          status
-                                      );
-                              }
-                          } else {
-                              throw new TahoeError(`Request failed: ${error.message}`);
-                          }
-                      }
-                  );
-                  
-                  // Initialize service clients
-                  this.agents = new AgentClient(this.http);
-                  this.sessions = new SessionClient(this.http);
-                  this.workflows = new WorkflowClient(this.http);
-                  this.websocket = new WebSocketClient(baseUrl, headers);
-              }
-              
-              /**
-               * Check API health status
-               */
-              async health(): Promise<HealthStatus> {
-                  const { data } = await this.http.get('/health');
-                  return data;
-              }
-              
-              /**
-               * Get Prometheus metrics
-               */
-              async getMetrics(): Promise<string> {
-                  const { data } = await this.http.get('/metrics', {
-                      headers: { Accept: 'text/plain' }
-                  });
-                  return data;
-              }
-              
-              // Convenience methods
-              async createAgent(request: AgentCreateRequest): Promise<Agent> {
-                  return this.agents.create(request);
-              }
-              
-              async executeAgent(
-                  agentId: string,
-                  inputData: Record<string, any>,
-                  options?: {
-                      context?: Record<string, any>;
-                      sessionId?: string;
-                      timeout?: number;
-                  }
-              ): Promise<Record<string, any>> {
-                  return this.agents.execute(agentId, inputData, options);
-              }
-              
-              async createSession(request: SessionCreateRequest): Promise<Session> {
-                  return this.sessions.create(request);
-              }
-          }
-      
-      - path: "sdks/javascript/src/types.ts"
-        purpose: "TypeScript type definitions"
-        content_structure: |
-          export interface Agent {
-              id: string;
-              name: string;
-              type: string;
-              status: string;
-              created_at: string;
-              specification: Record<string, any>;
-              metadata?: Record<string, any>;
-          }
-          
-          export interface Session {
-              session_id: string;
-              user_id: string;
-              app_name: string;
-              created_at: string;
-              updated_at: string;
-              is_active: boolean;
-              state: Record<string, any>;
-              metadata: Record<string, any>;
-          }
-          
-          export interface Workflow {
-              id: string;
-              name: string;
-              created_at: string;
-              specification: Record<string, any>;
-              metadata?: Record<string, any>;
-          }
-          
-          export interface AgentCreateRequest {
-              name: string;
-              type: string;
-              specification: Record<string, any>;
-              description?: string;
-              tags?: string[];
-          }
-          
-          export interface SessionCreateRequest {
-              user_id: string;
-              app_name: string;
-              session_id?: string;
-              config?: Record<string, any>;
-              initial_state?: Record<string, any>;
-          }
-          
-          export interface WorkflowCreateRequest {
-              name: string;
-              specification: Record<string, any>;
-              description?: string;
-              tags?: string[];
-          }
-          
-          export interface ExecuteAgentRequest {
-              input_data: Record<string, any>;
-              context?: Record<string, any>;
-              session_id?: string;
-              timeout?: number;
-          }
-          
-          export interface HealthStatus {
-              status: 'healthy' | 'degraded' | 'unhealthy';
-              timestamp: string;
-              uptime_seconds: number;
-              components: ComponentHealth[];
-              summary: Record<string, any>;
-          }
-          
-          export interface ComponentHealth {
-              name: string;
-              status: 'healthy' | 'degraded' | 'unhealthy';
-              message?: string;
-              last_check: string;
-              response_time_ms?: number;
-              details: Record<string, any>;
-          }
-          
-          export interface WebSocketMessage {
-              type: string;
-              [key: string]: any;
-          }
-      
-      - path: "sdks/examples/"
-        purpose: "SDK usage examples"
-        content:
-          - "python/"
-          - "javascript/"
-          - "README.md"
-      
-      - path: "sdks/examples/python/basic_usage.py"
-        purpose: "Basic Python SDK usage example"
-        content_structure: |
-          """Basic usage example for Tahoe Python SDK"""
-          
-          import asyncio
-          from tahoe_client import TahoeClient
-          
-          async def main():
-              # Initialize client
-              client = TahoeClient(
-                  base_url="http://localhost:8001",
-                  api_key="your-api-key-here"
-              )
-              
-              try:
-                  # Check API health
-                  health = await client.health()
-                  print(f"API Status: {health['status']}")
-                  
-                  # Create a simple LLM agent
-                  agent = await client.create_agent(
-                      name="Text Summarizer",
-                      agent_type="llm",
-                      specification={
-                          "model": "gemini-1.5-pro",
-                          "system_instruction": "You are a text summarization assistant. Provide concise summaries.",
-                          "config": {
-                              "temperature": 0.3,
-                              "max_tokens": 500
-                          }
-                      },
-                      description="Summarizes text content",
-                      tags=["nlp", "summarization"]
-                  )
-                  
-                  print(f"Created agent: {agent.id}")
-                  
-                  # Execute the agent
-                  result = await client.execute_agent(
-                      agent_id=agent.id,
-                      input_data={
-                          "text": "Artificial intelligence (AI) is intelligence demonstrated by machines, in contrast to natural intelligence displayed by humans and animals. Leading AI textbooks define the field as the study of 'intelligent agents': any device that perceives its environment and takes actions that maximize its chance of successfully achieving its goals."
-                      }
-                  )
-                  
-                  print(f"Summary: {result['result']}")
-                  
-                  # Create a session
-                  session = await client.create_session(
-                      user_id="user123",
-                      app_name="demo_app"
-                  )
-                  
-                  print(f"Created session: {session.session_id}")
-                  
-                  # List all agents
-                  agents = await client.agents.list()
-                  print(f"Total agents: {len(agents)}")
-                  
-              finally:
-                  await client.close()
-          
-          if __name__ == "__main__":
-              asyncio.run(main())
-      
-      - path: "sdks/examples/javascript/basic_usage.js"
-        purpose: "Basic JavaScript SDK usage example"
-        content_structure: |
-          /**
-           * Basic usage example for Tahoe JavaScript SDK
-           */
-          
-          const { TahoeClient } = require('@tahoe/client');
-          
-          async function main() {
-              // Initialize client
-              const client = new TahoeClient({
-                  baseUrl: 'http://localhost:8001',
-                  apiKey: 'your-api-key-here'
-              });
-              
-              try {
-                  // Check API health
-                  const health = await client.health();
-                  console.log(`API Status: ${health.status}`);
-                  
-                  // Create a simple LLM agent
-                  const agent = await client.createAgent({
-                      name: 'Text Analyzer',
-                      type: 'llm',
-                      specification: {
-                          model: 'gemini-1.5-pro',
-                          system_instruction: 'You are a text analysis assistant. Analyze the sentiment and key topics.',
-                          config: {
-                              temperature: 0.5,
-                              max_tokens: 800
-                          }
-                      },
-                      description: 'Analyzes text sentiment and topics',
-                      tags: ['nlp', 'analysis']
-                  });
-                  
-                  console.log(`Created agent: ${agent.id}`);
-                  
-                  // Execute the agent
-                  const result = await client.executeAgent(agent.id, {
-                      text: 'I love the new features in this product! The user interface is intuitive and the performance is excellent. However, the documentation could be improved.'
-                  });
-                  
-                  console.log(`Analysis: ${JSON.stringify(result.result, null, 2)}`);
-                  
-                  // Create a session
-                  const session = await client.createSession({
-                      user_id: 'user456',
-                      app_name: 'demo_app'
-                  });
-                  
-                  console.log(`Created session: ${session.session_id}`);
-                  
-                  // List agents
-                  const agents = await client.agents.list();
-                  console.log(`Total agents: ${agents.length}`);
-                  
-              } catch (error) {
-                  console.error('Error:', error.message);
-              }
-          }
-          
-          main();
-      
-      - path: "sdks/python/tests/"
-        purpose: "Python SDK tests"
-        content:
-          - "test_client.py"
-          - "test_agents.py"
-          - "test_sessions.py"
-          - "test_workflows.py"
-      
-      - path: "sdks/javascript/tests/"
-        purpose: "JavaScript SDK tests"
-        content:
-          - "client.test.ts"
-          - "agents.test.ts"
-          - "sessions.test.ts"
-          - "workflows.test.ts"
-    
-    uses_from_previous:
-      - source: "r6-t01"
-        component: "REST API endpoints"
-        usage: "HTTP client implementation"
-      - source: "r6-t02"
-        component: "WebSocket support"
-        usage: "Real-time client features"
-      - source: "r6-t03"
-        component: "GraphQL interface"
-        usage: "Advanced querying capabilities"
-    
-  implementation_steps:
-    - step: "Create Python SDK"
-      implementation_notes: |
-        - Client class structure
-        - Async HTTP handling
-        - Type hints and models
+    - path: "services/agent-engine/src/interfaces/agents.py"
+      purpose: "Agent operation interface definitions"
+      content_structure: |
+        # VERIFIED: ADK LlmAgent patterns from official docs
+        """Agent operation interfaces for internal service communication."""
         
-    - step: "Build JavaScript SDK"
-      implementation_notes: |
-        - TypeScript support
-        - Promise-based API
-        - WebSocket integration
+        from abc import ABC, abstractmethod
+        from typing import Dict, Any, Optional, List
+        from google.adk.agents import BaseAgent, LlmAgent
+        from ..models.api import AgentResponse, AgentExecutionRequest
         
-    - step: "Add WebSocket clients"
-      implementation_notes: |
-        - Real-time messaging
-        - Event handling
-        - Connection management
+        class IAgentService(ABC):
+            """Interface for agent service operations."""
+            
+            @abstractmethod
+            async def create_agent(
+                self, 
+                spec_name: str, 
+                context: Optional[Dict[str, Any]] = None
+            ) -> BaseAgent:
+                """Create agent instance from specification."""
+                pass
+            
+            @abstractmethod
+            async def execute_agent(
+                self, 
+                agent: BaseAgent, 
+                request: AgentExecutionRequest
+            ) -> AgentResponse:
+                """Execute agent with given input."""
+                pass
+            
+            @abstractmethod
+            async def get_agent_status(self, agent_id: str) -> Dict[str, Any]:
+                """Get current agent status and metrics."""
+                pass
         
-    - step: "Create examples"
-      implementation_notes: |
-        - Usage patterns
-        - Common scenarios
-        - Best practices
+        class IAgentComposition(ABC):
+            """Interface for dynamic agent composition."""
+            
+            @abstractmethod
+            def build_llm_agent(
+                self, 
+                spec: Dict[str, Any], 
+                context: Optional[Dict[str, Any]] = None
+            ) -> LlmAgent:
+                """Build LLM agent from specification."""
+                pass
+            
+            @abstractmethod
+            def build_workflow_agent(
+                self, 
+                spec: Dict[str, Any], 
+                context: Optional[Dict[str, Any]] = None
+            ) -> BaseAgent:
+                """Build workflow agent (Sequential/Parallel/Loop)."""
+                pass
+            
+            @abstractmethod
+            def validate_agent_spec(self, spec: Dict[str, Any]) -> bool:
+                """Validate agent specification format."""
+                pass
+
+    - path: "services/agent-engine/src/interfaces/workflows.py"
+      purpose: "Workflow operation interface definitions"
+      content_structure: |
+        # VERIFIED: ADK workflow patterns from official docs
+        """Workflow operation interfaces for internal service communication."""
         
-    - step: "Write documentation"
-      implementation_notes: |
-        - API reference
-        - Getting started guides
-        - Integration examples
+        from abc import ABC, abstractmethod
+        from typing import Dict, Any, Optional, AsyncIterator
+        from ..models.api import WorkflowResponse, WorkflowExecutionRequest
         
-  validation:
-    commands:
-      - description: "Test Python SDK"
-        command: "cd sdks/python && python -m pytest tests/ -v"
-        expected: "All tests pass"
+        class IWorkflowService(ABC):
+            """Interface for workflow service operations."""
+            
+            @abstractmethod
+            async def execute_workflow(
+                self, 
+                template_name: str, 
+                request: WorkflowExecutionRequest
+            ) -> WorkflowResponse:
+                """Execute workflow from template."""
+                pass
+            
+            @abstractmethod
+            async def stream_workflow_execution(
+                self, 
+                template_name: str, 
+                request: WorkflowExecutionRequest
+            ) -> AsyncIterator[Dict[str, Any]]:
+                """Stream workflow execution events via SSE."""
+                pass
+            
+            @abstractmethod
+            async def get_workflow_status(self, execution_id: str) -> Dict[str, Any]:
+                """Get workflow execution status."""
+                pass
         
-      - description: "Test JavaScript SDK"
-        command: "cd sdks/javascript && npm test"
-        expected: "All tests pass"
+        class IWorkflowEngine(ABC):
+            """Interface for workflow orchestration engine."""
+            
+            @abstractmethod
+            async def build_workflow_from_template(
+                self, 
+                template: Dict[str, Any], 
+                input_data: Dict[str, Any]
+            ) -> BaseAgent:
+                """Build workflow agent from template."""
+                pass
+            
+            @abstractmethod
+            async def validate_workflow_template(self, template: Dict[str, Any]) -> bool:
+                """Validate workflow template format."""
+                pass
+
+    - path: "services/agent-engine/src/interfaces/sessions.py"
+      purpose: "Session operation interface definitions"  
+      content_structure: |
+        # VERIFIED: ADK session patterns from official docs
+        """Session operation interfaces for internal service communication."""
         
-      - description: "Build Python package"
-        command: "cd sdks/python && python -m build"
-        expected: "Package builds successfully"
+        from abc import ABC, abstractmethod
+        from typing import Dict, Any, Optional
+        from google.adk.sessions import Session
+        from ..models.api import SessionResponse, SessionCreateRequest
         
-      - description: "Build JavaScript package"
-        command: "cd sdks/javascript && npm run build"
-        expected: "TypeScript compiles successfully"
+        class ISessionService(ABC):
+            """Interface for session service operations."""
+            
+            @abstractmethod
+            async def create_session(self, request: SessionCreateRequest) -> SessionResponse:
+                """Create new session with configuration."""
+                pass
+            
+            @abstractmethod
+            async def get_session(self, session_id: str) -> Session:
+                """Retrieve session by ID.""" 
+                pass
+            
+            @abstractmethod
+            async def update_session_state(
+                self, 
+                session_id: str, 
+                state: Dict[str, Any]
+            ) -> bool:
+                """Update session state."""
+                pass
+            
+            @abstractmethod
+            async def cleanup_session(self, session_id: str) -> bool:
+                """Clean up session resources."""
+                pass
         
-      - description: "Run example scripts"
-        command: "cd sdks/examples && python python/basic_usage.py"
-        expected: "Examples execute without errors"
+        class ISessionOrchestrator(ABC):
+            """Interface for session orchestration."""
+            
+            @abstractmethod
+            def create_session_backend(self, backend_type: str) -> Any:
+                """Create session service backend (memory/redis/vertex)."""
+                pass
+            
+            @abstractmethod
+            async def fork_session(
+                self, 
+                source_session_id: str, 
+                new_session_id: str
+            ) -> str:
+                """Fork existing session for branching."""
+                pass
+
+    - path: "services/agent-engine/src/interfaces/tools.py"
+      purpose: "Tool registry interface definitions"
+      content_structure: |
+        # VERIFIED: ADK tool patterns from official docs  
+        """Tool registry interfaces for internal service communication."""
         
-    success_criteria:
-      - "Python SDK functional"
-      - "JavaScript SDK working"
-      - "WebSocket clients operational"
-      - "Examples demonstrate usage"
-      - "All tests pass"
+        from abc import ABC, abstractmethod
+        from typing import Dict, Any, List, Callable
+        from google.adk.tools import FunctionTool
+        from ..models.api import ToolRegistration, ToolResponse
+        
+        class IToolRegistry(ABC):
+            """Interface for tool registry operations."""
+            
+            @abstractmethod
+            async def register_tool(self, tool_spec: Dict[str, Any]) -> bool:
+                """Register new tool from specification."""
+                pass
+            
+            @abstractmethod
+            async def get_tool(self, tool_name: str) -> Callable:
+                """Retrieve tool function by name."""
+                pass
+            
+            @abstractmethod
+            async def list_tools(
+                self, 
+                category: Optional[str] = None
+            ) -> List[ToolRegistration]:
+                """List available tools with optional filtering."""
+                pass
+            
+            @abstractmethod
+            async def validate_tool_spec(self, tool_spec: Dict[str, Any]) -> bool:
+                """Validate tool specification format."""
+                pass
+        
+        class IToolLoader(ABC):
+            """Interface for dynamic tool loading."""
+            
+            @abstractmethod
+            def load_tools_for_agent(self, tool_refs: List[Dict[str, Any]]) -> List[Callable]:
+                """Load tool functions for agent creation."""
+                pass
+            
+            @abstractmethod
+            def create_function_from_spec(self, tool_spec: Dict[str, Any]) -> Callable:
+                """Create function from tool specification."""
+                pass
+            
+            @abstractmethod
+            def wrap_with_function_tool(self, func: Callable) -> FunctionTool:
+                """Wrap function with ADK FunctionTool if needed."""
+                pass
+
+    - path: "services/agent-engine/src/interfaces/models.py"
+      purpose: "Model management interface definitions"
+      content_structure: |
+        # ADDED: Model management interface based on MASTERPLAN.md#model-abstraction
+        """Model management interfaces for internal service communication."""
+        
+        from abc import ABC, abstractmethod
+        from typing import Dict, Any, List, Optional
+        from ..models.api import ModelConfig, ModelHealth
+        
+        class IModelService(ABC):
+            """Interface for model service operations."""
+            
+            @abstractmethod
+            async def get_available_models(self) -> List[str]:
+                """List configured models."""
+                pass
+            
+            @abstractmethod
+            async def configure_model(self, config: ModelConfig) -> bool:
+                """Configure model settings."""
+                pass
+            
+            @abstractmethod
+            async def check_model_health(self, model_name: str) -> ModelHealth:
+                """Check model availability and health."""
+                pass
+            
+            @abstractmethod
+            async def get_fallback_strategy(self, model_name: str) -> Dict[str, Any]:
+                """Get fallback configuration for model."""
+                pass
+        
+        class IModelAbstraction(ABC):
+            """Interface for model abstraction layer."""
+            
+            @abstractmethod
+            async def load_model_config(self, config_name: str) -> Dict[str, Any]:
+                """Load model configuration from template."""
+                pass
+            
+            @abstractmethod
+            async def apply_fallback_strategy(
+                self, 
+                primary_model: str, 
+                error_type: str
+            ) -> str:
+                """Apply fallback strategy based on error type."""
+                pass
+
+    - path: "services/agent-engine/src/interfaces/__init__.py"
+      purpose: "Interface module exports"
+      content_structure: |
+        """API interface definitions for agent-engine service."""
+        
+        from .agents import IAgentService, IAgentComposition
+        from .workflows import IWorkflowService, IWorkflowEngine  
+        from .sessions import ISessionService, ISessionOrchestrator
+        from .tools import IToolRegistry, IToolLoader
+        from .models import IModelService, IModelAbstraction
+        
+        __all__ = [
+            # Agent interfaces
+            "IAgentService",
+            "IAgentComposition",
+            
+            # Workflow interfaces
+            "IWorkflowService", 
+            "IWorkflowEngine",
+            
+            # Session interfaces
+            "ISessionService",
+            "ISessionOrchestrator",
+            
+            # Tool interfaces
+            "IToolRegistry",
+            "IToolLoader",
+            
+            # Model interfaces
+            "IModelService",
+            "IModelAbstraction"
+        ]
+
+    # ADDED: API models based on MASTERPLAN.md patterns
+    - path: "services/agent-engine/src/models/api.py"
+      purpose: "API request/response models"
+      content_structure: |
+        # ADDED: API models following MASTERPLAN.md#api-architecture
+        """API request/response models for service interfaces."""
+        
+        from pydantic import BaseModel, Field
+        from typing import Dict, Any, Optional, List
+        from datetime import datetime
+        
+        # Agent Models
+        class AgentExecutionRequest(BaseModel):
+            """Request model for agent execution."""
+            input_data: Dict[str, Any]
+            context: Optional[Dict[str, Any]] = None
+            session_id: Optional[str] = None
+            timeout: Optional[int] = None
+        
+        class AgentResponse(BaseModel):
+            """Response model for agent operations."""
+            agent_id: str
+            result: Dict[str, Any]
+            execution_time: float
+            status: str
+            metadata: Optional[Dict[str, Any]] = None
+        
+        # Workflow Models  
+        class WorkflowExecutionRequest(BaseModel):
+            """Request model for workflow execution."""
+            input_data: Dict[str, Any]
+            session_id: str
+            context: Optional[Dict[str, Any]] = None
+        
+        class WorkflowResponse(BaseModel):
+            """Response model for workflow execution."""
+            execution_id: str
+            status: str
+            result: Dict[str, Any]
+            execution_time: float
+            steps_completed: int
+        
+        # Session Models
+        class SessionCreateRequest(BaseModel):
+            """Request model for session creation."""
+            user_id: str
+            app_name: str
+            session_id: Optional[str] = None
+            config: Optional[Dict[str, Any]] = None
+            initial_state: Optional[Dict[str, Any]] = None
+        
+        class SessionResponse(BaseModel):
+            """Response model for session operations."""
+            session_id: str
+            user_id: str
+            app_name: str
+            created_at: datetime
+            is_active: bool
+            state: Dict[str, Any]
+        
+        # Tool Models
+        class ToolRegistration(BaseModel):
+            """Model for tool registration."""
+            name: str
+            description: str
+            category: str
+            version: str
+            created_at: datetime
+            spec: Dict[str, Any]
+        
+        class ToolResponse(BaseModel):
+            """Response model for tool operations."""
+            tool_name: str
+            result: Any
+            execution_time: float
+            status: str
+        
+        # Model Management
+        class ModelConfig(BaseModel):
+            """Model configuration."""
+            name: str
+            provider: str
+            model: str
+            parameters: Dict[str, Any]
+            fallbacks: Optional[List[str]] = None
+        
+        class ModelHealth(BaseModel):
+            """Model health status."""
+            model_name: str
+            status: str
+            response_time_ms: Optional[float] = None
+            last_check: datetime
+            error_message: Optional[str] = None
+
+    # ADDED: Service implementations based on interfaces
+    - path: "services/agent-engine/src/implementations/"
+      purpose: "Interface implementations"
+      content:
+        - "agent_service.py"
+        - "workflow_service.py"
+        - "session_service.py" 
+        - "tool_service.py"
+        - "model_service.py"
+        - "__init__.py"
+
+uses_from_previous:
+  - source: "r6-t01"
+    component: "REST API endpoints"
+    usage: "Base API infrastructure for interface layer"
+  - source: "r6-t02" 
+    component: "WebSocket support"
+    usage: "Streaming interfaces via SSE (corrected from WebSocket)"
+  - source: "r6-t03"
+    component: "GraphQL interface"
+    usage: "Advanced query capabilities for interface layer"
+
+implementation_steps:
+  - step: "Create interface definitions"
+    implementation_notes: |
+      # VERIFIED: ADK patterns from official documentation
+      - Define abstract interfaces for all service operations
+      - Follow ADK agent composition patterns
+      - Implement proper type hints and documentation
       
-  dependencies:
-    required_before:
-      - task: "r6-t01"
-        reason: "Need REST API for HTTP clients"
-      - task: "r6-t02"
-        reason: "Need WebSocket support"
-      - task: "r6-t03"
-        reason: "Need GraphQL interface"
+  - step: "Build API models"
+    implementation_notes: |
+      # ADDED: Pydantic models for request/response validation
+      - Create Pydantic models for all API operations
+      - Add validation and serialization
+      - Follow MASTERPLAN.md API architecture patterns
+      
+  - step: "Implement service layer"
+    implementation_notes: |
+      # ADDED: Service implementations connecting interfaces to core
+      - Create concrete implementations of interfaces
+      - Connect to existing core orchestration components
+      - Add proper error handling and logging
+      
+  - step: "Add integration layer"
+    implementation_notes: |
+      # ADDED: Integration with existing FastAPI endpoints
+      - Connect interfaces to FastAPI endpoints
+      - Add middleware for request/response handling
+      - Implement service discovery patterns
+
+validation:
+  commands:
+    - description: "Validate interface definitions"
+      command: "cd services/agent-engine && python -c \"from src.interfaces import *; print('Interfaces loaded successfully')\""
+      expected: "Interfaces loaded successfully"
+      
+    - description: "Test API model validation"
+      command: "cd services/agent-engine && python -c \"from src.models.api import *; print('API models loaded successfully')\""
+      expected: "API models loaded successfully"
+      
+    - description: "Run interface tests"
+      command: "cd services/agent-engine && python -m pytest tests/test_interfaces.py -v"
+      expected: "All interface tests pass"
+      
+    - description: "Validate service implementations"
+      command: "cd services/agent-engine && python -c \"from src.implementations import *; print('Implementations loaded successfully')\""
+      expected: "Implementations loaded successfully"
+
+  success_criteria:
+    - "All interface definitions created and valid"
+    - "API models properly defined with validation"
+    - "Service implementations connect interfaces to core"
+    - "Integration layer connects to FastAPI endpoints"
+    - "All imports and type hints resolve correctly"
+
+dependencies:
+  required_before:
+    - task: "r6-t01"
+      reason: "Need REST API infrastructure for interface layer"
+    - task: "r6-t02"
+      reason: "Need streaming support for workflow interfaces"
+    - task: "r6-t03"  
+      reason: "Need GraphQL interface for advanced queries"

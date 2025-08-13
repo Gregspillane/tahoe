@@ -354,6 +354,87 @@
 - Prevents accidental exposure in logs and exports
 **Impact**: Secure configuration management with debugging capabilities
 
+## 2025-08-13: ADK Dev UI Integration Decisions
+
+### Decision: Port 8002 for Dev UI
+**Choice**: Use port 8002 for ADK Dev UI instead of default 8000
+**Alternatives Considered**:
+- Port 8000 (rejected - already in use by unrelated project)
+- Port 8001 (rejected - used by agent-engine service)
+- Random available port (rejected - harder to remember and document)
+**Rationale**:
+- Port 8000 was explicitly unavailable due to existing project conflict
+- Port 8002 follows logical sequence (8001 for agent-engine, 8002 for dev-ui)
+- Easy to remember and document
+- No known conflicts in development environment
+**Impact**: Clean port separation enabling parallel development of agent-engine and visual testing
+
+### Decision: Visual Development as Foundation for R2
+**Choice**: Implement Dev UI integration as R2-T00 before other R2 Composition tasks
+**Alternatives Considered**:
+- Implement Dev UI after R2 Composition (rejected - no visual validation during development)
+- Skip Dev UI entirely (rejected - makes agent testing much harder)
+- Basic command-line testing only (rejected - less developer-friendly)
+**Rationale**:
+- Visual interface enables immediate feedback during agent development
+- Events tab provides critical debugging capabilities for complex agents
+- Browser-based testing more accessible for team collaboration
+- Establishes pattern for visual validation of all R2 components
+**Impact**: Faster R2 development with immediate visual feedback and debugging
+
+### Decision: Comprehensive Example Agent Set
+**Choice**: Create 6 diverse example agents for Dev UI testing
+**Alternatives Considered**:
+- Single simple agent (rejected - insufficient for testing variety)
+- Complex single agent (rejected - harder to understand and debug)
+- No example agents (rejected - nothing to test Dev UI with)
+**Rationale**:
+- Different agent types test various Dev UI capabilities
+- Tools in agents demonstrate function call debugging
+- Variety enables comprehensive testing of agent discovery and selection
+- Examples serve as templates for future agent development
+**Impact**: Rich testing environment that validates Dev UI functionality and provides development templates
+
+### Decision: Agent Discovery via Specification Parsing
+**Choice**: Use existing SpecificationParser to discover agents from YAML files
+**Alternatives Considered**:
+- Hardcoded agent list (rejected - not dynamic)
+- Separate discovery mechanism (rejected - duplicates existing parsing logic)
+- Database-based discovery (rejected - adds unnecessary complexity)
+**Rationale**:
+- Leverages existing, tested specification parsing infrastructure
+- Maintains consistency with specification-driven architecture
+- Automatic discovery as new agents are added to specs/agents/
+- Validates that specification parsing works correctly
+**Impact**: Seamless integration with existing architecture and automatic scaling with new agents
+
+### Decision: Docker Support for Dev UI
+**Choice**: Create specialized Docker configuration for Dev UI alongside local development
+**Alternatives Considered**:
+- Local development only (rejected - inconsistent with project Docker patterns)
+- Integrate into existing docker-compose (rejected - Dev UI is optional)
+- Separate Docker setup entirely (rejected - harder to coordinate)
+**Rationale**:
+- Maintains consistency with Docker-based development patterns
+- Optional Dev UI service doesn't affect core infrastructure
+- Enables containerized testing in CI/CD environments
+- Provides isolation for Dev UI dependencies
+**Impact**: Flexible development options supporting both local and containerized workflows
+
+### Decision: Service-Only Operation for Dev UI
+**Choice**: Dev UI operates entirely within agent-engine service directory, no root-level dependencies
+**Alternatives Considered**:
+- Root-level operation (rejected - conflicts with service independence principle)
+- Mixed root/service operation (rejected - confusing and inconsistent)
+- Service operation with root fallback (rejected - maintains unwanted coupling)
+**Rationale**:
+- Aligns with monorepo service autonomy principle
+- Each service operates independently with their own docker setup
+- Consistent with removal of root-level Makefile and docker-compose
+- Clear separation of concerns - Dev UI is agent-engine specific
+- Eliminates confusion about where commands should be run
+**Impact**: Clear service boundaries, consistent architecture, easier service deployment
+
 ## Future Decisions Needed
 
 ### Pending: CI/CD Pipeline

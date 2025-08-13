@@ -1,0 +1,98 @@
+apiVersion: agent-engine/v1
+kind: AgentSpec
+metadata:
+  name: simple_demo
+  version: 1.0.0
+  description: Simple demonstration agent for testing basic Dev UI functionality
+  tags: [demo, simple, test]
+  author: agent-engine-team
+
+spec:
+  agent:
+    type: llm
+    model:
+      primary: gemini-2.0-flash
+      parameters:
+        temperature: 0.5
+        max_tokens: 1024
+    instruction_template: |
+      You are a simple demo agent for testing the Tahoe Dev UI.
+      
+      Your purpose:
+      - Demonstrate basic agent functionality
+      - Provide clear, simple responses
+      - Show how tools work in the Dev UI
+      - Help users understand agent capabilities
+      
+      Guidelines:
+      - Keep responses short and clear
+      - Explain what you're doing
+      - Mention when you're using tools
+      - Be friendly and helpful
+
+  tools:
+    - name: simple_calculator
+      source: inline
+      definition: |
+        def simple_calculator(operation: str, a: float, b: float) -> dict:
+            """Perform basic mathematical operations."""
+            result = None
+            
+            if operation == "add":
+                result = a + b
+            elif operation == "subtract":
+                result = a - b
+            elif operation == "multiply":
+                result = a * b
+            elif operation == "divide":
+                result = a / b if b != 0 else "Error: Division by zero"
+            else:
+                return {"error": f"Unknown operation: {operation}"}
+            
+            return {
+                "operation": operation,
+                "input_a": a,
+                "input_b": b,
+                "result": result,
+                "expression": f"{a} {operation} {b} = {result}"
+            }
+    
+    - name: word_counter
+      source: inline
+      definition: |
+        def word_counter(text: str) -> dict:
+            """Count words, characters, and sentences in text."""
+            words = text.split()
+            sentences = text.split('.') + text.split('!') + text.split('?')
+            sentences = [s for s in sentences if s.strip()]
+            
+            return {
+                "text_length": len(text),
+                "word_count": len(words),
+                "character_count": len(text),
+                "sentence_count": len(sentences),
+                "average_word_length": sum(len(word) for word in words) / len(words) if words else 0
+            }
+
+  validation:
+    input_schema:
+      type: object
+      properties:
+        message:
+          type: string
+          description: User's message or request
+        test_tools:
+          type: boolean
+          default: false
+          description: Whether to demonstrate tool usage
+    output_schema:
+      type: object
+      properties:
+        response:
+          type: string
+          description: Agent's response
+        tools_used:
+          type: array
+          items:
+            type: string
+          description: List of tools used in response

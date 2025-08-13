@@ -1,0 +1,41 @@
+# Docker Compose override for ADK Dev UI
+# Use from agent-engine service directory:
+# docker-compose -f docker-compose.yml -f docker-compose.dev-ui.yml up dev-ui
+# 
+# Prerequisites: Infrastructure must be running
+# cd ../infrastructure && make up
+
+services:
+  dev-ui:
+    build:
+      context: .
+      dockerfile: Dockerfile.dev-ui
+    container_name: tahoe-dev-ui
+    ports:
+      - "8002:8002"
+    environment:
+      - GEMINI_API_KEY=${GEMINI_API_KEY}
+      - DEV_UI_PORT=8002
+      - DEV_UI_HOST=0.0.0.0
+      - AGENT_SPECS_PATH=/app/specs/agents
+      - PYTHONPATH=/app/src
+    volumes:
+      # Mount source code for development
+      - ./src:/app/src:ro
+      - ./specs:/app/specs:ro
+      - ./scripts:/app/scripts:ro
+    working_dir: /app
+    command: python scripts/launch_dev_ui.py --host 0.0.0.0 --port 8002
+    networks:
+      - infrastructure_tahoe-network
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8002/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
+
+networks:
+  infrastructure_tahoe-network:
+    external: true

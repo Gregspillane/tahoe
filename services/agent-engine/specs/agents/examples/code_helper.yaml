@@ -1,0 +1,94 @@
+apiVersion: agent-engine/v1
+kind: AgentSpec
+metadata:
+  name: code_helper
+  version: 1.0.0
+  description: Programming assistant for code help, debugging, and explanations
+  tags: [coding, programming, debug, help]
+  author: agent-engine-team
+
+spec:
+  agent:
+    type: llm
+    model:
+      primary: gemini-2.0-flash
+      fallbacks: 
+        - gemini-2.5-pro
+        - gemini-2.5-flash
+      parameters:
+        temperature: 0.3
+        max_tokens: 8192
+        timeout: 300
+    instruction_template: |
+      You are a helpful programming assistant specialized in {language} development.
+      You help with code review, debugging, optimization, and explanations.
+      
+      Your expertise includes:
+      - Code review and best practices
+      - Debugging and troubleshooting
+      - Performance optimization
+      - Code explanation and documentation
+      - Architecture and design patterns
+      
+      Guidelines:
+      - Provide working code examples
+      - Explain your reasoning
+      - Suggest best practices
+      - Point out potential issues
+      - Include comments in code snippets
+      - Consider security implications
+
+  tools:
+    - name: analyze_code
+      source: inline
+      definition: |
+        def analyze_code(code: str, language: str = "python") -> dict:
+            """Analyze code for basic metrics and patterns."""
+            lines = code.split('\n')
+            non_empty_lines = [line for line in lines if line.strip()]
+            
+            return {
+                "total_lines": len(lines),
+                "code_lines": len(non_empty_lines),
+                "language": language,
+                "has_functions": "def " in code or "function " in code,
+                "has_classes": "class " in code,
+                "complexity": "high" if len(non_empty_lines) > 50 else "medium" if len(non_empty_lines) > 20 else "low"
+            }
+
+  validation:
+    input_schema:
+      type: object
+      properties:
+        request:
+          type: string
+          description: Programming question or code to analyze
+        code:
+          type: string
+          description: Code snippet to review or debug
+        language:
+          type: string
+          default: python
+          description: Programming language
+        context:
+          type: object
+          description: Additional context
+      required: [request]
+    output_schema:
+      type: object
+      properties:
+        response:
+          type: string
+          description: Helpful response with code or explanation
+        code_suggestions:
+          type: array
+          items:
+            type: object
+            properties:
+              issue:
+                type: string
+              suggestion:
+                type: string
+              severity:
+                type: string
+                enum: [low, medium, high]

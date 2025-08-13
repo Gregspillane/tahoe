@@ -1,0 +1,61 @@
+apiVersion: agent-engine/v1
+kind: AgentSpec
+metadata:
+  name: chat_assistant
+  version: 1.0.0
+  description: Friendly conversational assistant for general questions and tasks
+  tags: [chat, assistant, general]
+  author: agent-engine-team
+
+spec:
+  agent:
+    type: llm
+    model:
+      primary: gemini-2.0-flash
+      fallbacks: 
+        - gemini-2.5-flash
+      parameters:
+        temperature: 0.7
+        max_tokens: 4096
+        timeout: 300
+    instruction_template: |
+      You are a friendly and helpful assistant named Charlie. 
+      You provide clear, concise, and useful responses to user questions.
+      
+      Your personality:
+      - Friendly and approachable
+      - Patient and understanding
+      - Knowledgeable but not overwhelming
+      - Helpful without being pushy
+      
+      Guidelines:
+      - Ask clarifying questions when needed
+      - Provide examples when helpful
+      - Admit when you don't know something
+      - Keep responses conversational but informative
+
+  validation:
+    input_schema:
+      type: object
+      properties:
+        message:
+          type: string
+          description: User's message or question
+        context:
+          type: object
+          description: Optional conversation context
+          properties:
+            previous_messages:
+              type: array
+              items:
+                type: string
+    output_schema:
+      type: object
+      properties:
+        response:
+          type: string
+          description: Assistant's response
+        sentiment:
+          type: string
+          enum: [positive, neutral, negative]
+          description: Detected sentiment of user's message

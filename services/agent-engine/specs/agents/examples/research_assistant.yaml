@@ -1,0 +1,152 @@
+apiVersion: agent-engine/v1
+kind: AgentSpec
+metadata:
+  name: research_assistant
+  version: 1.0.0
+  description: Research and analysis assistant for information gathering and synthesis
+  tags: [research, analysis, information, academic]
+  author: agent-engine-team
+
+spec:
+  agent:
+    type: llm
+    model:
+      primary: gemini-2.0-flash
+      fallbacks: 
+        - gemini-2.5-pro
+      parameters:
+        temperature: 0.4
+        max_tokens: 8192
+        timeout: 300
+    instruction_template: |
+      You are Dr. Research, an expert research assistant specializing in {domain} research.
+      You help with information gathering, analysis, and synthesis.
+      
+      Your capabilities:
+      - Comprehensive literature review
+      - Data analysis and interpretation
+      - Fact-checking and verification
+      - Source evaluation and citation
+      - Research methodology guidance
+      - Information synthesis and summarization
+      
+      Research principles:
+      - Accuracy and reliability first
+      - Multiple source verification
+      - Transparent about limitations
+      - Structured and organized output
+      - Critical thinking and analysis
+      - Proper attribution and citations
+      
+      Guidelines:
+      - Always cite sources when possible
+      - Distinguish between facts and opinions
+      - Highlight conflicting information
+      - Suggest additional research directions
+      - Structure information logically
+      - Be thorough but concise
+
+  tools:
+    - name: evaluate_source
+      source: inline
+      definition: |
+        def evaluate_source(source_type: str, publication_year: int = None, peer_reviewed: bool = False) -> dict:
+            """Evaluate source credibility and reliability."""
+            
+            credibility_scores = {
+                "academic_journal": 9,
+                "book": 8,
+                "government_report": 8,
+                "news_article": 6,
+                "blog": 4,
+                "social_media": 2,
+                "unknown": 3
+            }
+            
+            base_score = credibility_scores.get(source_type, 3)
+            
+            # Adjust for peer review
+            if peer_reviewed and source_type in ["academic_journal", "book"]:
+                base_score = min(10, base_score + 1)
+            
+            # Adjust for recency (if year provided)
+            if publication_year:
+                current_year = 2025
+                age = current_year - publication_year
+                if age > 10:
+                    base_score = max(1, base_score - 2)
+                elif age > 5:
+                    base_score = max(1, base_score - 1)
+            
+            return {
+                "credibility_score": base_score,
+                "source_type": source_type,
+                "peer_reviewed": peer_reviewed,
+                "reliability": "high" if base_score >= 8 else "medium" if base_score >= 6 else "low",
+                "notes": f"Score: {base_score}/10 based on source type and other factors"
+            }
+
+  validation:
+    input_schema:
+      type: object
+      properties:
+        query:
+          type: string
+          description: Research question or topic
+        domain:
+          type: string
+          default: general
+          description: Research domain or field
+        depth:
+          type: string
+          default: comprehensive
+          enum: [overview, detailed, comprehensive]
+        sources:
+          type: array
+          items:
+            type: string
+          description: Specific sources or types to focus on
+        constraints:
+          type: object
+          properties:
+            time_period:
+              type: string
+            geographic_scope:
+              type: string
+            language:
+              type: string
+              default: english
+      required: [query]
+    output_schema:
+      type: object
+      properties:
+        summary:
+          type: string
+          description: Executive summary of findings
+        key_findings:
+          type: array
+          items:
+            type: object
+            properties:
+              finding:
+                type: string
+              confidence:
+                type: string
+                enum: [high, medium, low]
+              sources:
+                type: array
+                items:
+                  type: string
+        methodology:
+          type: string
+          description: Research approach and methods used
+        limitations:
+          type: array
+          items:
+            type: string
+          description: Research limitations and caveats
+        recommendations:
+          type: array
+          items:
+            type: string
+          description: Recommended next steps or further research

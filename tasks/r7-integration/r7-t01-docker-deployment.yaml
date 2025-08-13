@@ -1,13 +1,23 @@
+# CORRECTED TASK: Docker deployment for development/staging environments
+# Based on validation against @MASTERPLAN.md and verified ADK documentation
+# Key corrections:
+# - Clarified scope: Development/staging, not production (production = AWS EKS)
+# - Fixed database migrations: Prisma instead of alembic
+# - Added service isolation: database schemas and Redis namespaces
+# - Added multi-service placeholders for future monorepo expansion
+# - Added basic Helm chart structure for future Kubernetes deployment
+# - Verified all ADK component references against official documentation
+
 task:
   id: "r7-t01-docker-deployment"
-  name: "Create Production Docker Deployment"
-  description: "Build production-ready Docker images and orchestration with docker-compose for scalable deployment"
+  name: "Create Docker Deployment for Development/Staging"  # CORRECTED: Clarified scope
+  description: "Build Docker images and orchestration for development and staging environments, preparing foundation for future Kubernetes production deployment"  # CORRECTED: Updated scope
   complexity: "medium"
   estimated_hours: 3
   
   context:
-    why: "Production deployment requires containerization for scalability, consistency, and easy orchestration"
-    architectural_role: "Deployment and infrastructure layer for production systems"
+    why: "Development and staging environments require containerization for consistency. Production will use AWS EKS (Kubernetes) with Helm charts"  # CORRECTED: Updated reasoning
+    architectural_role: "Development/staging deployment and infrastructure layer, foundation for production Kubernetes"  # CORRECTED: Updated role
     depends_on_tasks: ["r6-t01", "r1-t04"]
     enables_tasks: ["r7-t02", "r7-t04"]
     references:
@@ -21,13 +31,14 @@ task:
         content:
           - "Dockerfile.production"
           - "docker-compose.yml"
-          - "docker-compose.prod.yml"
+          - "docker-compose.prod.yml"  # CORRECTED: For staging, not production
           - "docker-compose.dev.yml"
           - "nginx/"
           - "scripts/"
+          - "helm/"  # ADDED: Basic Helm chart structure for future K8s
       
       - path: "docker/Dockerfile.production"
-        purpose: "Production-optimized Docker image"
+        purpose: "Production-optimized Docker image for staging and future K8s deployment"  # CORRECTED: Clarified usage
         content_structure: |
           # Multi-stage build for production
           FROM python:3.12-slim as builder
@@ -110,6 +121,10 @@ task:
                 POSTGRES_DB: ${POSTGRES_DB:-tahoe}
                 POSTGRES_USER: ${POSTGRES_USER:-tahoe}
                 POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-tahoe123}
+                # ADDED: Service isolation from masterplan
+                AGENT_ENGINE_DB_SCHEMA: ${AGENT_ENGINE_DB_SCHEMA:-agent_engine}
+                AUTH_SERVICE_DB_SCHEMA: ${AUTH_SERVICE_DB_SCHEMA:-auth_service}
+                BILLING_SERVICE_DB_SCHEMA: ${BILLING_SERVICE_DB_SCHEMA:-billing_service}
               volumes:
                 - postgres_data:/var/lib/postgresql/data
                 - ./postgres/init:/docker-entrypoint-initdb.d
@@ -126,6 +141,11 @@ task:
             redis:
               image: redis:7-alpine
               command: redis-server --appendonly yes --maxmemory ${REDIS_MAX_MEMORY:-512mb} --maxmemory-policy allkeys-lru
+              environment:
+                # ADDED: Service isolation with Redis namespaces
+                - AGENT_ENGINE_REDIS_NAMESPACE=${AGENT_ENGINE_REDIS_NAMESPACE:-agent:}
+                - AUTH_SERVICE_REDIS_NAMESPACE=${AUTH_SERVICE_REDIS_NAMESPACE:-auth:}
+                - BILLING_SERVICE_REDIS_NAMESPACE=${BILLING_SERVICE_REDIS_NAMESPACE:-billing:}
               volumes:
                 - redis_data:/data
               ports:
@@ -143,17 +163,26 @@ task:
                 context: ..
                 dockerfile: docker/Dockerfile.production
               environment:
+                # CORRECTED: Service-specific configuration per masterplan
                 - DATABASE_URL=postgresql://${POSTGRES_USER:-tahoe}:${POSTGRES_PASSWORD:-tahoe123}@postgres:5432/${POSTGRES_DB:-tahoe}
                 - REDIS_URL=redis://redis:6379/0
                 - GEMINI_API_KEY=${GEMINI_API_KEY}
-                - LOG_LEVEL=${LOG_LEVEL:-INFO}
-                - ENVIRONMENT=${ENVIRONMENT:-production}
+                - AGENT_ENGINE_PORT=${AGENT_ENGINE_PORT:-8001}
+                - AGENT_ENGINE_LOG_LEVEL=${AGENT_ENGINE_LOG_LEVEL:-INFO}
+                - AGENT_ENGINE_DB_SCHEMA=${AGENT_ENGINE_DB_SCHEMA:-agent_engine}
+                - AGENT_ENGINE_REDIS_NAMESPACE=${AGENT_ENGINE_REDIS_NAMESPACE:-agent:}
+                - ENVIRONMENT=${ENVIRONMENT:-development}  # CORRECTED: Default to development
+                # ADDED: ADK-specific configuration per masterplan
+                - ADK_DEFAULT_MODEL=${ADK_DEFAULT_MODEL:-gemini-2.0-flash}
+                - ADK_TEMPERATURE=${ADK_TEMPERATURE:-0.2}
+                - ADK_MAX_TOKENS=${ADK_MAX_TOKENS:-8192}
+                - ADK_SESSION_SERVICE=${ADK_SESSION_SERVICE:-memory}
               volumes:
                 - ./config:/app/config:ro
                 - agent_logs:/app/logs
                 - agent_data:/app/data
               ports:
-                - "${API_PORT:-8001}:8001"
+                - "${AGENT_ENGINE_PORT:-8001}:8001"  # CORRECTED: Use service-specific port variable
               depends_on:
                 postgres:
                   condition: service_healthy
@@ -177,6 +206,68 @@ task:
                     memory: 1G
                     cpus: '0.5'
             
+            # ADDED: Placeholder services for future monorepo expansion
+            auth-service:
+              # Future service for authentication (port 8002)
+              image: tahoe/auth-service:latest
+              environment:
+                - AUTH_SERVICE_PORT=${AUTH_SERVICE_PORT:-8002}
+                - AUTH_SERVICE_LOG_LEVEL=${AUTH_SERVICE_LOG_LEVEL:-INFO}
+                - AUTH_SERVICE_DB_SCHEMA=${AUTH_SERVICE_DB_SCHEMA:-auth_service}
+                - AUTH_SERVICE_REDIS_NAMESPACE=${AUTH_SERVICE_REDIS_NAMESPACE:-auth:}
+                - DATABASE_URL=postgresql://${POSTGRES_USER:-tahoe}:${POSTGRES_PASSWORD:-tahoe123}@postgres:5432/${POSTGRES_DB:-tahoe}
+                - REDIS_URL=redis://redis:6379/0
+              ports:
+                - "${AUTH_SERVICE_PORT:-8002}:8002"
+              depends_on:
+                postgres:
+                  condition: service_healthy
+                redis:
+                  condition: service_healthy
+              networks:
+                - tahoe-network
+              profiles:
+                - future-services  # Only activated when needed
+            
+            billing-service:
+              # Future service for billing (port 8003)
+              image: tahoe/billing-service:latest
+              environment:
+                - BILLING_SERVICE_PORT=${BILLING_SERVICE_PORT:-8003}
+                - BILLING_SERVICE_LOG_LEVEL=${BILLING_SERVICE_LOG_LEVEL:-INFO}
+                - BILLING_SERVICE_DB_SCHEMA=${BILLING_SERVICE_DB_SCHEMA:-billing_service}
+                - BILLING_SERVICE_REDIS_NAMESPACE=${BILLING_SERVICE_REDIS_NAMESPACE:-billing:}
+                - DATABASE_URL=postgresql://${POSTGRES_USER:-tahoe}:${POSTGRES_PASSWORD:-tahoe123}@postgres:5432/${POSTGRES_DB:-tahoe}
+                - REDIS_URL=redis://redis:6379/0
+              ports:
+                - "${BILLING_SERVICE_PORT:-8003}:8003"
+              depends_on:
+                postgres:
+                  condition: service_healthy
+                redis:
+                  condition: service_healthy
+              networks:
+                - tahoe-network
+              profiles:
+                - future-services  # Only activated when needed
+            
+            frontend:
+              # Future frontend service (port 3000)
+              image: tahoe/frontend:latest
+              environment:
+                - FRONTEND_PORT=${FRONTEND_PORT:-3000}
+                - AGENT_ENGINE_URL=http://agent-engine:8001
+                - AUTH_SERVICE_URL=http://auth-service:8002
+                - BILLING_SERVICE_URL=http://billing-service:8003
+              ports:
+                - "${FRONTEND_PORT:-3000}:3000"
+              depends_on:
+                - agent-engine
+              networks:
+                - tahoe-network
+              profiles:
+                - future-services  # Only activated when needed
+            
             nginx:
               image: nginx:alpine
               volumes:
@@ -188,6 +279,10 @@ task:
                 - "${NGINX_SSL_PORT:-443}:443"
               depends_on:
                 - agent-engine
+                # Future dependencies when services are available
+                # - auth-service
+                # - billing-service
+                # - frontend
               restart: unless-stopped
               networks:
                 - tahoe-network
@@ -204,15 +299,15 @@ task:
               driver: bridge
       
       - path: "docker/docker-compose.prod.yml"
-        purpose: "Production-specific overrides"
+        purpose: "Staging environment overrides (production will be Kubernetes)"  # CORRECTED: Clarified purpose
         content_structure: |
           version: '3.8'
           
           services:
             agent-engine:
               environment:
-                - ENVIRONMENT=production
-                - LOG_LEVEL=WARNING
+                - ENVIRONMENT=staging  # CORRECTED: This is for staging, not production
+                - AGENT_ENGINE_LOG_LEVEL=WARNING  # CORRECTED: Service-specific variable
                 - WORKERS=4
               deploy:
                 replicas: 2
@@ -558,8 +653,9 @@ task:
           
           # Run database migrations
           echo "Running database migrations..."
+          # CORRECTED: Use Prisma instead of alembic per masterplan
           docker-compose -f docker-compose.yml -f docker-compose.prod.yml run --rm agent-engine \
-              python -m alembic upgrade head
+              sh -c "cd services/infrastructure && npx prisma migrate deploy"
           
           # Deploy services
           echo "Deploying services..."
@@ -588,10 +684,10 @@ task:
           
           # Verify deployment
           echo "Verifying deployment..."
-          if curl -f http://localhost:${API_PORT:-8001}/health > /dev/null 2>&1; then
+          if curl -f http://localhost:${AGENT_ENGINE_PORT:-8001}/health > /dev/null 2>&1; then  # CORRECTED: Use service-specific port
               echo "✅ Deployment successful!"
-              echo "API is available at http://localhost:${API_PORT:-8001}"
-              echo "Documentation: http://localhost:${API_PORT:-8001}/docs"
+              echo "Agent Engine API is available at http://localhost:${AGENT_ENGINE_PORT:-8001}"  # CORRECTED: Specify service
+              echo "Documentation: http://localhost:${AGENT_ENGINE_PORT:-8001}/docs"
           else
               echo "❌ Deployment verification failed"
               exit 1
@@ -664,6 +760,60 @@ task:
           - "Health checks"
           - "Network connectivity"
           - "Volume persistence"
+          - "Multi-service communication"  # ADDED: For future services
+          - "Database schema isolation"  # ADDED: Per masterplan requirements
+          - "Redis namespace isolation"  # ADDED: Per masterplan requirements
+      
+      # ADDED: Helm chart foundation for future Kubernetes deployment
+      - path: "docker/helm/"
+        purpose: "Basic Helm chart structure for future Kubernetes deployment"
+        content:
+          - "Chart.yaml"
+          - "values.yaml"
+          - "templates/"
+      
+      - path: "docker/helm/Chart.yaml"
+        purpose: "Helm chart metadata"
+        content_structure: |
+          apiVersion: v2
+          name: tahoe-platform
+          description: Tahoe agent orchestration platform
+          version: 0.1.0
+          appVersion: "1.0.0"
+          
+      - path: "docker/helm/values.yaml"
+        purpose: "Default Helm values for Kubernetes deployment"
+        content_structure: |
+          # Future production deployment values
+          replicaCount: 1
+          
+          agentEngine:
+            image:
+              repository: tahoe/agent-engine
+              tag: latest
+              pullPolicy: IfNotPresent
+            service:
+              type: ClusterIP
+              port: 8001
+          
+          # Placeholder for future services
+          authService:
+            enabled: false
+            port: 8002
+          
+          billingService:
+            enabled: false
+            port: 8003
+          
+          postgres:
+            enabled: true
+            # External PostgreSQL for production
+            external: false
+          
+          redis:
+            enabled: true
+            # External Redis for production
+            external: false
     
     uses_from_previous:
       - source: "r6-t01"
@@ -671,7 +821,7 @@ task:
         usage: "Containerized API service"
       - source: "r1-t04"
         component: "Database setup"
-        usage: "PostgreSQL in containers"
+        usage: "PostgreSQL in containers with service-specific schemas"  # CORRECTED: Added schema isolation
     
   implementation_steps:
     - step: "Create production Dockerfile"
@@ -682,9 +832,11 @@ task:
         
     - step: "Configure docker-compose"
       implementation_notes: |
-        - Service orchestration
+        - Service orchestration for development/staging
         - Environment-specific overrides
         - Volume management
+        - Service isolation (database schemas, Redis namespaces)  # ADDED: Per masterplan
+        - Multi-service preparation for auth, billing, frontend  # ADDED: Future services
         
     - step: "Setup nginx proxy"
       implementation_notes: |
@@ -694,9 +846,10 @@ task:
         
     - step: "Create deployment scripts"
       implementation_notes: |
-        - Automated deployment
+        - Automated deployment for development/staging
         - Health verification
         - Rollback procedures
+        - Prisma migration integration  # CORRECTED: Use Prisma instead of alembic
         
   validation:
     commands:
@@ -709,7 +862,7 @@ task:
         expected: "All services start healthy"
         
       - description: "Test deployment script"
-        command: "cd docker && ./scripts/deploy.sh staging"
+        command: "cd docker && ./scripts/deploy.sh staging"  # CORRECTED: Use staging instead of production
         expected: "Deployment completes successfully"
         
       - description: "Verify services"
@@ -717,10 +870,14 @@ task:
         expected: "Health check passes"
         
     success_criteria:
-      - "Production images build"
-      - "Services orchestrate properly"
+      - "Docker images build successfully"
+      - "Services orchestrate properly in development/staging"
       - "Health checks functional"
-      - "Deployment scripts work"
+      - "Deployment scripts work for staging"
+      - "Database schema isolation working"  # ADDED: Per masterplan
+      - "Redis namespace isolation working"  # ADDED: Per masterplan
+      - "Prisma migrations working"  # CORRECTED: Use Prisma
+      - "Helm chart structure prepared for K8s"  # ADDED: Future production
       - "All tests pass"
       
   dependencies:
