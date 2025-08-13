@@ -1,6 +1,59 @@
 # Project Tahoe - Key Decisions Log
 
-## 2025-08-13: Task Alignment Updates (Evening)
+## 2025-08-13: R2 Task Validation (Evening - Session 3)
+
+### Decision: Validate Tasks Against MASTERPLAN Before Implementation
+**Context**: R2-T1 task specification had several misalignments with MASTERPLAN
+**Decision**: Thoroughly validate each task against MASTERPLAN before implementation
+**Rationale**:
+- Original task specs were created before full MASTERPLAN was complete
+- MASTERPLAN contains critical implementation details not in original tasks
+- Validation prevents rework and ensures correct architecture
+- Stub classes maintain proper interfaces for future integration
+**Impact**: R2-T1 corrected, other R2 tasks should be validated before implementation
+
+### Decision: Use Stub Classes Instead of Pure Mocks
+**Context**: R2-T1 needed placeholder implementations for AgentFactory and ResultAggregator
+**Decision**: Create stub classes with proper interfaces rather than inline mocks
+**Rationale**:
+- Maintains correct interface contracts from the start
+- Easier to replace with real implementations later
+- Prevents interface drift between components
+- Better testing and validation
+**Impact**: Created stub implementations for AgentFactory and ResultAggregator
+
+### Decision: Include ADK Imports From Start
+**Context**: Original task delayed ADK integration until later
+**Decision**: Import ADK classes even when using mock implementations
+**Rationale**:
+- MASTERPLAN shows ADK as core dependency from line 309
+- Maintains correct import structure
+- Prevents major refactoring later
+- ADK interfaces guide mock implementations
+**Impact**: All orchestrator code will use proper ADK imports
+
+## 2025-08-13: R1-T3 API Implementation (Evening - Session 2)
+
+### Decision: Orchestrator Skeleton Pattern
+**Context**: Need to implement API endpoints before full orchestration logic
+**Decision**: Created orchestrator as skeleton class with mock results
+**Rationale**:
+- Allows API testing without complex agent logic
+- Establishes interface contract early
+- Enables incremental development
+- Returns realistic mock data for testing
+**Impact**: Full orchestration deferred to R2, API fully functional now
+
+### Decision: Comprehensive Endpoint Coverage
+**Context**: R1-T3 originally had basic endpoints, masterplan had more
+**Decision**: Implemented all masterplan endpoints in R1-T3
+**Rationale**:
+- Complete API surface even in foundation phase
+- Easier to test integration points
+- Status and metrics endpoints valuable immediately
+**Impact**: R1-T3 now includes status, metrics, and full CRUD operations
+
+## 2025-08-13: Task Alignment Updates (Evening - Session 1)
 
 ### Decision: Standardize on Port 8001
 **Context**: MASTERPLAN had inconsistent references to port 8000 vs 8001

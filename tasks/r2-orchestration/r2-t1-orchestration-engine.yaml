@@ -12,15 +12,18 @@ task:
     
   build_spec:
     creates:
-      - "services/agent-engine/src/services/analysis.py"
+      # CORRECTED: Removed services/agent-engine/src/services/analysis.py - not in masterplan
       - "services/agent-engine/src/services/content_analyzer.py"
+      - "services/agent-engine/src/agents/factory.py"  # ADDED: Stub for AgentFactory
+      - "services/agent-engine/src/services/aggregation.py"  # ADDED: Stub for ResultAggregator
       - "services/agent-engine/tests/test_orchestrator.py"
       - "services/agent-engine/tests/fixtures/fdcpa_violation.json"
     modifies:
       - "src/orchestrator.py (complete implementation)"
       - "src/models/api.py (add AnalysisResult model)"
-      - "requirements.txt (add asyncio dependencies)"
+      - "requirements.txt (ensure google-adk included)"  # CORRECTED: ADK needed from start
     uses:
+      - "Google ADK for agent framework"  # ADDED: Per masterplan line 309
       - "Asyncio for parallel execution"
       - "Redis for session management"
       - "Prisma for state persistence"
@@ -35,13 +38,24 @@ task:
       - "Session management in Redis"
       - "Error handling and recovery"
       - "Phase tracking and status updates"
+    imports_required:  # ADDED: Section for proper imports
+      - "from google.adk.agents import Agent, ParallelAgent, SequentialAgent"
+      - "from google.adk.tools import tool"
+      - "import redis.asyncio as redis"
+      - "from prisma import Prisma"
+    helper_methods:  # ADDED: Required helper methods from masterplan
+      - "_should_activate_agent (lines 638-662)"
+      - "_group_by_execution_order (lines 664-674)"
+      - "_update_session_phase (lines 676-685)"
+      - "_execute_single_agent (lines 609-636)"
     connects_to:
-      - "Agent factory for creating agents (placeholder)"
-      - "Result aggregator for combining outputs (placeholder)"
+      - "Agent factory for creating agents (stub class)"  # CORRECTED: Create stub
+      - "Result aggregator for combining outputs (stub class)"  # CORRECTED: Create stub
       - "Redis for real-time session tracking"
       - "Database for configuration and results"
     keeps_simple:
-      - "Mock agent execution for now (no ADK yet)"
+      - "Stub AgentFactory with mock create_agent method"  # CORRECTED: Use stubs not pure mocks
+      - "Stub ResultAggregator with mock aggregate method"  # CORRECTED: Use stubs
       - "Basic content analysis (keywords only)"
       - "Simple parallel execution (no optimization)"
       - "Fixed timeout values (30 seconds)"
@@ -69,6 +83,7 @@ task:
       - "Phases: content_analysis → agent_selection → execution → aggregation"
       - "Each agent gets 30-second timeout"
       - "Cache scorecard configurations"
+      - "Include all helper methods from masterplan"  # ADDED
     remember_for_later:
       - "Agent factory interface for R2-T2"
       - "Result aggregator interface for R2-T4"
@@ -76,13 +91,20 @@ task:
       - "Error handling patterns"
 
   implementation_checklist:
+    - "Import ADK classes even if using mocks"  # ADDED
     - "Complete analyze_interaction workflow"
     - "Implement analyze_content method"
     - "Build select_agents with trigger rules"
     - "Create build_execution_plan"
-    - "Implement execute_agents (with mocks)"
+    - "Implement execute_agents (with stub factory)"  # CORRECTED
+    - "Add _should_activate_agent helper"  # ADDED
+    - "Add _group_by_execution_order helper"  # ADDED
+    - "Add _update_session_phase helper"  # ADDED
+    - "Add _execute_single_agent helper"  # ADDED
     - "Add Redis session management"
     - "Create ContentAnalyzer service"
+    - "Create AgentFactory stub class"  # ADDED
+    - "Create ResultAggregator stub class"  # ADDED
     - "Write comprehensive tests"
     - "Add fixture for FDCPA violation"
 
@@ -93,6 +115,7 @@ task:
       - "Initialize Redis session"
     
     2_content_analysis:
+      - "Update session phase via helper"  # CORRECTED: Use helper method
       - "Detect language"
       - "Extract topics (keywords)"
       - "Identify regulatory indicators"
@@ -100,49 +123,109 @@ task:
     
     3_agent_selection:
       - "Load scorecard configuration"
-      - "Check agent trigger rules"
+      - "Check agent trigger rules via _should_activate_agent"  # CORRECTED: Use helper
       - "Build required agents list"
       - "Sort by execution order"
     
     4_execution_planning:
       - "Separate parallel vs sequential"
-      - "Group by execution order"
+      - "Group by execution order via _group_by_execution_order"  # CORRECTED: Use helper
       - "Calculate total agents"
     
     5_agent_execution:
+      - "Update session phase"  # ADDED
       - "Execute parallel agents first"
       - "Then sequential phases"
+      - "Use _execute_single_agent for each"  # CORRECTED: Use helper
       - "Handle timeouts and errors"
       - "Pass context between agents"
     
     6_result_aggregation:
-      - "Placeholder for now"
-      - "Just combine agent outputs"
-      - "Calculate overall score"
+      - "Update session phase"  # ADDED
+      - "Call ResultAggregator stub"  # CORRECTED
+      - "Return aggregated results"
     
     7_cleanup:
       - "Update database record"
       - "Clear Redis session"
       - "Return results"
 
-  mock_implementations:
-    mock_agent_execution: |
-      # Return dummy result for testing
-      return {
-        "agent_name": agent_config["template"]["name"],
-        "score": 85.0,
-        "confidence": 0.9,
-        "violations": [],
-        "recommendations": [],
-        "execution_time": 1.5
-      }
+  stub_implementations:  # CORRECTED: Changed from mock to stub implementations
+    agent_factory_stub: |
+      # src/agents/factory.py - Stub implementation
+      class AgentFactory:
+          def __init__(self):
+              self.db = None  # Will be Prisma()
+              self.cache = None  # Will be redis.Redis()
+              
+          async def create_agent(self, template: dict):
+              # Mock agent that returns test data
+              class MockAgent:
+                  async def analyze(self, input_data: dict):
+                      return {
+                          "agent_name": template["name"],
+                          "score": 85.0,
+                          "confidence": 0.9,
+                          "violations": [],
+                          "recommendations": [],
+                          "execution_time": 1.5
+                      }
+              return MockAgent()
     
-    mock_content_analysis: |
-      # Basic keyword detection
-      return {
-        "language": "en",
-        "interaction_type": "call",
-        "detected_topics": ["payment", "collection"],
-        "regulatory_indicators": ["fdcpa"],
-        "complexity_score": 0.6
-      }
+    result_aggregator_stub: |
+      # src/services/aggregation.py - Stub implementation  
+      class ResultAggregator:
+          async def aggregate(self, agent_results, aggregation_rules, thresholds):
+              # Simple aggregation for testing
+              scores = [r.get("score", 0) for r in agent_results.values() if isinstance(r, dict)]
+              overall_score = sum(scores) / len(scores) if scores else 0
+              
+              class AnalysisResult:
+                  def __init__(self):
+                      self.analysis_id = "test-analysis-id"
+                      self.overall_score = overall_score
+                      self.confidence = 0.9
+                      self.violations = []
+                      self.recommendations = []
+                      self.categories = {}
+                      self.audit_trail = {}
+                      self.execution_time = 2.5
+                      
+                  def to_dict(self):
+                      return {
+                          "overall_score": self.overall_score,
+                          "confidence": self.confidence
+                      }
+              
+              return AnalysisResult()
+    
+    content_analyzer_stub: |
+      # src/services/content_analyzer.py - Basic implementation
+      class ContentAnalyzer:
+          def detect_language(self, interaction_data):
+              return "en"
+              
+          async def extract_topics(self, interaction_data):
+              content = interaction_data.get("content", "").lower()
+              topics = []
+              if "payment" in content:
+                  topics.append("payment")
+              if "collection" in content:
+                  topics.append("collection")
+              return topics
+              
+          async def detect_regulatory_context(self, interaction_data):
+              content = interaction_data.get("content", "").lower()
+              indicators = []
+              if "debt" in content or "collection" in content:
+                  indicators.append("fdcpa")
+              return indicators
+              
+          async def assess_complexity(self, interaction_data):
+              content_length = len(interaction_data.get("content", ""))
+              if content_length < 500:
+                  return 0.3
+              elif content_length < 1500:
+                  return 0.6
+              else:
+                  return 0.9

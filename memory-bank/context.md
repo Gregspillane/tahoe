@@ -1,69 +1,59 @@
 # Session Context - Project Tahoe
 
 ## Current Session
-**Date/Time**: 2025-08-13 18:05 PST
-**Focus**: R1-T2 Database Schema Implementation - Complete Prisma setup with infrastructure refactoring
+**Date/Time**: 2025-08-13 20:45 PST
+**Focus**: R2 Task Validation and Correction - Aligned R2-T1 with MASTERPLAN requirements
 
 ## What Was Accomplished
-1. **Major Infrastructure Refactoring**
-   - Separated PostgreSQL and Redis into `services/infrastructure/`
-   - Created shared infrastructure docker-compose for all services
-   - Updated agent-engine to connect to external services
-   - Established proper monorepo pattern with service independence
+1. **Task Validation Against MASTERPLAN**
+   - Thoroughly validated R2-T1 orchestration engine task against MASTERPLAN
+   - Identified missing elements and inaccuracies:
+     - Missing ADK imports from the start
+     - Incorrect file creation (analysis.py not needed)
+     - Missing helper methods (_should_activate_agent, _group_by_execution_order, _update_session_phase)
+     - Missing stub classes for AgentFactory and ResultAggregator
 
-2. **Completed R1-T2 Database Schema**
-   - Implemented all 8 tables from masterplan (AgentTemplate, Scorecard, etc.)
-   - Set up Prisma ORM with Python client
-   - Created comprehensive seed script with sample data
-   - Built database helper utilities and CRUD tests
-   - All tests passing with full database connectivity
-
-3. **Configuration Management**
-   - Updated config.py with computed fields for DATABASE_URL and REDIS_URL
-   - Proper environment variable handling
-   - Service URLs computed based on environment (dev/staging/prod)
+2. **Task Correction Implementation**
+   - Updated R2-T1 task YAML with all corrections
+   - Added proper ADK imports requirement
+   - Added stub class implementations instead of pure mocks
+   - Included all helper methods from MASTERPLAN
+   - Aligned workflow phases with proper session management
 
 ## Discoveries/Issues
-- **Critical Architecture Decision**: PostgreSQL and Redis should be shared infrastructure, not embedded in services
-- Prisma requires DATABASE_URL environment variable separately from application config
-- Config.py was enhanced with computed fields for better configuration management
-- Each service will use database schemas (agent_engine, auth, billing) for isolation
+- **Task Alignment**: Original R2 tasks needed significant corrections to match MASTERPLAN
+- **Interface Consistency**: Important to use stub classes rather than pure mocks to maintain proper interfaces for future integration
+- **Helper Methods**: MASTERPLAN includes critical helper methods that were missing from original task specification
+- **ADK Integration**: ADK should be imported from the start, even if using mock implementations
 
 ## Specific Next Steps
-1. **Option A: Continue with R1-T3 Basic API**
-   - Implement authentication endpoints
-   - Add service-to-service token validation
-   - Create basic CRUD endpoints for agents/scorecards
+1. **Implement R2-T1: Orchestration Engine**
+   - Create full orchestrator implementation with all helper methods
+   - Build ContentAnalyzer service
+   - Create AgentFactory stub class
+   - Create ResultAggregator stub class
+   - Write comprehensive tests
 
-2. **Option B: Start R2 Orchestration Engine**
-   - Build orchestrator.py with ADK integration
-   - Implement agent factory pattern
-   - Create execution pipeline
+2. **After R2-T1 Complete**
+   - R2-T2: Implement full AgentFactory (replace stub)
+   - R2-T3: Build Model Registry
+   - R2-T4: Complete Result Aggregation (replace stub)
 
-3. **Infrastructure Considerations**
-   - Future services will connect to same PostgreSQL/Redis instances
-   - Each service gets its own schema and Redis namespace
-   - Consider adding pgAdmin or Redis Commander for debugging
+3. **Validation Pattern**
+   - Consider validating other R2 tasks (T2, T3, T4) against MASTERPLAN before implementation
 
 ## Current File States
-### Infrastructure Files
-- `/services/infrastructure/docker-compose.yml` - Shared PostgreSQL & Redis
-- `/services/infrastructure/README.md` - Infrastructure documentation
+### Modified Task Files
+- `/tasks/r2-orchestration/r2-t1-orchestration-engine.yaml` - Corrected and aligned with MASTERPLAN
 
-### Agent-Engine Service Files
-- `/services/agent-engine/prisma/schema.prisma` - Complete 8-table schema
-- `/services/agent-engine/scripts/seed.py` - Database seeding with sample data
-- `/services/agent-engine/src/models/database.py` - Database utilities
-- `/services/agent-engine/src/config.py` - Enhanced with computed fields
-- `/services/agent-engine/src/main.py` - Integrated with Prisma
-- `/services/agent-engine/tests/test_database.py` - CRUD test suite
-- `/services/agent-engine/.env` - Local development configuration
-- `/services/agent-engine/docker-compose.yml` - Service-only container
+### Infrastructure Files (Unchanged)
+- `/services/infrastructure/docker-compose.yml` - Running PostgreSQL & Redis
+- All database schema and seed data intact from R1-T2
 
 ### Key Documents
-- `masterplan.md` - Complete technical blueprint (reference)
-- `CLAUDE.md` - Updated with infrastructure pattern
-- Task specifications in `/tasks/` - All 10 tasks ready
+- `MASTERPLAN.md` - Reference for all implementations
+- `CLAUDE.md` - Project instructions with correct ports
+- Task specifications in `/tasks/` - R1 complete, R2-T1 corrected and ready
 
 ## Environment Configuration
 ```bash
@@ -81,9 +71,11 @@ export DATABASE_URL=postgresql://tahoe:tahoe@localhost:5435/tahoe
 ```
 
 ## Session Handoff
-R1-T2 complete with infrastructure properly separated. Database schema fully implemented with seed data. Next session options:
-1. **R1-T3**: Add authentication and basic API endpoints
-2. **R2-T1**: Start building the orchestration engine with ADK
-3. Both paths are viable - R1-T3 completes foundation, R2-T1 starts core functionality
+**Task Validation Complete!** R2-T1 has been thoroughly validated and corrected against MASTERPLAN:
+- All missing components identified and added
+- Task YAML updated with proper stub implementations
+- Ready for implementation following corrected specification
+- Consider validating remaining R2 tasks before implementation
 
-All infrastructure is running and tested. FastAPI app connects successfully to both PostgreSQL and Redis.
+**Next Session: Implement R2-T1 Orchestration Engine**
+Follow the corrected task specification to build the complete orchestration engine.
