@@ -1,0 +1,96 @@
+project:
+  name: "Project Tahoe Agent Service"
+  description: "Multi-agent orchestration platform for compliance auditing"
+  local_development_goal: "Working agent-engine service that analyzes interactions and returns compliance scores"
+  core_technologies:
+    - "Python 3.11 with FastAPI"
+    - "Google ADK for agent framework"
+    - "PostgreSQL with Prisma ORM"
+    - "Redis for caching and sessions"
+    - "Docker Compose for local environment"
+  
+releases:
+  - id: "r1-foundation"
+    name: "Foundation Infrastructure"
+    builds: "Basic service framework with database and API"
+    session_count: 3
+    working_functionality:
+      - "Health check endpoints respond at http://localhost:8001/health"
+      - "Database schema created with Prisma migrations"
+      - "Basic authentication middleware working"
+      - "Docker Compose environment running (Postgres + Redis)"
+      - "Core orchestrator skeleton accepts analysis requests"
+    validates_with: |
+      docker-compose up -d
+      curl http://localhost:8001/health
+      python -m pytest tests/test_health.py
+    tasks:
+      - "r1-t1-project-setup"
+      - "r1-t2-database-schema"
+      - "r1-t3-basic-api"
+    
+  - id: "r2-orchestration"
+    name: "Core Orchestration Engine"
+    builds: "Agent selection and execution framework"
+    requires: ["r1-foundation"]
+    session_count: 4
+    working_functionality:
+      - "Agent factory creates agents from database templates"
+      - "Model registry manages multiple providers (Gemini, OpenAI, Anthropic)"
+      - "Orchestration engine executes simple analysis workflow"
+      - "Result aggregation combines agent outputs"
+      - "Redis caching improves performance"
+    validates_with: |
+      python scripts/seed_agents.py
+      curl -X POST http://localhost:8001/analyze -d @tests/fixtures/sample_interaction.json
+      python -m pytest tests/test_orchestration.py
+    tasks:
+      - "r2-t1-orchestration-engine"
+      - "r2-t2-agent-factory"
+      - "r2-t3-model-registry"
+      - "r2-t4-result-aggregation"
+    
+  - id: "r3-specialist-agents"
+    name: "Specialist Agent Implementation"
+    builds: "Compliance and quality assessment agents"
+    requires: ["r2-orchestration"]
+    session_count: 3
+    working_functionality:
+      - "Compliance agent detects FDCPA/TCPA/Reg F violations"
+      - "Quality agent scores interaction across 7 dimensions"
+      - "Content analyzer extracts topics and regulatory context"
+      - "Violation detection includes severity and evidence"
+      - "Results include actionable recommendations"
+    validates_with: |
+      python scripts/test_compliance_agent.py
+      curl -X POST http://localhost:8001/analyze -d @tests/fixtures/fdcpa_violation.json
+      python -m pytest tests/test_specialist_agents.py
+    tasks:
+      - "r3-t1-compliance-agent"
+      - "r3-t2-quality-agent"
+      - "r3-t3-content-analyzer"
+
+validation_commands:
+  setup:
+    - "pip install -r requirements.txt"
+    - "docker-compose up -d postgres redis"
+    - "python -m prisma db push"
+    - "python scripts/seed.py"
+  
+  test_local_functionality:
+    - "uvicorn src.main:app --reload --port 8001"
+    - "curl http://localhost:8001/health"
+    - "curl -X GET http://localhost:8001/agents/templates"
+    - "curl -X POST http://localhost:8001/analyze -d @tests/fixtures/sample.json"
+  
+  verify_agent_execution:
+    - "python -m pytest tests/unit/"
+    - "python -m pytest tests/integration/"
+    - "python scripts/validate_agents.py"
+
+development_principles:
+  - "KISS: Start simple, add complexity only when needed"
+  - "Configuration-driven: Business logic in database, not code"
+  - "Stateless execution: No internal state in service"
+  - "Cache everything: Use Redis for performance"
+  - "Test locally: Everything works in docker-compose first"

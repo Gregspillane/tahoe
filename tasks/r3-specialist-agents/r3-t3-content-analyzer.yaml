@@ -1,0 +1,310 @@
+task:
+  id: "r3-t3-content-analyzer"
+  name: "Build Content Analysis Agent"
+  session_size: "Complete content extraction and categorization agent"
+  
+  context:
+    why: "Extracts key information, topics, and context for other agents to use"
+    integrates_with: ["orchestration-engine", "compliance-agent", "quality-agent"]
+    references:
+      - "masterplan content analysis requirements"
+      - "roadmap phase 3 content extraction"
+    
+  build_spec:
+    creates:
+      - "services/agent-engine/src/agents/specialists/content.py"
+      - "services/agent-engine/src/data/content/topic_categories.json"
+      - "services/agent-engine/src/data/content/entity_patterns.json"
+      - "services/agent-engine/tests/test_content_agent.py"
+      - "services/agent-engine/tests/fixtures/content_samples.json"
+    modifies:
+      - "scripts/seed.py (add content agent template)"
+      - "src/agents/factory.py (register specialist)"
+      - "src/services/content_analyzer.py (enhance existing)"
+    uses:
+      - "Pattern recognition for entities"
+      - "Topic categorization"
+      - "Regulatory indicator detection"
+      - "Sentiment analysis (basic)"
+    
+  implementation_guide:
+    start_with: "Create ContentAnalyzerAgent class extending BaseSpecialistAgent"
+    core_logic:
+      - "Extract key entities (names, amounts, dates)"
+      - "Identify conversation topics"
+      - "Detect regulatory context"
+      - "Analyze sentiment and tone"
+      - "Calculate complexity score"
+      - "Extract action items"
+      - "Identify critical information"
+    connects_to:
+      - "Orchestrator uses for agent selection"
+      - "Other agents use extracted context"
+      - "Aggregator uses for metadata"
+    keeps_simple:
+      - "Pattern-based extraction"
+      - "Keyword topic detection"
+      - "Basic sentiment (positive/negative/neutral)"
+      - "No NLP libraries yet"
+      - "Static categorization rules"
+    
+  local_validation:
+    run_commands:
+      - "python -m pytest tests/test_content_agent.py -v"
+      - "python scripts/test_content_extraction.py"
+    verify_endpoints:
+      - "Agent extracts all entity types"
+      - "Topics categorized correctly"
+      - "Regulatory indicators detected"
+    check_functionality:
+      - "Names and amounts extracted"
+      - "Dates parsed correctly"
+      - "Topics match categories"
+      - "Sentiment classification works"
+      - "Complexity score reasonable"
+    
+  session_notes:
+    context_critical:
+      - "Content drives agent selection"
+      - "Entities provide context"
+      - "Topics determine requirements"
+      - "Complexity affects processing"
+    remember_for_later:
+      - "NLP enhancement possible"
+      - "ML for better extraction"
+      - "Entity resolution needed"
+      - "Topic modeling improvements"
+
+  implementation_checklist:
+    - "Create ContentAnalyzerAgent class"
+    - "Build entity extraction methods"
+    - "Implement topic detection"
+    - "Add regulatory indicators"
+    - "Create sentiment analysis"
+    - "Calculate complexity scoring"
+    - "Extract action items"
+    - "Write pattern data files"
+    - "Create comprehensive tests"
+
+  entity_extraction:
+    patterns:
+      person_names:
+        - regex: "[A-Z][a-z]+ [A-Z][a-z]+"
+        - prefixes: ["Mr.", "Mrs.", "Ms.", "Dr."]
+        - context: ["customer", "agent", "representative"]
+      
+      monetary_amounts:
+        - regex: "\\$[0-9,]+\\.?[0-9]*"
+        - keywords: ["dollars", "amount", "owe", "balance"]
+        - formats: ["$X,XXX.XX", "$XXX", "X dollars"]
+      
+      dates:
+        - regex: "\\d{1,2}/\\d{1,2}/\\d{2,4}"
+        - regex: "[A-Z][a-z]+ \\d{1,2}, \\d{4}"
+        - keywords: ["due date", "payment date", "deadline"]
+      
+      account_numbers:
+        - regex: "[A-Z]{2,4}-?\\d{4,12}"
+        - keywords: ["account", "reference", "case number"]
+      
+      phone_numbers:
+        - regex: "\\(\\d{3}\\) \\d{3}-\\d{4}"
+        - regex: "\\d{3}-\\d{3}-\\d{4}"
+        - keywords: ["phone", "contact", "number"]
+
+  topic_categorization:
+    categories:
+      payment:
+        keywords:
+          - "payment"
+          - "pay"
+          - "amount due"
+          - "balance"
+          - "settlement"
+        weight: 1.5
+      
+      dispute:
+        keywords:
+          - "dispute"
+          - "disagree"
+          - "not mine"
+          - "incorrect"
+          - "error"
+        weight: 2.0
+      
+      hardship:
+        keywords:
+          - "hardship"
+          - "can't pay"
+          - "unemployed"
+          - "medical"
+          - "financial difficulty"
+        weight: 1.8
+      
+      verification:
+        keywords:
+          - "verify"
+          - "proof"
+          - "validation"
+          - "confirm"
+          - "documentation"
+        weight: 1.2
+      
+      arrangement:
+        keywords:
+          - "payment plan"
+          - "arrangement"
+          - "schedule"
+          - "monthly"
+          - "installments"
+        weight: 1.5
+      
+      complaint:
+        keywords:
+          - "complaint"
+          - "report"
+          - "supervisor"
+          - "manager"
+          - "escalate"
+        weight: 2.0
+
+  regulatory_indicators:
+    detection_rules:
+      fdcpa_relevant:
+        indicators:
+          - "debt collection"
+          - "third party"
+          - "cease and desist"
+          - "validation request"
+          - "attorney representation"
+        confidence_boost: 0.3
+      
+      tcpa_relevant:
+        indicators:
+          - "autodialer"
+          - "robocall"
+          - "do not call"
+          - "consent"
+          - "opt out"
+        confidence_boost: 0.3
+      
+      reg_f_relevant:
+        indicators:
+          - "electronic communication"
+          - "email"
+          - "text message"
+          - "limited content message"
+        confidence_boost: 0.2
+
+  sentiment_analysis:
+    basic_classification: |
+      def analyze_sentiment(text):
+          positive_words = [
+              "thank", "appreciate", "happy", "pleased",
+              "satisfied", "great", "excellent", "wonderful"
+          ]
+          negative_words = [
+              "angry", "frustrated", "upset", "disappointed",
+              "unhappy", "terrible", "awful", "unacceptable"
+          ]
+          
+          positive_count = sum(
+              1 for word in positive_words 
+              if word in text.lower()
+          )
+          negative_count = sum(
+              1 for word in negative_words 
+              if word in text.lower()
+          )
+          
+          if positive_count > negative_count:
+              return "positive"
+          elif negative_count > positive_count:
+              return "negative"
+          else:
+              return "neutral"
+
+  complexity_scoring:
+    factors:
+      - name: "interaction_length"
+        weight: 0.2
+        calculation: "min(1.0, word_count / 1000)"
+      
+      - name: "topic_diversity"
+        weight: 0.3
+        calculation: "min(1.0, unique_topics / 5)"
+      
+      - name: "entity_count"
+        weight: 0.2
+        calculation: "min(1.0, total_entities / 20)"
+      
+      - name: "regulatory_indicators"
+        weight: 0.3
+        calculation: "min(1.0, indicator_count / 3)"
+    
+    scoring: |
+      complexity = sum(
+          factor["weight"] * factor["calculation"]
+          for factor in factors
+      )
+
+  action_items:
+    extraction_patterns:
+      - pattern: "will (send|provide|email|call)"
+        type: "commitment"
+        party: "agent"
+      
+      - pattern: "need to (send|provide|submit)"
+        type: "requirement"
+        party: "customer"
+      
+      - pattern: "by (date|tomorrow|end of)"
+        type: "deadline"
+        priority: "high"
+      
+      - pattern: "follow up (on|with|about)"
+        type: "follow_up"
+        party: "agent"
+
+  output_structure:
+    ContentAnalysis:
+      entities:
+        persons: ["List of names"]
+        amounts: ["List of monetary values"]
+        dates: ["List of dates"]
+        accounts: ["List of account numbers"]
+        phones: ["List of phone numbers"]
+      
+      topics:
+        primary: "Main topic category"
+        secondary: ["Additional topics"]
+        keywords: ["Relevant keywords found"]
+      
+      regulatory:
+        indicators: ["FDCPA", "TCPA", "Reg F"]
+        confidence: 0.8
+        evidence: ["Specific phrases"]
+      
+      sentiment:
+        overall: "positive/negative/neutral"
+        customer: "Customer sentiment"
+        agent: "Agent sentiment"
+      
+      complexity:
+        score: 0.65
+        factors: {"length": 0.7, "topics": 0.6}
+      
+      action_items: [
+        {
+          "type": "commitment",
+          "party": "agent",
+          "action": "send documentation",
+          "deadline": "2024-01-15"
+        }
+      ]
+      
+      metadata:
+        word_count: 500
+        turn_count: 10
+        language: "en"
+        interaction_type: "call"

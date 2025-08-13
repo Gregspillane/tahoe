@@ -1,0 +1,167 @@
+task:
+  id: "r2-t4-result-aggregation"
+  name: "Build Result Aggregation Service"
+  session_size: "Complete aggregation system with weighted scoring and business rules"
+  
+  context:
+    why: "Combines specialist agent outputs into final compliance scores and recommendations"
+    integrates_with: ["orchestration-engine", "agent-factory", "database-schema"]
+    references:
+      - "masterplan aggregation logic (lines 593-607)"
+      - "roadmap phase 2 result aggregation"
+    
+  build_spec:
+    creates:
+      - "services/agent-engine/src/services/aggregation.py"
+      - "services/agent-engine/src/models/results.py"
+      - "services/agent-engine/tests/test_aggregation.py"
+      - "services/agent-engine/tests/fixtures/agent_results.json"
+    modifies:
+      - "src/orchestrator.py (use real aggregator)"
+      - "src/models/api.py (enhance AnalysisResult)"
+      - "scripts/seed.py (add aggregation rules)"
+    uses:
+      - "Weighted scoring algorithms"
+      - "Business rule evaluation"
+      - "Threshold-based categorization"
+    
+  implementation_guide:
+    start_with: "Create ResultAggregator class with aggregate method"
+    core_logic:
+      - "Weighted score calculation"
+      - "Confidence score combination"
+      - "Violation deduplication and severity"
+      - "Recommendation prioritization"
+      - "Category scoring (compliance, quality, etc.)"
+      - "Pass/fail/review determination"
+      - "Audit trail generation"
+    connects_to:
+      - "Agent results from execution"
+      - "Scorecard for rules and thresholds"
+      - "Database for configuration"
+    keeps_simple:
+      - "Basic weighted average for scores"
+      - "Simple confidence calculation"
+      - "No ML-based aggregation"
+      - "Fixed business rules"
+      - "Basic violation merging"
+    
+  local_validation:
+    run_commands:
+      - "python -m pytest tests/test_aggregation.py -v"
+      - "python scripts/test_aggregation.py"
+    verify_endpoints:
+      - "Aggregator combines multiple results"
+      - "Scores calculated correctly"
+      - "Thresholds applied properly"
+    check_functionality:
+      - "Weighted scores match expectations"
+      - "Violations deduplicated correctly"
+      - "Recommendations prioritized"
+      - "Categories scored independently"
+      - "Audit trail complete"
+    
+  session_notes:
+    context_critical:
+      - "Weights from scorecard configuration"
+      - "Thresholds determine pass/fail"
+      - "Confidence affects final score"
+      - "Audit trail for compliance"
+    remember_for_later:
+      - "Aggregation rules are configurable"
+      - "Different scorecards = different logic"
+      - "Categories can have sub-scores"
+      - "Violations need evidence"
+
+  implementation_checklist:
+    - "Create ResultAggregator class"
+    - "Implement weighted scoring"
+    - "Build confidence calculation"
+    - "Add violation processing"
+    - "Create recommendation logic"
+    - "Implement category scoring"
+    - "Add threshold evaluation"
+    - "Generate audit trails"
+    - "Write comprehensive tests"
+
+  aggregation_logic:
+    weighted_score: |
+      total_weight = sum(agent.weight for agent in agents)
+      weighted_sum = sum(
+          result.score * agent.weight 
+          for agent, result in zip(agents, results)
+      )
+      overall_score = weighted_sum / total_weight
+    
+    confidence_calculation: |
+      # Weighted confidence based on agent importance
+      confidence_scores = [r.confidence * a.weight 
+                          for r, a in zip(results, agents)]
+      overall_confidence = sum(confidence_scores) / total_weight
+    
+    violation_processing: |
+      # Deduplicate by violation type and location
+      violations = {}
+      for result in results:
+          for violation in result.violations:
+              key = (violation["type"], violation.get("location"))
+              if key not in violations:
+                  violations[key] = violation
+              else:
+                  # Keep higher severity
+                  if violation["severity"] > violations[key]["severity"]:
+                      violations[key] = violation
+    
+    recommendation_priority: |
+      # Sort by impact and feasibility
+      recommendations = []
+      for result in results:
+          recommendations.extend(result.recommendations)
+      
+      # Deduplicate and sort
+      unique = {r["id"]: r for r in recommendations}
+      sorted_recs = sorted(
+          unique.values(),
+          key=lambda x: (x.get("impact", 0), x.get("feasibility", 0)),
+          reverse=True
+      )
+
+  business_rules:
+    pass_fail_logic: |
+      thresholds = scorecard["thresholds"]
+      
+      if overall_score >= thresholds["pass"]:
+          status = "PASS"
+      elif overall_score >= thresholds["review"]:
+          status = "REVIEW"
+      else:
+          status = "FAIL"
+    
+    category_scoring: |
+      categories = {
+          "compliance": {
+              "score": compliance_score,
+              "weight": 0.4
+          },
+          "quality": {
+              "score": quality_score,
+              "weight": 0.3
+          },
+          "professionalism": {
+              "score": professional_score,
+              "weight": 0.3
+          }
+      }
+
+  result_structure:
+    AnalysisResult:
+      - "analysis_id: str"
+      - "overall_score: float (0-100)"
+      - "confidence: float (0-1)"
+      - "status: str (PASS/FAIL/REVIEW)"
+      - "categories: Dict[str, CategoryScore]"
+      - "violations: List[Violation]"
+      - "recommendations: List[Recommendation]"
+      - "agent_results: Dict[str, AgentResult]"
+      - "audit_trail: AuditTrail"
+      - "execution_time: float"

@@ -1,0 +1,99 @@
+task:
+  id: "r1-t2-database-schema"
+  name: "Build Complete Database Schema with Prisma"
+  session_size: "Full Prisma schema implementation with all tables and relationships"
+  
+  context:
+    why: "Database is the single source of truth for all agent configurations and results"
+    integrates_with: ["api-framework", "agent-factory", "orchestrator"]
+    references:
+      - "masterplan database schema section (lines 70-224)"
+      - "roadmap phase 1 database requirements"
+    
+  build_spec:
+    creates:
+      - "services/agent-engine/prisma/schema.prisma"
+      - "services/agent-engine/scripts/seed.py"
+      - "services/agent-engine/src/models/database.py"
+      - "services/agent-engine/tests/test_database.py"
+    modifies:
+      - "requirements.txt (add prisma dependency)"
+      - "docker-compose.yml (add migration step)"
+      - "src/main.py (add database connection)"
+      - "src/config.py (add DATABASE_URL)"
+    uses:
+      - "Prisma ORM for Python"
+      - "PostgreSQL with UUID support"
+      - "JSON fields for flexible configuration"
+    
+  implementation_guide:
+    start_with: "Create complete Prisma schema file with all 8 tables"
+    core_logic:
+      - "AgentTemplate table with model configs and prompts"
+      - "Scorecard table with requirements and thresholds"
+      - "ScorecardAgent mapping table with weights"
+      - "Portfolio for organization settings"
+      - "Analysis for results and audit trails"
+      - "Tool and ModelProvider configuration tables"
+      - "All foreign key relationships properly defined"
+      - "Indexes for performance-critical queries"
+    connects_to:
+      - "PostgreSQL database via DATABASE_URL"
+      - "Prisma client for type-safe queries"
+    keeps_simple:
+      - "No complex migrations - use db push for now"
+      - "Basic seed data only - minimal examples"
+      - "No database triggers or procedures"
+      - "Standard UUID primary keys throughout"
+    
+  local_validation:
+    run_commands:
+      - "cd services/agent-engine"
+      - "python -m prisma db push"
+      - "python scripts/seed.py"
+      - "python -m prisma studio"
+    verify_endpoints:
+      - "Prisma Studio shows all tables at http://localhost:5555"
+      - "Database has seed data in all tables"
+    check_functionality:
+      - "All tables created with correct columns"
+      - "Foreign key relationships work"
+      - "Can query agent templates"
+      - "Can create analysis records"
+      - "JSON fields store/retrieve correctly"
+    
+  session_notes:
+    context_critical:
+      - "Schema exactly matches masterplan specification"
+      - "Use @@map() for table names (snake_case)"
+      - "All tables have id, createdAt, updatedAt"
+      - "JSON fields for flexible configuration"
+    remember_for_later:
+      - "AgentTemplate drives agent creation"
+      - "Scorecard defines analysis requirements"
+      - "Analysis stores all results"
+      - "Relationships enable efficient queries"
+
+  implementation_checklist:
+    - "Write complete schema.prisma with all 8 tables"
+    - "Define all relationships and indexes"
+    - "Create seed.py with sample data for each table"
+    - "Add Prisma to requirements.txt"
+    - "Initialize Prisma in main.py startup"
+    - "Run db push to create tables"
+    - "Verify with Prisma Studio"
+    - "Test basic CRUD operations"
+
+  seed_data_requirements:
+    agent_templates:
+      - "compliance_analyst with FDCPA rules"
+      - "quality_assessor with scoring dimensions"
+      - "content_analyzer for topic extraction"
+    scorecards:
+      - "standard_compliance scorecard"
+      - "quality_assurance scorecard"
+    portfolios:
+      - "test_portfolio with basic config"
+    model_providers:
+      - "gemini provider config"
+      - "openai provider config (optional)"

@@ -1,0 +1,66 @@
+# Shared Infrastructure Services for Project Tahoe
+# These services are shared by all microservices in the monorepo
+
+version: '3.8'
+
+services:
+  postgres:
+    image: postgres:15-alpine
+    container_name: tahoe-postgres
+    environment:
+      POSTGRES_USER: tahoe
+      POSTGRES_PASSWORD: tahoe
+      POSTGRES_DB: tahoe
+    ports:
+      - "5435:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      - ./init-scripts:/docker-entrypoint-initdb.d
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U tahoe"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - tahoe-network
+
+  redis:
+    image: redis:7-alpine
+    container_name: tahoe-redis
+    ports:
+      - "6382:6379"
+    volumes:
+      - redis_data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - tahoe-network
+
+  # Optional: Redis Commander for debugging
+  redis-commander:
+    image: rediscommander/redis-commander:latest
+    container_name: tahoe-redis-commander
+    environment:
+      - REDIS_HOSTS=local:redis:6379
+    ports:
+      - "8081:8081"
+    depends_on:
+      - redis
+    networks:
+      - tahoe-network
+    profiles:
+      - debug
+
+volumes:
+  postgres_data:
+    name: tahoe_postgres_data
+  redis_data:
+    name: tahoe_redis_data
+
+networks:
+  tahoe-network:
+    name: tahoe_network
+    driver: bridge
