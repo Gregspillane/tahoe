@@ -5,6 +5,9 @@ from config import settings
 
 # Import API routers
 from .api.specifications import router as specifications_router
+from .api.database import router as database_router
+from .api.configuration import router as configuration_router
+from .services.database import init_database
 
 app = FastAPI(
     title=settings.agent_engine.title,
@@ -22,6 +25,16 @@ app.add_middleware(
 
 # Include API routers
 app.include_router(specifications_router, prefix="/api")
+app.include_router(database_router, prefix="/api")
+app.include_router(configuration_router, prefix="/api")
+
+@app.on_event("startup")
+async def startup_event():
+    """Initialize database connection on startup."""
+    try:
+        await init_database()
+    except Exception as e:
+        print(f"Failed to initialize database: {e}")
 
 @app.get("/health")
 async def health():

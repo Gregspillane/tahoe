@@ -1,76 +1,119 @@
 task:
   id: "r3-t03-builtin-tools"
-  name: "Create Built-in Tools Library"
-  description: "Implement a library of commonly used built-in tools for agents"
+  name: "Create Tool Specifications and Collections"  # CORRECTED: Renamed from "Built-in Tools Library"
+  description: "Implement tool specifications, collections, and ADK built-in tool integration"  # CORRECTED: Specification-driven focus
   complexity: "simple"
   estimated_hours: 2
   
   context:
-    why: "Built-in tools provide common functionality that agents frequently need"
-    architectural_role: "Standard tool library available to all agents"
+    why: "Tools provide standardized functionality that agents can leverage through specifications"  # CORRECTED: Specification-driven
+    architectural_role: "Specification-based tool system with runtime registration via ToolRegistry"  # CORRECTED: From masterplan
     depends_on_tasks: ["r3-t01", "r3-t02"]
     enables_tasks: []
     references:
-      masterplan: "@MASTERPLAN.md#built-in-tools"
+      masterplan: "@MASTERPLAN.md#tool-registry-system"  # CORRECTED: Proper section reference
       adk_docs: 
-        - "https://google.github.io/adk-docs/tools/built-in"
+        - "https://google.github.io/adk-docs/tools/built-in-tools/"  # VERIFIED: ADK built-in tools
+        - "https://google.github.io/adk-docs/tools/function-tools/"  # VERIFIED: Function tool wrapping
     
   implementation:
     creates:
-      - path: "services/agent-engine/src/tools/builtin/"
-        purpose: "Built-in tools directory"
+      # CORRECTED: Changed from src/tools/builtin/ to specs/tools/ per masterplan
+      - path: "services/agent-engine/specs/tools/"
+        purpose: "Tool specification directory structure"
         content:
-          - "__init__.py"
-          - "text_tools.py"
-          - "data_tools.py"
-          - "validation_tools.py"
-          - "transformation_tools.py"
+          - "analysis/"  # ADDED: From masterplan categories
+          - "generation/"  # ADDED: From masterplan categories
+          - "integration/"  # ADDED: From masterplan categories
+          - "utility/"  # ADDED: From masterplan categories
       
-      - path: "services/agent-engine/src/tools/builtin/text_tools.py"
-        purpose: "Text processing tools"
+      # ADDED: Tool specification examples per masterplan structure
+      - path: "services/agent-engine/specs/tools/analysis/text_analyzer.yaml"
+        purpose: "Example text analysis tool specification"
         exports:
-          - "summarize_text"
-          - "extract_keywords"
-          - "format_text"
-          - "split_text"
+          - "ToolSpec for text analysis"
+      
+      - path: "services/agent-engine/specs/tools/utility/data_transform.yaml"
+        purpose: "Example data transformation tool specification"
+        exports:
+          - "ToolSpec for data transformation"
+      
+      # ADDED: Core ToolRegistry implementation from masterplan
+      - path: "services/agent-engine/src/core/tools.py"
+        purpose: "Tool registry with runtime registration"
+        exports:
+          - "ToolRegistry"
+          - "register_tool"
+          - "get_tools_for_agent"
+          - "load_tools"
           
     uses_from_previous:
       - source: "r3-t01"
-        component: "ToolRegistry"
-        usage: "Register built-in tools"
+        component: "ToolRegistry base class"  # CORRECTED: Proper dependency
+        usage: "Extend for specification-based registration"
     
   implementation_steps:
-    - step: "Create text processing tools"
+    # CORRECTED: Complete rewrite to match masterplan architecture
+    - step: "Create ToolSpec schema definition"
       implementation_notes: |
-        - Text summarization
-        - Keyword extraction
-        - Text formatting
+        # ADDED: From masterplan L269-293
+        - Define ToolSpec YAML structure:
+          - apiVersion: "agent-engine/v1"
+          - kind: "ToolSpec"
+          - metadata (name, description, categories)
+          - spec (function_definition, dependencies, schemas)
+        - Input/output schema validation
+        - Categories for organization
         
-    - step: "Implement data tools"
+    - step: "Implement ToolRegistry with runtime registration"
       implementation_notes: |
-        - JSON parsing
-        - Data filtering
-        - Data aggregation
+        # ADDED: From masterplan L504-539
+        - register_tool(tool_spec: dict) -> bool
+        - _validate_tool_spec(tool_spec: dict)
+        - _create_function(function_definition: str)
+        - Automatic ADK function wrapping (no explicit FunctionTool unless needed)
+        - get_tools_for_agent(tool_names: list) -> list
         
-    - step: "Add validation tools"
+    - step: "Create tool specification examples"
       implementation_notes: |
-        - Schema validation
-        - Type checking
-        - Range validation
+        # CORRECTED: Specification-driven examples
+        - Text analysis tool (specs/tools/analysis/)
+        - Data transformation tool (specs/tools/utility/)
+        - Integration with ADK built-in tools (google_search)
+        - Each as YAML specification following ToolSpec schema
         
-    - step: "Register all built-in tools"
+    - step: "Integrate ADK built-in tools"
       implementation_notes: |
-        - Auto-discovery
-        - Batch registration
-        - Category assignment
+        # ADDED: From ADK docs verification
+        - Import google_search from google.adk.tools
+        - Add to registry for agent availability
+        - No additional setup required per ADK docs
+        
+    - step: "Implement tool collections and categories"
+      implementation_notes: |
+        # ADDED: From masterplan Advanced Tool System
+        - Tool collections by category
+        - Auto-discovery from specs/tools/ subdirectories
+        - Category-based tool loading
         
   validation:
     commands:
-      - description: "Test built-in tools"
-        command: "cd services/agent-engine && pytest tests/test_builtin_tools.py -v"
-        expected: "All tests pass"
+      - description: "Test tool specification loading"  # CORRECTED: Test focus
+        command: "cd services/agent-engine && pytest tests/test_tool_specs.py -v"
+        expected: "Tool specifications load correctly"
+        
+      - description: "Test ToolRegistry registration"  # ADDED: Registry testing
+        command: "cd services/agent-engine && pytest tests/test_tool_registry.py -v"
+        expected: "Runtime registration works"
+        
+      - description: "Test ADK built-in tool integration"  # ADDED: ADK tools
+        command: "cd services/agent-engine && pytest tests/test_adk_tools.py -v"
+        expected: "ADK tools accessible"
         
     success_criteria:
-      - "Built-in tools implemented"
-      - "Tools registered in registry"
-      - "All tools tested"
+      - "ToolSpec schema defined and validated"  # CORRECTED: Specification-driven
+      - "ToolRegistry implements runtime registration"  # CORRECTED: From masterplan
+      - "Tool specifications created in specs/tools/"  # CORRECTED: Proper location
+      - "ADK built-in tools integrated (google_search)"  # ADDED: ADK integration
+      - "Tool collections organized by category"  # ADDED: From masterplan
+      - "Automatic function wrapping works (no explicit FunctionTool needed)"  # VERIFIED: From ADK docs

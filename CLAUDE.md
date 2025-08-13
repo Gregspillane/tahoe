@@ -216,3 +216,4 @@ When encountering ADK-related issues, consult official documentation first:
 - Fail fast with clear error messages
 - Local dev environment mirrors production
 - Clean code over backwards compatibility (pre-launch)
+- gemini-2.5-flash-lite is the initial model we are going to use. It does exists. Dont change it.

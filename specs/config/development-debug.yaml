@@ -1,0 +1,26 @@
+apiVersion: "agent-engine/v1"
+kind: "ConfigOverride"
+metadata:
+  name: "development-debug"
+  description: "Enhanced debugging configuration for development"
+  version: "1.0.0"
+  created_at: "2025-08-13T00:00:00Z"
+
+spec:
+  development:
+    # Development-specific debug settings
+    observability.log_level: "DEBUG"
+    observability.log_format: "text"
+    
+    # Features for debugging
+    enable_audit: true
+    enable_streaming: true
+    enable_validation: true
+    
+    # ADK Debug Settings
+    adk.timeout: 30
+    adk.retry_attempts: 1
+    
+    # Performance (low for debugging)
+    max_concurrent_executions: 3
+    request_timeout: 60

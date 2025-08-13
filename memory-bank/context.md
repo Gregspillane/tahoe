@@ -1,14 +1,71 @@
 # Project Tahoe - Session Context
 
 ## Last Updated
-- **Date**: 2025-08-13 21:00 PST
-- **Session Focus**: ✅ Successfully Implemented R1-T03 Specification System
+- **Date**: 2025-08-13 22:30 PST
+- **Session Focus**: ✅ Successfully Implemented R1-T05 Configuration Loader System (Corrected)
 - **Session Duration**: ~90 minutes
-- **Result**: Complete implementation with all tests passing
+- **Result**: Complete hierarchical configuration system with environment overrides, database schema isolation, Redis namespacing, and service discovery
 
 ## Current State
 
 ### What Was Accomplished
+
+#### R1-T05 Configuration Loader System Implementation - **COMPLETED** ✅
+
+1. **Hierarchical Configuration System**:
+   - ✅ Implemented corrected configuration loader using project root paths
+   - ✅ Base .env file loading from project root
+   - ✅ Environment-specific overrides from root `config/` directory
+   - ✅ Runtime specification overrides from `services/agent-engine/specs/config/`
+   - ✅ Dynamic configuration reloading capabilities
+
+2. **Database Schema Configuration (Corrected)**:
+   - ✅ Fixed to use schema instead of separate databases: `postgresql://user:pass@host:port/postgres?schema=agent_engine`
+   - ✅ Added `AGENT_ENGINE_DB_SCHEMA` environment variable
+   - ✅ Updated DatabaseConfig to use `database_schema` field
+   - ✅ Maintains service isolation via PostgreSQL schemas
+
+3. **Redis Namespace Support (Corrected)**:
+   - ✅ Added Redis namespace for service isolation: `agent:key`
+   - ✅ Implemented `get_key()` method for namespaced key generation
+   - ✅ Added `AGENT_ENGINE_REDIS_NAMESPACE` environment variable
+   - ✅ Enables multi-service Redis sharing without key conflicts
+
+4. **Service Discovery URLs (Corrected)**:
+   - ✅ Added environment-aware service URL generation
+   - ✅ Development: `http://localhost:8002` (auth), `http://localhost:8003` (billing)
+   - ✅ Staging: `https://auth.staging.tahoe.com`
+   - ✅ Production: `https://auth.tahoe.com`
+   - ✅ Supports future multi-service architecture
+
+5. **Runtime Configuration Overrides**:
+   - ✅ Enhanced ConfigOverride specification structure with environment sections
+   - ✅ Global and per-environment override support (`global`, `development`, `staging`, `production`)
+   - ✅ Dynamic nested key configuration (e.g., `database.host`, `adk.timeout`)
+   - ✅ Created example override specifications
+
+6. **Configuration API Integration**:
+   - ✅ Added 6 new configuration API endpoints (`/api/config/*`)
+   - ✅ Sensitive value masking for security
+   - ✅ Configuration health monitoring
+   - ✅ Runtime reload functionality
+   - ✅ Nested key access via API
+
+7. **Environment Files & Variables (Corrected)**:
+   - ✅ Updated root `.env` file with corrected variables
+   - ✅ Created environment-specific override files at root level
+   - ✅ Added service prefixes for proper isolation
+   - ✅ Maintained gemini-2.5-flash-lite as default model
+
+8. **Comprehensive Testing**:
+   - ✅ Created extensive test suite covering all corrected features
+   - ✅ Tests for Redis namespace, database schema, service discovery
+   - ✅ Validation of runtime overrides and hierarchical loading
+   - ✅ Performance tests and integration tests
+
+#### Previous Sessions - All R1-T04 and Earlier Work - **COMPLETED** ✅
+
+#### Previous Sessions
 
 #### R1-T03 Specification System Implementation - **COMPLETED** ✅
 1. **Created Comprehensive Specification Models**:
@@ -168,13 +225,14 @@
 
 ### Discoveries & Key Insights
 
-#### Critical Architecture Issues
-- **Monorepo Separation Critical**: MASTERPLAN defines clear service boundaries that must be followed
-- **Infrastructure Isolation**: Shared resources (DB, Redis, networking) belong in `services/infrastructure/`
-- **Service Independence**: Each service must be self-contained for separate DNS deployment
-- **Docker Context Issues**: Infrastructure placement affects container build contexts and networking
+#### Critical Configuration Architecture (R1-T05)
+- **Database Schema vs Separate Databases**: Using PostgreSQL schemas for service isolation instead of separate databases provides better resource utilization and management
+- **Redis Namespace Pattern**: Service isolation via namespaced keys (`agent:key`) enables multiple services to share Redis instances safely
+- **Service Discovery Design**: Environment-aware URL generation pattern supports seamless deployment across dev/staging/production environments
+- **Runtime Configuration**: ConfigOverride specifications enable dynamic configuration changes without code deployment
+- **Hierarchical Config Loading**: Base → Environment → Runtime override pattern provides maximum flexibility with clear precedence
 
-#### Technical Patterns (Previously Established)
+#### Technical Patterns (Previously Established + New)
 - **ADK Pattern Compliance Critical**: Official ADK documentation patterns must be followed exactly
 - **Agent Naming Constraints**: Agent names must be valid Python identifiers (underscores, not hyphens)
 - **LoopAgent Structure**: Uses `sub_agents` as a list parameter, not `sub_agent`
@@ -182,14 +240,58 @@
 - **Model Parameters**: Set at runtime, not during agent creation
 - **Configuration Flexibility**: Pydantic-settings enables environment-aware configuration
 - **Multi-stage Builds**: Reduce final image size and improve security
+- **Service Isolation Patterns**: Database schemas and Redis namespaces for multi-service architecture
+- **Configuration Security**: Sensitive value masking by default in APIs and exports
 
 ### Current File States
 
-#### Task Files Updated
-- **R1-T03 Specification System**:
-  - `tasks/r1-foundation/r1-t03-specification-system.yaml`: Fully corrected with AgentCompositionService integration
-  - Now includes all specification types and proper ADK patterns
-  - Ready for implementation in next session
+#### Configuration System Files (R1-T05 Complete)
+- **Core Implementation**:
+  - `services/agent-engine/src/core/configuration.py`: Hierarchical configuration loader with runtime specs ✅
+  - `services/agent-engine/src/models/configuration.py`: Complete Pydantic configuration models ✅
+  - `services/agent-engine/src/api/configuration.py`: 6 configuration API endpoints ✅
+
+- **Configuration Files**:
+  - `.env`: Updated with corrected variables (schema, namespace, service prefixes) ✅
+  - `config/development.env`: Development-specific overrides ✅
+  - `config/staging.env`: Staging environment configuration ✅
+  - `config/production.env`: Production environment configuration ✅
+
+- **Runtime Specifications**:
+  - `services/agent-engine/specs/config/runtime-overrides.yaml`: Environment-specific config overrides ✅
+  - `specs/config/performance-optimized.yaml`: Performance configuration template ✅
+  - `specs/config/development-debug.yaml`: Debug configuration template ✅
+
+- **Testing & Validation**:
+  - `tests/test_configuration.py`: Comprehensive test suite for configuration system ✅
+  - All validation commands passing (namespace, schema, service discovery) ✅
+
+- **Integration**:
+  - `src/main.py`: Updated with configuration router integration ✅
+  - API endpoints operational with health monitoring ✅
+
+#### Database System Files (R1-T04 Complete) - Previous Session
+
+#### Specification System Files (R1-T03 Complete)
+- **Core Implementation**:
+  - `src/models/specifications.py`: Pydantic models for all spec types ✅
+  - `src/core/specifications.py`: Parser and validator with ADK compliance ✅
+  - `src/core/composition.py`: AgentCompositionService & UniversalAgentFactory ✅
+  - `src/services/configuration_version.py`: Version tracking with checksums ✅
+  - `src/api/specifications.py`: 15 API endpoints for spec management ✅
+
+- **Specifications Created**:
+  - `specs/agents/examples/analyzer.yaml`: LLM agent with tools and sub-agents ✅
+  - `specs/workflows/examples/sequential_process.yaml`: Sequential workflow ✅
+  - `specs/workflows/examples/conditional_routing.yaml`: Conditional workflow ✅
+  - `specs/tools/examples/text_analyzer.yaml`: Sentiment analysis tool ✅
+  - `specs/models/development.yaml`: Development model config ✅
+  - `specs/models/production.yaml`: Production model config with HA ✅
+
+- **Testing & Validation**:
+  - `tests/test_specifications.py`: 17 tests for models, parser, validator ✅
+  - `tests/test_composition_integration.py`: Integration tests for composition ✅
+  - `scripts/validate_specifications.py`: Comprehensive validation script ✅
 
 #### Agent Engine Service (Self-Contained)
 - **Core Application**:
@@ -233,57 +335,60 @@
 - **Implementation Progress**:
   - R1-T01: ✅ Project Setup (Complete)
   - R1-T02: ✅ ADK Component Verification (Complete with pattern validation)
-  - R1-T03: 📋 Specification System (Ready to implement)
-  - R1-T04: 📋 Database Setup with Prisma (Ready to implement)
-  - R1-T05: 📋 Configuration Loader System (Foundation complete)
+  - R1-T03: ✅ Specification System (Complete with full integration)
+  - R1-T04: ✅ Database Setup with Prisma (Complete with full CRUD operations)
+  - R1-T05: ✅ Configuration Loader System (Complete with corrected implementation)
 
 ## Next Steps
 
 ### **IMMEDIATE** - Implementation Phase (Next Session)
-1. **Execute R1-T03: Specification System** ✅ Ready to implement
-   - Build YAML/JSON specification parser for all spec types
-   - Create AgentCompositionService with UniversalAgentFactory
-   - Implement validation system with ADK compliance checks
-   - Add configuration version tracking
-   - Create all API endpoints for spec management
-   - Integrate with centralized configuration system
+1. **Begin R2 Composition Implementation** 🎯 Ready to implement
+   - R2-T01: Agent Factory Base (foundation for dynamic composition)
+   - R2-T02: LLM Agent Builder (builds on specification system)
+   - Leverage completed configuration system for agent settings
+   - Use completed database for execution tracking
 
-2. **Execute R1-T04: Database Setup with Prisma**
-   - Configure PostgreSQL with the corrected infrastructure setup
-   - Set up Prisma ORM with centralized configuration
-   - Create initial schema for agent metadata and sessions
+2. **Configuration System Enhancements** (Optional)
+   - Integration with specification versioning for config rollback
+   - Advanced configuration validation rules
+   - Configuration change notifications
 
-3. **Execute R1-T05: Configuration Loader System** 
-   - Extend the current configuration system for runtime agent configs
-   - Add dynamic configuration reloading capabilities
-   - Integrate with specification system
+3. **R1 Foundation Optimization** (Future)
+   - Performance monitoring integration
+   - Advanced audit capabilities
+   - Enhanced security features
 
 ### Implementation Ready
-- **Foundation Complete**: ADK validated, centralized config working, Docker ready
-- **Infrastructure Ready**: PostgreSQL, Redis containers configured
+- **Foundation Complete**: ADK validated, hierarchical config system working, Docker ready
+- **Database Ready**: PostgreSQL operational with complete CRUD API and schema isolation
+- **Configuration System**: Environment-aware config with runtime overrides and service discovery
+- **Specification System**: Full agent/workflow/tool specification support ready
 - **Development Environment**: Hot reload, validation tools, examples working
 - **Production Patterns**: Multi-stage builds, security, monitoring endpoints
 
-### Dependencies Cleared
+### Dependencies Cleared - R1 Foundation 100% Complete
 - R1-T01 ✅ Complete - Project setup foundation
 - R1-T02 ✅ Complete - ADK components validated and compliant
-- R1-T03 through R1-T05 ready for parallel implementation
-- All subsequent tasks can leverage validated ADK patterns and centralized configuration
+- R1-T03 ✅ Complete - Specification system ready for dynamic composition
+- R1-T04 ✅ Complete - Database infrastructure ready for execution tracking
+- R1-T05 ✅ Complete - Configuration system with environment isolation and service discovery
+- All R2+ tasks can leverage complete foundation with validated patterns, configs, and persistent storage
 
 ## Environment Status
 - Working directory: `/Users/gregspillane/Documents/Projects/tahoe`
-- Git status: Enhanced project structure with validated ADK patterns
-- Python environment: ✅ Python 3.12 venv with pydantic-settings
+- Git status: Enhanced project structure with validated ADK patterns and database
+- Python environment: ✅ Python 3.12 venv with Prisma ORM
 - ADK: ✅ Validated and compliant (google-adk 1.10.0)
 - FastAPI: ✅ Running with centralized config (port 8001)
-- Docker: ✅ Multi-service setup tested successfully
-- Configuration: ✅ Centralized .env system working
+- Database: ✅ PostgreSQL with Prisma schema and migrations
+- Docker: ✅ Multi-service setup with persistent volumes
+- Configuration: ✅ Centralized .env system with DATABASE_URL
 
 ## Session Notes
-- **ADK Pattern Validation**: Critical for production readiness - all patterns now compliant
-- **Configuration Architecture**: Environment-aware system supports dev/staging/prod seamlessly  
-- **Docker Development**: Hot reload with centralized config mounting works excellently
-- **Validation Tools**: Created comprehensive testing and validation scripts
-- **Production Ready**: Multi-stage builds, security, health checks, monitoring endpoints
-- **Foundation Complete**: R1-T01 and R1-T02 provide solid base for remaining tasks
-- **Next Focus**: R1-T03 (Specifications), R1-T04 (Database), R1-T05 (Configuration Extensions)
+- **Database Integration**: Complete persistence layer with all CRUD operations and audit capabilities
+- **API Consistency**: Database endpoints follow same patterns as specification APIs
+- **Prisma ORM**: Provides type-safe database access with automatic migrations
+- **Infrastructure Patterns**: Docker Compose setup supports both development and production
+- **Testing Foundation**: Comprehensive test coverage for database operations
+- **R1 Foundation**: 4/5 tasks complete - only configuration loader extensions remain
+- **Next Focus**: R1-T05 (Configuration Loader), then R2 Composition tasks

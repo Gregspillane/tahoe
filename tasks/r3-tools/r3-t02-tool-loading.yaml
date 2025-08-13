@@ -7,22 +7,29 @@ task:
   
   context:
     why: "Dynamic tool loading enables runtime tool registration and flexible tool management"
-    architectural_role: "Loads tools from various sources and integrates with the registry"
+    architectural_role: "Loads tools from specs/tools/ directory, validates schemas, and manages dependencies"
     depends_on_tasks: ["r3-t01"]
     enables_tasks: []
     references:
       masterplan: "@MASTERPLAN.md#tool-loading-and-validation"
       adk_patterns: "@tasks/adk-patterns.md#dynamic-tool-loading"
+      # ADDED: ADK documentation references
+      adk_docs:
+        - "https://google.github.io/adk-docs/tools/function-tools/"
+        - "https://google.github.io/adk-docs/tools/"
     
   implementation:
     creates:
       - path: "services/agent-engine/src/core/tool_loader.py"
-        purpose: "Dynamic tool loading implementation"
+        purpose: "Dynamic tool loading implementation with specification parsing"
         exports:
           - "ToolLoader: Main loader class"
-          - "ToolSource: Enum for tool sources"
+          - "ToolSource: Enum for tool sources (registry, inline, import, spec)"
+          - "ToolSpecParser: Parse YAML/JSON tool specifications"
           - "ToolImporter: Import tools from modules"
           - "InlineToolBuilder: Build tools from definitions"
+          - "DependencyManager: Handle tool dependencies"
+          - "SchemaValidator: Validate input/output schemas"
         
     uses_from_previous:
       - source: "r3-t01"
@@ -32,29 +39,90 @@ task:
   implementation_steps:
     - step: "Create ToolLoader class"
       implementation_notes: |
-        - Load from specifications
-        - Support multiple sources
-        - Handle dependencies
+        # CORRECTED: Added specification directory handling
+        - Load from specs/tools/ directory with YAML/JSON parsing
+        - Parse tool specifications with apiVersion and kind validation
+        - Support multiple sources (registry, inline, import, spec)
+        - Extract metadata (name, version, tags, categories)
+        - Handle FunctionTool wrapping based on explicit_wrapping flag
+        
+    - step: "Implement specification parser"
+      implementation_notes: |
+        # ADDED: From masterplan lines 267-293
+        - Parse YAML/JSON tool specifications
+        - Validate apiVersion: "agent-engine/v1"
+        - Validate kind: "ToolSpec"
+        - Extract function_definition from spec
+        - Parse input_schema and output_schema
+        - Extract categories for tool organization
+        
+    - step: "Build dependency management"
+      implementation_notes: |
+        # ADDED: From masterplan line 282
+        - Parse dependencies field from tool spec
+        - Check for required packages (nltk, transformers, etc.)
+        - Validate dependencies are installed
+        - Provide informative error messages for missing deps
         
     - step: "Implement module importing"
       implementation_notes: |
         - Dynamic import from paths
-        - Discover tool functions
-        - Handle import errors
+        - Discover tool functions with introspection
+        - Handle import errors gracefully
+        - Support both functions and class methods
+        # VERIFIED: ADK automatic wrapping for Python functions
         
     - step: "Build inline tool creator"
       implementation_notes: |
-        - Parse inline definitions
-        - Create callable functions
-        - Validate safety
+        - Parse inline definitions from specs
+        - Create callable functions using exec with safe context
+        - Validate function signatures match schema
+        - Apply input/output schema validation
+        
+    - step: "Implement schema validation"
+      implementation_notes: |
+        # ADDED: From masterplan lines 283-293
+        - Validate input_schema against function parameters
+        - Validate output_schema for return values
+        - Support JSON Schema format
+        - Provide detailed validation errors
+        
+    - step: "Add FunctionTool wrapping logic"
+      implementation_notes: |
+        # ADDED: From masterplan lines 516-518, 976-978
+        # VERIFIED: ADK automatic wrapping by default
+        - Check explicit_wrapping flag in spec
+        - If true, wrap with FunctionTool explicitly
+        - If false, rely on ADK automatic wrapping
+        - Handle return value dict wrapping
+        
+    - step: "Implement tool categorization"
+      implementation_notes: |
+        # ADDED: From masterplan line 282, 770
+        - Extract categories from tool spec
+        - Support tool collections by category
+        - Enable filtering by category
+        - Prepare for future marketplace functionality
         
   validation:
     commands:
       - description: "Test tool loading"
         command: "cd services/agent-engine && pytest tests/test_tool_loader.py -v"
         expected: "All tests pass"
+      
+      - description: "Test specification parsing"
+        command: "cd services/agent-engine && pytest tests/test_tool_spec_parser.py -v"
+        expected: "Specification parsing tests pass"
+      
+      - description: "Validate sample tool specs"
+        command: "cd services/agent-engine && python scripts/validate_tool_specs.py"
+        expected: "All tool specifications valid"
         
     success_criteria:
-      - "Tools load from all sources"
-      - "Validation works correctly"
-      - "Error handling robust"
+      - "Tools load from specs/tools/ directory with YAML/JSON parsing"
+      - "Input/output schema validation works correctly"
+      - "Dependency checking reports missing packages"
+      - "FunctionTool wrapping respects explicit_wrapping flag"
+      - "Tool categorization enables filtering"
+      - "Error handling provides clear, actionable messages"
+      - "Integration with ToolRegistry from r3-t01"

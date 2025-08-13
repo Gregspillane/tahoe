@@ -1,66 +1,144 @@
 task:
   id: "r3-t01-tool-registry"
   name: "Build Universal Tool Registry System"
-  description: "Create the core tool registry that manages tool registration, validation, and discovery"
+  description: "Create the core tool registry that manages tool registration, validation, discovery, and specification-driven loading"
   complexity: "medium"
   estimated_hours: 4
   
   context:
-    why: "A centralized tool registry enables dynamic tool loading and management across all agents"
-    architectural_role: "Central registry for all tools with validation, categorization, and runtime registration"
+    why: "A centralized tool registry enables dynamic tool loading and management across all agents with specification-driven architecture"
+    architectural_role: "Central registry for all tools with validation, categorization, runtime registration, and YAML/JSON specification support"
     depends_on_tasks: ["r1-t05", "r2-t01"]
     enables_tasks: ["r3-t02", "r3-t03", "r3-t04"]
     references:
       masterplan: "@MASTERPLAN.md#tool-registry-system"
       adk_docs: 
-        - "https://google.github.io/adk-docs/tools/function-tool"
-        - "https://google.github.io/adk-docs/tools/automatic-wrapping"
+        - "https://google.github.io/adk-docs/tools/function-tools"
+        - "https://google.github.io/adk-docs/tools/"
+        - "https://google.github.io/adk-docs/tools/built-in-tools"
       adk_patterns: "@tasks/adk-patterns.md#tool-integration"
     
   adk_components:
     imports_needed:
       - "from google.adk.tools import FunctionTool"
+      - "from google.adk.tools import google_search  # Built-in ADK tool"
       - "from typing import Callable, Dict, Any, List, Optional"
       - "import inspect"
-      - "from pydantic import BaseModel"
+      - "import yaml"
+      - "import json"
+      - "from pydantic import BaseModel, Field"
+      - "from datetime import datetime"
+      - "import importlib"
+      - "import ast"
     verified_patterns:
-      - pattern: "ADK automatically wraps most Python functions"
-        doc_ref: "https://google.github.io/adk-docs/tools/automatic-wrapping"
-      - pattern: "Use FunctionTool for explicit control"
-        doc_ref: "https://google.github.io/adk-docs/tools/function-tool"
+      - pattern: "ADK automatically wraps Python functions as FunctionTools"
+        doc_ref: "https://google.github.io/adk-docs/tools/function-tools"
+      - pattern: "Use FunctionTool for explicit control when needed"
+        doc_ref: "https://google.github.io/adk-docs/tools/function-tools"
+      - pattern: "Built-in tools available via imports"
+        doc_ref: "https://google.github.io/adk-docs/tools/built-in-tools"
     
   implementation:
     creates:
       - path: "services/agent-engine/src/core/tools.py"
-        purpose: "Core tool registry implementation"
+        purpose: "Core tool registry implementation with specification support"
         exports:
-          - "ToolRegistry: Main registry class"
-          - "ToolSpec: Tool specification model"
-          - "ToolValidator: Tool validation logic"
-          - "ToolCategory: Tool categorization"
+          - "ToolRegistry: Main registry class with YAML/JSON loading"
+          - "ToolSpec: Enhanced tool specification model"
+          - "ToolValidator: Tool validation logic with schema checking"
+          - "ToolCategory: Tool categorization and collections"
+          - "ToolLoader: Specification parser and loader"
         content_structure: |
           from google.adk.tools import FunctionTool
+          from google.adk.tools import google_search  # ADDED: Built-in ADK tool
           from typing import Callable, Dict, Any, List, Optional
           from pydantic import BaseModel, Field
           import inspect
+          import yaml
+          import json
           import logging
+          from datetime import datetime
+          import importlib
+          import ast
+          from pathlib import Path
           
           logger = logging.getLogger(__name__)
           
           class ToolSpec(BaseModel):
-              """Specification for a tool"""
+              """Enhanced specification for a tool with full metadata"""  # CORRECTED: Added missing fields
               name: str
               description: str
               function: Optional[Callable] = None
+              function_definition: Optional[str] = None  # ADDED: For inline tool code
               categories: List[str] = Field(default_factory=list)
               input_schema: Optional[Dict] = None
               output_schema: Optional[Dict] = None
-              requires_wrapping: bool = False
-              dependencies: List[str] = Field(default_factory=list)
+              wrap_explicitly: bool = False  # CORRECTED: Changed from requires_wrapping
+              dependencies: List[str] = Field(default_factory=list)  # ADDED: Dependency tracking
+              version: str = "1.0.0"  # ADDED: Version management
+              source: str = "registry"  # ADDED: registry, inline, or import
+              module: Optional[str] = None  # ADDED: For import-based tools
               metadata: Dict[str, Any] = Field(default_factory=dict)
           
+          class ToolLoader:
+              """Loads tool specifications from YAML/JSON files"""  # ADDED: Specification parser
+              
+              def load_from_file(self, file_path: str) -> ToolSpec:
+                  """Load tool specification from YAML or JSON file"""
+                  path = Path(file_path)
+                  
+                  with open(path, 'r') as f:
+                      if path.suffix in ['.yaml', '.yml']:
+                          spec_data = yaml.safe_load(f)
+                      else:
+                          spec_data = json.load(f)
+                  
+                  # Validate spec structure
+                  if spec_data.get('kind') != 'ToolSpec':
+                      raise ValueError(f"Invalid specification kind: {spec_data.get('kind')}")
+                  
+                  # Extract tool specification
+                  tool_meta = spec_data.get('metadata', {})
+                  tool_spec = spec_data.get('spec', {})
+                  
+                  return ToolSpec(
+                      name=tool_meta.get('name'),
+                      description=tool_spec.get('description'),
+                      function_definition=tool_spec.get('function_definition'),
+                      categories=tool_spec.get('categories', []),
+                      input_schema=tool_spec.get('input_schema'),
+                      output_schema=tool_spec.get('output_schema'),
+                      wrap_explicitly=tool_spec.get('wrap_explicitly', False),
+                      dependencies=tool_spec.get('dependencies', []),
+                      version=tool_meta.get('version', '1.0.0'),
+                      source=tool_spec.get('source', 'inline'),
+                      module=tool_spec.get('module'),
+                      metadata=tool_meta
+                  )
+              
+              def load_directory(self, directory: str) -> List[ToolSpec]:
+                  """Load all tool specifications from a directory"""
+                  specs = []
+                  path = Path(directory)
+                  
+                  for file_path in path.glob('**/*.yaml'):
+                      try:
+                          spec = self.load_from_file(str(file_path))
+                          specs.append(spec)
+                      except Exception as e:
+                          logger.error(f"Failed to load {file_path}: {e}")
+                  
+                  for file_path in path.glob('**/*.json'):
+                      try:
+                          spec = self.load_from_file(str(file_path))
+                          specs.append(spec)
+                      except Exception as e:
+                          logger.error(f"Failed to load {file_path}: {e}")
+                  
+                  return specs
+          
           class ToolValidator:
-              """Validates tool functions and specifications"""
+              """Validates tool functions and specifications with schema checking"""  # CORRECTED: Added schema validation
               
               def validate_function(self, func: Callable) -> bool:
                   """Validate a tool function"""
@@ -69,21 +147,54 @@ task:
                       # Check for valid signature
                       if len(sig.parameters) == 0:
                           logger.warning(f"Tool {func.__name__} has no parameters")
+                      
+                      # Validate docstring exists for LLM understanding
+                      if not func.__doc__:
+                          logger.warning(f"Tool {func.__name__} lacks docstring")
+                      
                       return True
                   except Exception as e:
                       logger.error(f"Invalid tool function: {e}")
                       return False
               
               def validate_spec(self, spec: ToolSpec) -> bool:
-                  """Validate tool specification"""
+                  """Validate tool specification with comprehensive checks"""
                   if not spec.name:
+                      logger.error("Tool spec missing name")
                       return False
+                  
+                  if not spec.description:
+                      logger.error(f"Tool {spec.name} missing description")
+                      return False
+                  
+                  # Validate function or function_definition exists
+                  if not spec.function and not spec.function_definition:
+                      logger.error(f"Tool {spec.name} has no function or definition")
+                      return False
+                  
                   if spec.function and not self.validate_function(spec.function):
                       return False
+                  
+                  # ADDED: Validate schemas if provided
+                  if spec.input_schema:
+                      if not self._validate_schema(spec.input_schema):
+                          logger.error(f"Invalid input schema for {spec.name}")
+                          return False
+                  
+                  if spec.output_schema:
+                      if not self._validate_schema(spec.output_schema):
+                          logger.error(f"Invalid output schema for {spec.name}")
+                          return False
+                  
                   return True
+              
+              def _validate_schema(self, schema: Dict) -> bool:
+                  """Validate JSON schema structure"""
+                  required_keys = ['type']
+                  return all(key in schema for key in required_keys)
           
           class ToolCategory:
-              """Tool categorization system"""
+              """Tool categorization and collections system"""  # CORRECTED: Added collections support
               
               CATEGORIES = {
                   "analysis": "Data analysis and processing tools",
@@ -91,71 +202,120 @@ task:
                   "integration": "External system integration tools",
                   "utility": "General utility tools",
                   "validation": "Data validation tools",
-                  "transformation": "Data transformation tools"
+                  "transformation": "Data transformation tools",
+                  "nlp": "Natural language processing tools"  # ADDED: NLP category
               }
               
               def __init__(self):
                   self.category_tools: Dict[str, List[str]] = {
                       cat: [] for cat in self.CATEGORIES
                   }
+                  self.collections: Dict[str, List[str]] = {}  # ADDED: Tool collections
               
               def add_tool(self, tool_name: str, categories: List[str]):
                   """Add tool to categories"""
                   for category in categories:
                       if category in self.category_tools:
-                          self.category_tools[category].append(tool_name)
+                          if tool_name not in self.category_tools[category]:
+                              self.category_tools[category].append(tool_name)
+                      else:
+                          logger.warning(f"Unknown category: {category}")
               
               def get_tools_by_category(self, category: str) -> List[str]:
                   """Get all tools in a category"""
                   return self.category_tools.get(category, [])
+              
+              def create_collection(self, name: str, tool_names: List[str]):
+                  """Create a named collection of tools"""  # ADDED: Collection management
+                  self.collections[name] = tool_names
+                  logger.info(f"Created collection '{name}' with {len(tool_names)} tools")
+              
+              def get_collection(self, name: str) -> List[str]:
+                  """Get tools in a collection"""
+                  return self.collections.get(name, [])
           
           class ToolRegistry:
-              """Universal tool registry"""
+              """Universal tool registry with specification support"""  # CORRECTED: Complete implementation
               
-              def __init__(self):
-                  self.tools: Dict[str, ToolSpec] = {}
+              def __init__(self, specs_directory: Optional[str] = None):
+                  self.tools: Dict[str, Dict[str, Any]] = {}
                   self.validator = ToolValidator()
                   self.categories = ToolCategory()
+                  self.loader = ToolLoader()
                   self._init_builtin_tools()
+                  
+                  # ADDED: Load specifications from directory if provided
+                  if specs_directory:
+                      self.load_specifications(specs_directory)
               
               def register(self, spec: ToolSpec) -> bool:
-                  """Register a tool"""
+                  """Register a tool from specification"""
                   if not self.validator.validate_spec(spec):
                       logger.error(f"Invalid tool spec: {spec.name}")
                       return False
                   
-                  # Wrap with FunctionTool if needed
-                  if spec.requires_wrapping and spec.function:
+                  # ADDED: Create function from definition if needed
+                  if spec.function_definition and not spec.function:
+                      spec.function = self._create_function_from_spec(spec)
+                  
+                  # CORRECTED: Only wrap with FunctionTool if explicitly requested
+                  # ADK automatically wraps functions, so explicit wrapping is optional
+                  if spec.wrap_explicitly and spec.function:
                       spec.function = FunctionTool(spec.function)
                   
-                  self.tools[spec.name] = spec
+                  # Store tool with full metadata
+                  self.tools[spec.name] = {
+                      "function": spec.function,
+                      "spec": spec,
+                      "version": spec.version,  # ADDED: Version tracking
+                      "created_at": datetime.now()
+                  }
+                  
                   self.categories.add_tool(spec.name, spec.categories)
-                  logger.info(f"Registered tool: {spec.name}")
+                  logger.info(f"Registered tool: {spec.name} v{spec.version}")
                   return True
               
               def register_function(self, func: Callable, 
                                    name: Optional[str] = None,
                                    description: Optional[str] = None,
                                    categories: List[str] = None,
-                                   requires_wrapping: bool = False) -> bool:
+                                   wrap_explicitly: bool = False,
+                                   version: str = "1.0.0") -> bool:
                   """Register a function as a tool"""
                   tool_name = name or func.__name__
                   tool_desc = description or func.__doc__ or "No description"
+                  
+                  # ADDED: Extract schemas from function signature
+                  input_schema = self._extract_input_schema(func)
+                  output_schema = self._extract_output_schema(func)
                   
                   spec = ToolSpec(
                       name=tool_name,
                       description=tool_desc,
                       function=func,
                       categories=categories or ["utility"],
-                      requires_wrapping=requires_wrapping
+                      wrap_explicitly=wrap_explicitly,
+                      version=version,
+                      input_schema=input_schema,
+                      output_schema=output_schema
                   )
                   
                   return self.register(spec)
               
+              def load_specifications(self, directory: str):
+                  """Load all tool specifications from directory"""  # ADDED: Bulk loading
+                  specs = self.loader.load_directory(directory)
+                  
+                  for spec in specs:
+                      try:
+                          self.register(spec)
+                      except Exception as e:
+                          logger.error(f"Failed to register {spec.name}: {e}")
+              
               def get_tool(self, name: str) -> Optional[Callable]:
                   """Get a tool function by name"""
-                  spec = self.tools.get(name)
-                  return spec.function if spec else None
+                  tool_data = self.tools.get(name)
+                  return tool_data["function"] if tool_data else None
               
               def get_tools_for_agent(self, tool_names: List[str]) -> List[Callable]:
                   """Get multiple tools for agent creation"""
@@ -168,6 +328,33 @@ task:
                           logger.warning(f"Tool not found: {name}")
                   return tools
               
+              def load_tools(self, tool_refs: List[Dict]) -> List[Callable]:
+                  """Load tools by reference or inline definition"""  # ADDED: Multiple source support
+                  tools = []
+                  for tool_ref in tool_refs:
+                      source = tool_ref.get("source", "registry")
+                      
+                      if source == "registry":
+                          tool = self.get_tool(tool_ref["name"])
+                          if tool:
+                              tools.append(tool)
+                      elif source == "inline":
+                          # Create function from inline definition
+                          func = self._create_function_from_definition(
+                              tool_ref["definition"],
+                              tool_ref.get("name", "inline_tool")
+                          )
+                          tools.append(func)
+                      elif source == "import":
+                          # Import tool from module
+                          func = self._import_tool(
+                              tool_ref["module"],
+                              tool_ref["name"]
+                          )
+                          tools.append(func)
+                  
+                  return tools
+              
               def list_tools(self) -> List[str]:
                   """List all registered tool names"""
                   return list(self.tools.keys())
@@ -175,10 +362,51 @@ task:
               def get_tools_by_category(self, category: str) -> List[ToolSpec]:
                   """Get all tools in a category"""
                   tool_names = self.categories.get_tools_by_category(category)
-                  return [self.tools[name] for name in tool_names if name in self.tools]
+                  return [self.tools[name]["spec"] for name in tool_names if name in self.tools]
+              
+              def create_collection(self, name: str, tool_names: List[str]):
+                  """Create a tool collection"""  # ADDED: Collection support
+                  self.categories.create_collection(name, tool_names)
+              
+              def get_collection(self, name: str) -> List[Callable]:
+                  """Get tools in a collection"""
+                  tool_names = self.categories.get_collection(name)
+                  return self.get_tools_for_agent(tool_names)
+              
+              def update_tool(self, name: str, spec: ToolSpec) -> bool:
+                  """Update an existing tool"""  # ADDED: Tool updates with versioning
+                  if name not in self.tools:
+                      logger.error(f"Tool {name} not found for update")
+                      return False
+                  
+                  # Store previous version for rollback
+                  old_spec = self.tools[name]["spec"]
+                  self.tools[name]["previous_versions"] = self.tools[name].get("previous_versions", [])
+                  self.tools[name]["previous_versions"].append({
+                      "spec": old_spec,
+                      "replaced_at": datetime.now()
+                  })
+                  
+                  # Update with new spec
+                  return self.register(spec)
+              
+              def rollback_tool(self, name: str) -> bool:
+                  """Rollback tool to previous version"""  # ADDED: Rollback capability
+                  if name not in self.tools:
+                      return False
+                  
+                  previous = self.tools[name].get("previous_versions", [])
+                  if not previous:
+                      logger.error(f"No previous version for {name}")
+                      return False
+                  
+                  # Restore previous version
+                  prev_version = previous.pop()
+                  self.register(prev_version["spec"])
+                  return True
               
               def _init_builtin_tools(self):
-                  """Initialize built-in tools"""
+                  """Initialize built-in ADK tools"""  # CORRECTED: More comprehensive built-in tools
                   # Register google_search if available
                   try:
                       from google.adk.tools import google_search
@@ -190,52 +418,170 @@ task:
                       )
                   except ImportError:
                       logger.debug("google_search tool not available")
+                  
+                  # ADDED: Register other built-in tools as they become available
+                  # Future: code_execution, rag_retrieval, etc.
+              
+              def _create_function_from_spec(self, spec: ToolSpec) -> Callable:
+                  """Create function from specification"""  # ADDED: Dynamic function creation
+                  if spec.function_definition:
+                      return self._create_function_from_definition(
+                          spec.function_definition,
+                          spec.name
+                      )
+                  elif spec.module:
+                      return self._import_tool(spec.module, spec.name)
+                  else:
+                      raise ValueError(f"Cannot create function for {spec.name}")
+              
+              def _create_function_from_definition(self, definition: str, name: str) -> Callable:
+                  """Create function from string definition"""  # ADDED: Inline function creation
+                  # Parse and compile the function definition
+                  local_namespace = {}
+                  exec(definition, {}, local_namespace)
+                  
+                  # Find the function in namespace
+                  for key, value in local_namespace.items():
+                      if callable(value):
+                          return value
+                  
+                  raise ValueError(f"No callable found in definition for {name}")
+              
+              def _import_tool(self, module_path: str, function_name: str) -> Callable:
+                  """Import tool from module"""  # ADDED: Import-based loading
+                  module = importlib.import_module(module_path)
+                  return getattr(module, function_name)
+              
+              def _extract_input_schema(self, func: Callable) -> Dict:
+                  """Extract input schema from function signature"""  # ADDED: Schema extraction
+                  sig = inspect.signature(func)
+                  schema = {
+                      "type": "object",
+                      "properties": {},
+                      "required": []
+                  }
+                  
+                  for param_name, param in sig.parameters.items():
+                      if param_name == "self":
+                          continue
+                      
+                      prop_schema = {"type": "string"}  # Default type
+                      
+                      # Try to infer type from annotation
+                      if param.annotation != inspect.Parameter.empty:
+                          python_type = param.annotation
+                          if python_type == int:
+                              prop_schema = {"type": "integer"}
+                          elif python_type == float:
+                              prop_schema = {"type": "number"}
+                          elif python_type == bool:
+                              prop_schema = {"type": "boolean"}
+                          elif python_type == list or python_type == List:
+                              prop_schema = {"type": "array"}
+                          elif python_type == dict or python_type == Dict:
+                              prop_schema = {"type": "object"}
+                      
+                      schema["properties"][param_name] = prop_schema
+                      
+                      # Add to required if no default
+                      if param.default == inspect.Parameter.empty:
+                          schema["required"].append(param_name)
+                  
+                  return schema
+              
+              def _extract_output_schema(self, func: Callable) -> Dict:
+                  """Extract output schema from function return annotation"""  # ADDED: Return type schema
+                  sig = inspect.signature(func)
+                  
+                  if sig.return_annotation == inspect.Signature.empty:
+                      # Default to object type
+                      return {"type": "object"}
+                  
+                  return_type = sig.return_annotation
+                  if return_type == dict or return_type == Dict:
+                      return {"type": "object"}
+                  elif return_type == str:
+                      return {"type": "string"}
+                  elif return_type == int:
+                      return {"type": "integer"}
+                  elif return_type == float:
+                      return {"type": "number"}
+                  elif return_type == bool:
+                      return {"type": "boolean"}
+                  elif return_type == list or return_type == List:
+                      return {"type": "array"}
+                  else:
+                      return {"type": "object"}
       
       - path: "services/agent-engine/tests/test_tool_registry.py"
-        purpose: "Unit tests for tool registry"
+        purpose: "Comprehensive unit tests for tool registry"
         test_categories:
-          - "Tool registration"
-          - "Tool validation"
-          - "Category management"
-          - "Tool retrieval"
+          - "Tool registration from functions"
+          - "Tool registration from specifications"
+          - "YAML/JSON loading"
+          - "Tool validation with schemas"
+          - "Category and collection management"
+          - "Tool retrieval and updates"
+          - "Version management and rollback"
+          - "Multiple source loading (registry, inline, import)"
     
     uses_from_previous:
       - source: "r1-t05"
         component: "Configuration system"
-        usage: "For loading tool configurations"
+        usage: "For loading tool configurations from environment"
+      - source: "r2-t01"
+        component: "Agent factory"
+        usage: "Registry provides tools for agent composition"
     
   implementation_steps:
-    - step: "Create ToolSpec model"
+    - step: "Create enhanced ToolSpec model"
       implementation_notes: |
-        - Define tool specification structure
-        - Include metadata and schemas
-        - Support function reference
+        - Define comprehensive tool specification structure
+        - Include function_definition for inline tools
+        - Add version and dependency tracking
+        - Support multiple sources (registry, inline, import)
         
-    - step: "Implement ToolValidator"
+    - step: "Implement ToolLoader for YAML/JSON"
+      implementation_notes: |
+        - Parse tool specifications from files
+        - Support batch loading from directories
+        - Validate specification format
+        - Handle both YAML and JSON formats
+        
+    - step: "Implement ToolValidator with schemas"
       implementation_notes: |
         - Validate function signatures
-        - Check dependencies
-        - Verify schemas
+        - Check input/output schemas
+        - Verify dependencies
+        - Ensure proper documentation
         
-    - step: "Build ToolCategory system"
+    - step: "Build ToolCategory with collections"
       implementation_notes: |
         - Define standard categories
         - Enable category queries
         - Support multiple categories per tool
+        - Implement tool collections
         
-    - step: "Create ToolRegistry"
+    - step: "Create comprehensive ToolRegistry"
       implementation_notes: |
-        - Core registration logic
-        - Tool storage and retrieval
-        - Category integration
-        - Built-in tool initialization
+        - Core registration logic with versioning
+        - YAML/JSON specification loading
+        - Multiple source support (registry, inline, import)
+        - Dynamic function creation
+        - Schema extraction from signatures
+        - Tool updates and rollback
+        - Collection management
+        - Built-in ADK tool initialization
         
     - step: "Write comprehensive tests"
       implementation_notes: |
-        - Test registration
-        - Test validation
-        - Test categorization
-        - Test retrieval
+        - Test function registration
+        - Test specification loading
+        - Test validation with schemas
+        - Test categorization and collections
+        - Test version management
+        - Test rollback functionality
+        - Test multiple source loading
         
   validation:
     commands:
@@ -243,33 +589,58 @@ task:
         command: "cd services/agent-engine && pytest tests/test_tool_registry.py -v"
         expected: "All tests pass"
         
-      - description: "Verify tool registration"
+      - description: "Verify tool registration from function"
         command: |
           cd services/agent-engine && python -c "
           from src.core.tools import ToolRegistry
           registry = ToolRegistry()
-          def test_tool(x): return x * 2
+          def test_tool(x: int) -> int: 
+              '''Doubles the input'''
+              return x * 2
           registry.register_function(test_tool)
           print(f'Tools: {registry.list_tools()}')
           "
         expected: "Tools list includes test_tool"
         
+      - description: "Verify YAML specification loading"
+        command: |
+          cd services/agent-engine && python -c "
+          from src.core.tools import ToolRegistry
+          registry = ToolRegistry(specs_directory='specs/tools')
+          print(f'Loaded tools: {len(registry.list_tools())}')
+          "
+        expected: "Shows count of loaded tools from specs directory"
+        
+      - description: "Verify tool collections"
+        command: |
+          cd services/agent-engine && python -c "
+          from src.core.tools import ToolRegistry
+          registry = ToolRegistry()
+          registry.create_collection('analysis_suite', ['analyzer', 'validator'])
+          tools = registry.get_collection('analysis_suite')
+          print(f'Collection has {len(tools)} tools')
+          "
+        expected: "Collection functionality works"
+        
     success_criteria:
-      - "ToolRegistry implemented and functional"
-      - "Tool validation works correctly"
-      - "Categories system operational"
+      - "ToolRegistry implemented with full specification support"
+      - "YAML/JSON tool loading functional"
+      - "Tool validation with schema checking works"
+      - "Categories and collections system operational"
+      - "Version management and rollback functional"
+      - "Multiple tool sources supported (registry, inline, import)"
       - "All tests pass"
       
   dependencies:
     required_before:
       - task: "r1-t05"
-        reason: "Need configuration system"
+        reason: "Need configuration system for environment settings"
       - task: "r2-t01"
-        reason: "Registry integrates with factory"
+        reason: "Registry integrates with agent factory"
         
     enables_after:
       - task: "r3-t02"
-        reason: "Tool loading needs registry"
+        reason: "Tool loading needs complete registry"
       - task: "r3-t03"
         reason: "Built-in tools use registry"
       - task: "r3-t04"

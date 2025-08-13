@@ -233,6 +233,60 @@
 - Enables faster development for new team members
 **Impact**: Faster development, fewer ADK-related bugs
 
+## 2025-08-13: Database Architecture Decisions
+
+### Decision: Prisma ORM for Database Access
+**Choice**: Use Prisma ORM with PostgreSQL for all database operations
+**Alternatives Considered**:
+- SQLAlchemy (rejected - less type safety, more complex)
+- Raw SQL with asyncpg (rejected - more error prone, no migrations)
+- Django ORM (rejected - tied to Django framework)
+**Rationale**:
+- Type-safe database access with automatic Python client generation
+- Built-in migration system with version control
+- JSON field support for flexible data storage (specifications, state)
+- Modern developer experience with schema-first approach
+**Impact**: Safer database operations, automatic type checking, easier maintenance
+
+### Decision: Comprehensive Database Schema Design
+**Choice**: Create 6 core entities covering all platform operations
+**Alternatives Considered**:
+- Minimal schema with just sessions (rejected - insufficient for production)
+- NoSQL document store (rejected - relational data needs)
+- Separate databases per service (rejected - unnecessary complexity for now)
+**Rationale**:
+- Session tracking required for ADK integration
+- Execution tracking needed for observability and debugging
+- Audit logging essential for security and compliance
+- Tool registry enables dynamic tool management
+- Configuration versioning supports rollback and change tracking
+**Impact**: Complete operational visibility, production-ready audit capabilities
+
+### Decision: UUID Primary Keys with Proper Indexing
+**Choice**: Use UUIDs for all primary keys with strategic indexing
+**Alternatives Considered**:
+- Auto-incrementing integers (rejected - not globally unique)
+- Composite keys (rejected - more complex relationships)
+**Rationale**:
+- Globally unique identifiers across distributed systems
+- No collision risk when scaling horizontally
+- Better security (non-guessable IDs)
+- Proper indexes on foreign keys and query patterns
+**Impact**: Scalable ID scheme, better security, optimal query performance
+
+### Decision: Database Service Singleton Pattern
+**Choice**: Single DatabaseService instance with connection management
+**Alternatives Considered**:
+- New connection per request (rejected - performance overhead)
+- Global connection pool (rejected - less controlled)
+- Per-endpoint database clients (rejected - inconsistent)
+**Rationale**:
+- Consistent connection management across the application
+- Built-in health checking and error handling
+- Proper async/await support with Prisma client
+- Easy to test and mock for unit tests
+**Impact**: Reliable database access, consistent error handling, testable code
+
 ## Future Decisions Needed
 
 ### Pending: CI/CD Pipeline

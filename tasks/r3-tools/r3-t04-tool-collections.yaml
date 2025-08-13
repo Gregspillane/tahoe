@@ -1,13 +1,13 @@
 task:
   id: "r3-t04-tool-collections"
   name: "Implement Tool Collections and Categories"
-  description: "Create system for organizing tools into collections and categories for easier discovery and management"
+  description: "Create system for organizing tools into collections and categories with performance monitoring"
   complexity: "simple"
-  estimated_hours: 2
+  estimated_hours: 3  # CORRECTED: Increased from 2 to include performance monitoring
   
   context:
-    why: "Tool collections enable agents to easily access related tools and simplify tool management"
-    architectural_role: "Organization layer for tools with collections and categories"
+    why: "Tool collections enable agents to easily access related tools with performance tracking and security boundaries"
+    architectural_role: "Organization layer for tools with collections, categories, and monitoring"
     depends_on_tasks: ["r3-t01", "r3-t02", "r3-t03"]
     enables_tasks: []
     references:
@@ -17,34 +17,81 @@ task:
   implementation:
     creates:
       - path: "services/agent-engine/src/core/tool_collections.py"
-        purpose: "Tool collection management"
+        purpose: "Tool collection management with performance monitoring"
         exports:
-          - "ToolCollection: Collection of related tools"
-          - "CollectionManager: Manages tool collections"
-          - "ToolDiscovery: Tool discovery service"
+          - "ToolCollection: Collection of related tools with metadata"
+          - "CollectionManager: Manages tool collections and categories"
+          - "ToolPerformanceMonitor: Tracks tool execution metrics"  # ADDED: From masterplan requirements
         content_structure: |
-          from typing import List, Dict, Any, Optional
+          from typing import List, Dict, Any, Optional, Set
           from pydantic import BaseModel, Field
+          from datetime import datetime
           import logging
+          import time
+          from collections import defaultdict
           
           from .tools import ToolRegistry, ToolSpec
           
           logger = logging.getLogger(__name__)
           
           class ToolCollection(BaseModel):
-              """A collection of related tools"""
+              """A collection of related tools with metadata and categorization"""
               name: str
               description: str
               tools: List[str] = Field(default_factory=list)
               categories: List[str] = Field(default_factory=list)
               metadata: Dict[str, Any] = Field(default_factory=dict)
+              # ADDED: Security and performance fields
+              security_level: str = "standard"  # standard, restricted, sandboxed
+              performance_threshold_ms: int = 5000  # Max execution time
+          
+          class ToolPerformanceMonitor:
+              """Monitors tool performance and usage analytics"""  # ADDED: From masterplan line 771
+              
+              def __init__(self):
+                  self.metrics: Dict[str, Dict] = defaultdict(lambda: {
+                      "total_calls": 0,
+                      "total_time_ms": 0,
+                      "avg_time_ms": 0,
+                      "max_time_ms": 0,
+                      "min_time_ms": float('inf'),
+                      "error_count": 0,
+                      "last_called": None
+                  })
+              
+              def record_execution(self, tool_name: str, execution_time_ms: float, success: bool = True):
+                  """Record tool execution metrics"""
+                  metrics = self.metrics[tool_name]
+                  metrics["total_calls"] += 1
+                  metrics["total_time_ms"] += execution_time_ms
+                  metrics["avg_time_ms"] = metrics["total_time_ms"] / metrics["total_calls"]
+                  metrics["max_time_ms"] = max(metrics["max_time_ms"], execution_time_ms)
+                  metrics["min_time_ms"] = min(metrics["min_time_ms"], execution_time_ms)
+                  metrics["last_called"] = datetime.now()
+                  
+                  if not success:
+                      metrics["error_count"] += 1
+              
+              def get_metrics(self, tool_name: str) -> Optional[Dict]:
+                  """Get performance metrics for a tool"""
+                  return self.metrics.get(tool_name)
+              
+              def get_slow_tools(self, threshold_ms: float = 1000) -> List[str]:
+                  """Get tools with average execution time above threshold"""
+                  return [
+                      tool for tool, metrics in self.metrics.items()
+                      if metrics["avg_time_ms"] > threshold_ms
+                  ]
           
           class CollectionManager:
-              """Manages tool collections"""
+              """Manages tool collections with categories and performance tracking"""
               
               def __init__(self, registry: ToolRegistry):
                   self.registry = registry
                   self.collections: Dict[str, ToolCollection] = {}
+                  self.performance_monitor = ToolPerformanceMonitor()  # ADDED: Performance tracking
+                  self._tool_to_collections: Dict[str, Set[str]] = defaultdict(set)  # ADDED: Reverse mapping
+                  self._category_to_tools: Dict[str, Set[str]] = defaultdict(set)  # CORRECTED: Direct category mapping
                   self._init_default_collections()
               
               def create_collection(self, collection: ToolCollection) -> bool:
@@ -54,6 +101,11 @@ task:
                       return False
                   
                   self.collections[collection.name] = collection
+                  
+                  # Update category mappings
+                  for category in collection.categories:
+                      self._category_to_tools[category].update(collection.tools)
+                  
                   logger.info(f"Created collection: {collection.name}")
                   return True
               
@@ -69,6 +121,12 @@ task:
                   collection = self.collections[collection_name]
                   if tool_name not in collection.tools:
                       collection.tools.append(tool_name)
+                      self._tool_to_collections[tool_name].add(collection_name)
+                      
+                      # Update category mappings
+                      for category in collection.categories:
+                          self._category_to_tools[category].add(tool_name)
+                  
                   return True
               
               def get_collection_tools(self, collection_name: str) -> List[ToolSpec]:
@@ -84,93 +142,132 @@ task:
                           tools.append(spec)
                   return tools
               
+              def get_tools_by_category(self, category: str) -> List[str]:
+                  """Get all tools in a category"""  # CORRECTED: Direct implementation
+                  return list(self._category_to_tools.get(category, set()))
+              
+              def get_tool_collections(self, tool_name: str) -> List[str]:
+                  """Get all collections containing a tool"""
+                  return list(self._tool_to_collections.get(tool_name, set()))
+              
+              def validate_collection_security(self, collection_name: str) -> bool:
+                  """Validate security constraints for a collection"""  # ADDED: Security from masterplan line 772
+                  if collection_name not in self.collections:
+                      return False
+                  
+                  collection = self.collections[collection_name]
+                  
+                  # Check if all tools meet security requirements
+                  for tool_name in collection.tools:
+                      spec = self.registry.tools.get(tool_name)
+                      if spec and spec.metadata.get("security_level", "standard") != collection.security_level:
+                          logger.warning(f"Tool {tool_name} does not meet security level {collection.security_level}")
+                          return False
+                  
+                  return True
+              
               def _init_default_collections(self):
                   """Initialize default collections"""
                   default_collections = [
                       ToolCollection(
                           name="text_processing",
                           description="Tools for text manipulation and analysis",
-                          categories=["analysis", "transformation"]
+                          categories=["analysis", "transformation"],
+                          security_level="standard"
                       ),
                       ToolCollection(
                           name="data_analysis",
                           description="Tools for data analysis and processing",
-                          categories=["analysis", "validation"]
+                          categories=["analysis", "validation"],
+                          security_level="standard"
                       ),
                       ToolCollection(
                           name="integration",
                           description="Tools for external system integration",
-                          categories=["integration"]
+                          categories=["integration", "api"],
+                          security_level="restricted"  # ADDED: Higher security for external integrations
                       ),
                       ToolCollection(
                           name="utilities",
                           description="General utility tools",
-                          categories=["utility"]
+                          categories=["utility", "helper"],
+                          security_level="standard"
                       )
                   ]
                   
                   for collection in default_collections:
                       self.create_collection(collection)
+      
+      - path: "services/agent-engine/src/api/tools.py"
+        purpose: "API endpoints for tool registry and collections"  # ADDED: Missing API implementation
+        exports:
+          - "router: FastAPI router for tool endpoints"
+        content_structure: |
+          from fastapi import APIRouter, HTTPException, Depends
+          from typing import List, Dict, Any
+          from pydantic import BaseModel
           
-          class ToolDiscovery:
-              """Service for discovering tools"""
+          from ..core.tools import ToolRegistry
+          from ..core.tool_collections import CollectionManager, ToolCollection
+          from ..models.api import CreateCollectionRequest, ToolMetricsResponse
+          
+          router = APIRouter(prefix="/tools", tags=["tools"])
+          
+          # Dependency injection
+          def get_registry() -> ToolRegistry:
+              # Implementation depends on app setup
+              pass
+          
+          def get_collection_manager() -> CollectionManager:
+              # Implementation depends on app setup
+              pass
+          
+          @router.post("/collections")
+          async def create_tool_collection(
+              request: CreateCollectionRequest,
+              manager: CollectionManager = Depends(get_collection_manager)
+          ):
+              """Create a new tool collection"""  # ADDED: API endpoint from masterplan line 571
+              collection = ToolCollection(**request.dict())
+              success = manager.create_collection(collection)
               
-              def __init__(self, registry: ToolRegistry, manager: CollectionManager):
-                  self.registry = registry
-                  self.manager = manager
+              if not success:
+                  raise HTTPException(status_code=400, detail="Collection already exists")
               
-              def search_tools(self, query: str) -> List[ToolSpec]:
-                  """Search for tools by name or description"""
-                  results = []
-                  query_lower = query.lower()
-                  
-                  for name, spec in self.registry.tools.items():
-                      if (query_lower in name.lower() or 
-                          query_lower in spec.description.lower()):
-                          results.append(spec)
-                  
-                  return results
+              return {"message": "Collection created successfully", "collection": collection.name}
+          
+          @router.get("/collections/{collection_name}")
+          async def get_collection(
+              collection_name: str,
+              manager: CollectionManager = Depends(get_collection_manager)
+          ):
+              """Get tools in a collection"""
+              tools = manager.get_collection_tools(collection_name)
+              if not tools:
+                  raise HTTPException(status_code=404, detail="Collection not found")
               
-              def recommend_tools(self, context: Dict[str, Any]) -> List[str]:
-                  """Recommend tools based on context"""
-                  recommendations = []
-                  
-                  # Simple recommendation logic based on task type
-                  task_type = context.get("task_type", "")
-                  
-                  if "text" in task_type:
-                      recommendations.extend(
-                          self.registry.categories.get_tools_by_category("analysis")
-                      )
-                  if "data" in task_type:
-                      recommendations.extend(
-                          self.registry.categories.get_tools_by_category("transformation")
-                      )
-                  
-                  return list(set(recommendations))  # Remove duplicates
+              return {"collection": collection_name, "tools": [t.name for t in tools]}
+          
+          @router.get("/metrics/{tool_name}")
+          async def get_tool_metrics(
+              tool_name: str,
+              manager: CollectionManager = Depends(get_collection_manager)
+          ):
+              """Get performance metrics for a tool"""  # ADDED: Performance monitoring endpoint
+              metrics = manager.performance_monitor.get_metrics(tool_name)
               
-              def get_tool_info(self, tool_name: str) -> Optional[Dict]:
-                  """Get detailed information about a tool"""
-                  spec = self.registry.tools.get(tool_name)
-                  if not spec:
-                      return None
-                  
-                  return {
-                      "name": spec.name,
-                      "description": spec.description,
-                      "categories": spec.categories,
-                      "input_schema": spec.input_schema,
-                      "output_schema": spec.output_schema,
-                      "dependencies": spec.dependencies,
-                      "metadata": spec.metadata
-                  }
+              if not metrics:
+                  raise HTTPException(status_code=404, detail="No metrics found for tool")
+              
+              return ToolMetricsResponse(**metrics)
       
       - path: "services/agent-engine/tests/test_tool_collections.py"
-        purpose: "Tests for tool collections"
+        purpose: "Tests for tool collections with performance monitoring"
         test_categories:
           - "Collection management"
-          - "Tool discovery"
-          - "Recommendations"
+          - "Category mapping"  # CORRECTED: Removed discovery/recommendations
+          - "Performance monitoring"  # ADDED: From masterplan requirements
+          - "Security validation"  # ADDED: From masterplan requirements
     
     uses_from_previous:
       - source: "r3-t01"
@@ -183,27 +280,41 @@ task:
   implementation_steps:
     - step: "Create ToolCollection model"
       implementation_notes: |
-        - Define collection structure
-        - Support metadata
-        - Enable categorization
+        - Define collection structure with security level
+        - Support metadata and performance thresholds
+        - Enable categorization with reverse mappings
         
     - step: "Implement CollectionManager"
       implementation_notes: |
-        - Manage collections
-        - Add/remove tools
-        - Query collections
+        - Manage collections with category tracking
+        - Add/remove tools with validation
+        - Query collections and categories directly
+        - Track tool-to-collection mappings
         
-    - step: "Build ToolDiscovery service"
+    - step: "Build ToolPerformanceMonitor"  # ADDED: From masterplan line 771
       implementation_notes: |
-        - Search functionality
-        - Tool recommendations
-        - Information retrieval
+        - Track execution metrics per tool
+        - Calculate averages and identify slow tools
+        - Record errors and success rates
+        - Support threshold-based alerts
+        
+    - step: "Implement security validation"  # ADDED: From masterplan line 772
+      implementation_notes: |
+        - Validate tool security levels
+        - Enforce collection security boundaries
+        - Support sandboxing configuration
+        
+    - step: "Create API endpoints"  # ADDED: From masterplan line 571
+      implementation_notes: |
+        - POST /tools/collections endpoint
+        - Collection query endpoints
+        - Performance metrics endpoints
         
     - step: "Create default collections"
       implementation_notes: |
-        - Standard collections
-        - Category mapping
-        - Auto-population
+        - Standard collections with security levels
+        - Category mapping initialization
+        - Auto-population from registry
         
   validation:
     commands:
@@ -219,13 +330,27 @@ task:
           registry = ToolRegistry()
           manager = CollectionManager(registry)
           print(f'Collections: {list(manager.collections.keys())}')
+          print(f'Categories: {list(manager._category_to_tools.keys())}')
           "
-        expected: "Default collections listed"
+        expected: "Default collections and categories listed"
+        
+      - description: "Test performance monitoring"  # ADDED: Validation for monitoring
+        command: |
+          cd services/agent-engine && python -c "
+          from src.core.tool_collections import ToolPerformanceMonitor
+          monitor = ToolPerformanceMonitor()
+          monitor.record_execution('test_tool', 150.5, True)
+          metrics = monitor.get_metrics('test_tool')
+          print(f'Tool metrics: {metrics}')
+          "
+        expected: "Performance metrics recorded and retrieved"
         
     success_criteria:
-      - "CollectionManager implemented"
-      - "ToolDiscovery functional"
-      - "Default collections created"
+      - "CollectionManager implemented with category support"
+      - "ToolPerformanceMonitor functional"  # ADDED: Performance monitoring
+      - "Security validation working"  # ADDED: Security features
+      - "API endpoints created"  # ADDED: API implementation
+      - "Default collections created with security levels"
       - "All tests pass"
       
   dependencies:

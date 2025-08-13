@@ -1,0 +1,37 @@
+apiVersion: "agent-engine/v1"
+kind: "ConfigOverride"
+metadata:
+  name: "runtime-config-overrides"
+  description: "Runtime configuration overrides by environment"
+  version: "1.0.0"
+  created_at: "2025-08-13T00:00:00Z"
+
+spec:
+  global:
+    # Global overrides apply to all environments
+    cache_ttl: 7200
+    
+  development:
+    # Development-specific overrides
+    log_level: "DEBUG"
+    enable_tracing: true
+    max_concurrent_executions: 5
+    adk.timeout: 60
+    database.connection_timeout: 10
+    
+  staging:
+    # Staging-specific overrides
+    log_level: "INFO"
+    enable_tracing: true
+    max_concurrent_executions: 20
+    adk.retry_attempts: 5
+    database.max_connections: 15
+    
+  production:
+    # Production-specific overrides
+    log_level: "WARNING"
+    enable_tracing: false
+    max_concurrent_executions: 100
+    enable_metrics: true
+    adk.retry_attempts: 5
+    database.max_connections: 25

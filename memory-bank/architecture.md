@@ -21,6 +21,11 @@ class UniversalAgentFactory:
     def build_agent(spec: dict, context: dict) -> BaseAgent
 ```
 **Supports**: LlmAgent, SequentialAgent, ParallelAgent, LoopAgent, Custom (BaseAgent)
+**Features**:
+- Automatic name sanitization (hyphens to underscores)
+- Dynamic tool loading (registry, inline, import)
+- Context injection for template variables
+- Sub-agent composition with conditions
 
 ### 3. Centralized Configuration System
 **Pattern**: Environment-aware configuration with deployment flexibility
@@ -43,6 +48,10 @@ class UniversalAgentFactory:
 - Automatic function wrapping (ADK feature)
 - Explicit FunctionTool when needed
 **Categories**: Analysis, Generation, Integration, Utility
+**Loading Sources**:
+- Registry: Pre-registered tools
+- Inline: Function definitions in specs
+- Import: Module-based tools
 
 ## ADK Integration Points
 
@@ -109,20 +118,27 @@ User Request → API Gateway → Specification Loader → Agent Factory
 - Direct model API calls (handled by ADK)
 - Business logic (stays in specifications)
 
-## Database Schema Design
+## Database Schema Design ✅ **IMPLEMENTED**
 
-### Core Entities
-1. **Session**: ADK session tracking
-2. **Execution**: Workflow/agent execution records
-3. **Result**: Execution outputs
-4. **AuditLog**: Complete audit trail
-5. **ToolRegistry**: Dynamic tool management
-6. **ConfigurationVersion**: Specification versioning
+### Core Entities (Prisma Schema)
+1. **Session**: ADK session tracking with state and metadata storage
+2. **Execution**: Agent/workflow execution records with timing and status
+3. **Result**: Intermediate and final execution outputs
+4. **AuditLog**: Complete audit trail with user actions and resource access
+5. **ToolRegistry**: Dynamic tool management with versioning and categories
+6. **ConfigurationVersion**: Specification versioning with checksums and rollback
 
-### Relationships
-- Session → Many Executions
-- Execution → Many Results
-- All entities → Audit logs
+### Relationships (Enforced by Prisma)
+- Session → Many Executions (session_id foreign key)
+- Execution → Many Results (execution_id foreign key)
+- Session/Execution → Many AuditLogs (optional foreign keys)
+- All entities use UUID primary keys with proper indexing
+
+### Database Service Patterns
+- **Connection Management**: Singleton service with connection pooling
+- **CRUD Operations**: Type-safe operations via Prisma client
+- **JSON Fields**: Flexible data storage for state, metadata, specifications
+- **Health Monitoring**: Built-in health checks and statistics
 
 ## API Design Principles
 
@@ -132,12 +148,11 @@ User Request → API Gateway → Specification Loader → Agent Factory
 - JSON request/response
 - Consistent error format
 
-### Endpoint Categories
+### Endpoint Categories ✅ **IMPLEMENTED**
 1. **Core**: Health, metrics, config
-2. **Agents**: Composition, management
-3. **Workflows**: Execution, monitoring
-4. **Tools**: Registration, discovery
-5. **Sessions**: Creation, state management
+2. **Specifications**: Agent/workflow/tool specs, validation, composition
+3. **Database**: Sessions, executions, results, audit logs, tools, configurations
+4. **Health**: ADK verification, database health, service statistics
 
 ## Security Architecture
 
@@ -198,11 +213,12 @@ User Request → API Gateway → Specification Loader → Agent Factory
 
 ## Technical Decisions Made
 
-### Language & Framework
+### Language & Framework ✅ **IMPLEMENTED**
 - **Python 3.12**: Using latest stable Python (ADK requires 3.9+)
 - **FastAPI**: Async REST API framework with centralized configuration
-- **Prisma**: Type-safe ORM
-- **Redis**: Caching and sessions
+- **Prisma ORM**: Type-safe database access with automatic migrations
+- **PostgreSQL 15**: Primary database with Docker container setup
+- **Redis**: Caching and sessions (Docker container ready)
 - **Google ADK 1.10.0**: Core agent framework (validated and compliant)
 - **Pydantic Settings**: Environment-aware configuration management
 

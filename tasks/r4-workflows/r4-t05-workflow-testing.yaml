@@ -1,125 +1,261 @@
 task:
   id: "r4-t05-workflow-testing"
-  name: "Create Comprehensive Workflow Testing Framework"
-  description: "Build testing framework for all workflow components including engine, state, events, and conditional logic"
-  complexity: "simple"
-  estimated_hours: 2
+  name: "Create Comprehensive ADK-Based Workflow Testing Framework"
+  description: "Build complete testing framework for ADK agent orchestration, workflow engine, session management, tool registry, and model abstraction layers with 85%+ coverage"
+  complexity: "complex"  # CORRECTED: From simple - comprehensive ADK testing is complex
+  estimated_hours: 12    # CORRECTED: From 2 hours - realistic for comprehensive testing
   
   context:
-    why: "Comprehensive testing ensures workflow reliability and enables confident deployment"
-    architectural_role: "Quality assurance layer for workflow system"
+    why: "Comprehensive testing ensures ADK workflow reliability and enables confident deployment with full coverage of agent orchestration"
+    architectural_role: "Quality assurance layer for universal agent orchestration system"  # CORRECTED: More accurate description
     depends_on_tasks: ["r4-t01", "r4-t02", "r4-t03", "r4-t04"]
     enables_tasks: []
     references:
       masterplan: "@MASTERPLAN.md#testing-standards"
       decisions: "@memory-bank/decisions.md#test-driven-development"
+      adk_docs: "https://google.github.io/adk-docs/"  # ADDED: ADK documentation reference
     
   implementation:
     creates:
       - path: "services/agent-engine/tests/workflows/"
-        purpose: "Workflow testing directory"
+        purpose: "ADK workflow testing directory"  # CORRECTED: Specify ADK focus
         content:
           - "__init__.py"
+          - "test_adk_agent_composition.py"        # ADDED: ADK agent testing
           - "test_workflow_integration.py"
           - "test_workflow_scenarios.py"
           - "test_workflow_performance.py"
+          - "test_session_management.py"           # ADDED: Session testing
+          - "test_tool_registry.py"               # ADDED: Tool registry testing
+          - "test_model_abstraction.py"           # ADDED: Model abstraction testing
+          - "test_adk_runners.py"                 # ADDED: Runner testing
+          - "test_specification_validation.py"     # ADDED: Spec validation testing
           - "fixtures.py"
       
-      - path: "services/agent-engine/tests/workflows/test_workflow_integration.py"
-        purpose: "Integration tests for workflow system"
+      - path: "services/agent-engine/tests/workflows/test_adk_agent_composition.py"  # ADDED: New comprehensive ADK test file
+        purpose: "ADK agent composition and orchestration tests"
         test_categories:
-          - "End-to-end workflows"
-          - "Component integration"
-          - "Error recovery"
-          - "State persistence"
+          - "LlmAgent creation and execution"              # VERIFIED: ADK docs confirm LlmAgent
+          - "SequentialAgent workflow orchestration"       # VERIFIED: ADK docs confirm SequentialAgent
+          - "ParallelAgent concurrent execution"           # VERIFIED: ADK docs confirm ParallelAgent  
+          - "LoopAgent iterative processing"               # VERIFIED: ADK docs confirm LoopAgent
+          - "Custom BaseAgent implementations"             # VERIFIED: ADK docs confirm BaseAgent
+          - "Agent specification parsing"                  # ADDED: From masterplan
+          - "Dynamic agent factory testing"               # ADDED: From masterplan
+          - "Sub-agent composition patterns"              # ADDED: From masterplan
+        imports:  # ADDED: Verified ADK imports
+          - "from google.adk.agents import LlmAgent, SequentialAgent, ParallelAgent, LoopAgent, BaseAgent"
+          - "from google.adk.runners import InMemoryRunner" 
+          - "from google.adk.sessions import InMemorySessionService"
+          - "from google.adk.tools import FunctionTool"
+      
+      - path: "services/agent-engine/tests/workflows/test_workflow_integration.py"
+        purpose: "Integration tests for ADK workflow system"  # CORRECTED: Specify ADK
+        test_categories:
+          - "End-to-end ADK workflows"                     # CORRECTED: Specify ADK
+          - "InMemoryRunner integration"                   # CORRECTED: Specific ADK component
+          - "Session service integration"                  # CORRECTED: ADK session focus
+          - "Error recovery with ADK patterns"             # CORRECTED: ADK-specific recovery
+          - "State persistence across sessions"            # CORRECTED: ADK session state
       
       - path: "services/agent-engine/tests/workflows/test_workflow_scenarios.py"
-        purpose: "Real-world workflow scenarios"
+        purpose: "Real-world ADK workflow scenarios"  # CORRECTED: Specify ADK
         test_categories:
-          - "Sequential processing"
-          - "Parallel execution"
-          - "Conditional routing"
-          - "Loop workflows"
-          - "Nested workflows"
+          - "SequentialAgent processing workflows"     # CORRECTED: Specific ADK agent type
+          - "ParallelAgent concurrent execution"       # CORRECTED: Specific ADK agent type
+          - "Conditional agent routing"                # CORRECTED: ADK conditional patterns
+          - "LoopAgent iterative workflows"           # CORRECTED: Specific ADK agent type
+          - "Nested agent hierarchies"                # CORRECTED: ADK sub-agent patterns
+          - "Mixed agent type compositions"            # ADDED: Complex ADK scenarios
+          - "Tool integration with agents"            # ADDED: ADK tool patterns
+          - "Model fallback scenarios"                # ADDED: From masterplan
       
       - path: "services/agent-engine/tests/workflows/test_workflow_performance.py"
-        purpose: "Performance and load tests"
+        purpose: "ADK performance and load tests"  # CORRECTED: Specify ADK
         test_categories:
-          - "Throughput testing"
-          - "Latency measurement"
-          - "Resource usage"
-          - "Scalability tests"
+          - "Agent execution throughput"             # CORRECTED: ADK-specific
+          - "InMemoryRunner latency measurement"     # CORRECTED: Specific ADK component
+          - "Session service resource usage"        # CORRECTED: ADK session focus
+          - "Parallel agent scalability"           # CORRECTED: Specific ADK component
+          - "Tool invocation performance"          # ADDED: ADK tool performance
+          - "Model switching overhead"             # ADDED: From masterplan
+          - "Memory usage patterns"               # ADDED: Important for ADK
+      
+      # ADDED: New test files for comprehensive ADK coverage
+      - path: "services/agent-engine/tests/workflows/test_session_management.py"
+        purpose: "ADK session service testing"
+        test_categories:
+          - "InMemorySessionService lifecycle"       # VERIFIED: ADK docs confirm InMemorySessionService
+          - "Session creation and retrieval"         # VERIFIED: ADK docs confirm create_session
+          - "State persistence patterns"             # VERIFIED: ADK docs confirm state management
+          - "Multi-backend session support"          # ADDED: From masterplan
+          - "Session forking and merging"           # ADDED: From masterplan
+        imports:  # VERIFIED: ADK session imports
+          - "from google.adk.sessions import InMemorySessionService, Session"
+          - "from google.adk.runners import InMemoryRunner"
+      
+      - path: "services/agent-engine/tests/workflows/test_tool_registry.py"
+        purpose: "Tool registry and FunctionTool testing"
+        test_categories:
+          - "Runtime tool registration"              # ADDED: From masterplan
+          - "Automatic function wrapping"           # VERIFIED: ADK docs confirm auto-wrapping
+          - "FunctionTool explicit wrapping"        # VERIFIED: ADK docs confirm FunctionTool
+          - "Tool validation and schema checking"   # ADDED: From masterplan
+          - "Tool dependency management"            # ADDED: From masterplan
+        imports:  # VERIFIED: ADK tool imports
+          - "from google.adk.tools import FunctionTool"
+      
+      - path: "services/agent-engine/tests/workflows/test_model_abstraction.py"
+        purpose: "Model configuration and fallback testing"
+        test_categories:
+          - "Primary model configuration"           # ADDED: From masterplan
+          - "Automatic fallback strategies"         # ADDED: From masterplan  
+          - "Model health monitoring"              # ADDED: From masterplan
+          - "Load balancing patterns"              # ADDED: From masterplan
+      
+      - path: "services/agent-engine/tests/workflows/test_adk_runners.py"
+        purpose: "ADK Runner testing"
+        test_categories:
+          - "InMemoryRunner execution patterns"     # VERIFIED: ADK docs confirm InMemoryRunner
+          - "Runner session integration"           # VERIFIED: ADK docs confirm runner.session_service
+          - "Async execution with run_async"       # VERIFIED: ADK docs confirm run_async
+          - "Event streaming patterns"             # ADDED: From masterplan
+        imports:  # VERIFIED: ADK runner imports
+          - "from google.adk.runners import InMemoryRunner"
+          - "from google.adk.events import Event"
+      
+      - path: "services/agent-engine/tests/workflows/test_specification_validation.py"
+        purpose: "Agent and workflow specification validation"
+        test_categories:
+          - "Agent specification parsing"           # ADDED: From masterplan
+          - "Workflow template validation"         # ADDED: From masterplan
+          - "Tool specification schema checking"   # ADDED: From masterplan
+          - "Model configuration validation"       # ADDED: From masterplan
       
       - path: "services/agent-engine/tests/workflows/fixtures.py"
-        purpose: "Test fixtures and utilities"
+        purpose: "ADK test fixtures and utilities"  # CORRECTED: Specify ADK
         exports:
-          - "create_test_workflow"
-          - "create_test_agent"
-          - "mock_adk_runner"
+          - "create_test_llm_agent"                 # CORRECTED: Specific ADK agent type
+          - "create_test_sequential_agent"          # ADDED: ADK workflow agent
+          - "create_test_parallel_agent"           # ADDED: ADK workflow agent
+          - "create_test_loop_agent"               # ADDED: ADK workflow agent
+          - "mock_inmemory_runner"                 # CORRECTED: Specific ADK component
+          - "mock_session_service"                 # ADDED: ADK session service
+          - "create_test_tools"                   # ADDED: ADK tool creation
           - "workflow_test_data"
+          - "agent_specification_templates"        # ADDED: From masterplan
+          - "mock_model_configurations"           # ADDED: From masterplan
     
     uses_from_previous:
       - source: "r4-t01"
         component: "WorkflowEngine"
-        usage: "Core testing target"
+        usage: "Core ADK workflow orchestration testing"  # CORRECTED: Specify ADK
       - source: "r4-t02"
         component: "ConditionalWorkflowBuilder"
-        usage: "Conditional logic testing"
+        usage: "ADK conditional agent routing testing"   # CORRECTED: ADK focus
       - source: "r4-t03"
-        component: "StateManager"
-        usage: "State testing"
+        component: "StateManager" 
+        usage: "ADK session state persistence testing"   # CORRECTED: ADK session focus
       - source: "r4-t04"
         component: "WorkflowEventStream"
-        usage: "Event testing"
+        usage: "ADK event system and streaming testing"  # CORRECTED: ADK event focus
     
   implementation_steps:
-    - step: "Create test fixtures"
+    - step: "Create ADK test fixtures and utilities"  # CORRECTED: Specify ADK
       implementation_notes: |
-        - Mock agents and tools
-        - Test workflow templates
-        - Sample data sets
+        - Mock LlmAgent, SequentialAgent, ParallelAgent, LoopAgent instances  # VERIFIED: ADK agent types
+        - Mock InMemoryRunner and session services                           # VERIFIED: ADK components
+        - Test agent specifications (YAML/JSON)                             # ADDED: From masterplan
+        - Sample tool definitions with FunctionTool wrapping                # VERIFIED: ADK tool patterns
+        - Model configuration templates                                      # ADDED: From masterplan
         
-    - step: "Write integration tests"
+    - step: "Implement ADK agent composition tests"  # ADDED: Core ADK testing
       implementation_notes: |
-        - Full workflow execution
-        - Component interaction
-        - Error scenarios
+        - Test universal agent factory from specifications                   # ADDED: From masterplan
+        - Validate all ADK agent types (LlmAgent, Sequential, Parallel, Loop) # VERIFIED: ADK agent types
+        - Test dynamic sub-agent composition                                # ADDED: From masterplan
+        - Verify automatic tool wrapping and FunctionTool usage            # VERIFIED: ADK tool patterns
         
-    - step: "Build scenario tests"
+    - step: "Build comprehensive integration tests"  # CORRECTED: More comprehensive
       implementation_notes: |
-        - Real-world use cases
-        - Complex workflows
-        - Edge cases
+        - Full ADK workflow execution with InMemoryRunner                   # VERIFIED: ADK runner
+        - Session service lifecycle and state persistence                   # VERIFIED: ADK sessions
+        - Tool registry integration and runtime registration               # ADDED: From masterplan
+        - Model abstraction and fallback strategy testing                  # ADDED: From masterplan
+        - Error recovery with ADK built-in patterns                       # VERIFIED: ADK error handling
         
-    - step: "Add performance tests"
+    - step: "Create real-world scenario tests"  # CORRECTED: More specific
       implementation_notes: |
-        - Load testing
-        - Benchmark suite
-        - Resource monitoring
+        - Complex agent hierarchies and nested workflows                   # ADDED: From masterplan
+        - Mixed agent type compositions (LLM + workflow agents)           # ADDED: ADK-specific scenarios
+        - Specification-driven workflow templates                         # ADDED: From masterplan
+        - Tool integration patterns and dependency management             # ADDED: From masterplan
+        - Conditional routing and dynamic agent selection                 # ADDED: From masterplan
+        
+    - step: "Implement performance and scalability tests"  # CORRECTED: More comprehensive
+      implementation_notes: |
+        - ADK agent execution throughput benchmarks                       # CORRECTED: ADK-specific
+        - InMemoryRunner latency measurement and optimization            # VERIFIED: ADK component
+        - Parallel agent concurrency and resource usage                  # VERIFIED: ADK ParallelAgent
+        - Session service performance across backends                     # ADDED: From masterplan
+        - Tool invocation overhead and caching strategies               # ADDED: From masterplan
+        - Memory usage patterns for long-running workflows              # ADDED: Important for ADK
+        
+    - step: "Add specification validation tests"  # ADDED: From masterplan requirements
+      implementation_notes: |
+        - Agent specification schema validation (YAML/JSON)              # ADDED: From masterplan
+        - Workflow template parsing and validation                       # ADDED: From masterplan
+        - Tool specification format checking                             # ADDED: From masterplan
+        - Model configuration validation                                 # ADDED: From masterplan
+        - Error handling for malformed specifications                    # ADDED: Important validation
         
   validation:
     commands:
-      - description: "Run all workflow tests"
+      - description: "Run all ADK workflow tests"  # CORRECTED: Specify ADK
         command: "cd services/agent-engine && pytest tests/workflows/ -v"
         expected: "All tests pass"
         
-      - description: "Check test coverage"
-        command: "cd services/agent-engine && pytest tests/workflows/ --cov=src/core --cov-report=term-missing"
-        expected: "Coverage > 80%"
+      - description: "Check comprehensive test coverage"  # CORRECTED: More demanding
+        command: "cd services/agent-engine && pytest tests/workflows/ --cov=src/core --cov=src/services --cov-report=term-missing"
+        expected: "Coverage >= 85%"  # CORRECTED: Aligned with masterplan standard
+        
+      - description: "Run ADK-specific integration tests"  # ADDED: ADK focus
+        command: "cd services/agent-engine && pytest tests/workflows/test_adk_agent_composition.py tests/workflows/test_adk_runners.py -v"
+        expected: "All ADK integration tests pass"
+        
+      - description: "Validate specification parsing tests"  # ADDED: From masterplan
+        command: "cd services/agent-engine && pytest tests/workflows/test_specification_validation.py -v"
+        expected: "All specification validation tests pass"
+        
+      - description: "Run performance benchmarks"  # ADDED: Performance validation
+        command: "cd services/agent-engine && pytest tests/workflows/test_workflow_performance.py -v --benchmark-only"
+        expected: "Performance benchmarks within acceptable thresholds"
         
     success_criteria:
-      - "All workflow components tested"
-      - "Integration tests passing"
-      - "Performance benchmarks established"
-      - "Coverage > 80%"
+      - "All ADK agent types tested (LlmAgent, SequentialAgent, ParallelAgent, LoopAgent)"  # CORRECTED: Specific ADK agents
+      - "InMemoryRunner and session service integration tests passing"                      # CORRECTED: Specific ADK components
+      - "Tool registry and FunctionTool wrapping tests complete"                          # ADDED: ADK tool testing
+      - "Agent specification validation tests implemented"                                 # ADDED: From masterplan
+      - "Model abstraction and fallback strategy tests working"                          # ADDED: From masterplan
+      - "Performance benchmarks established for all ADK components"                      # CORRECTED: ADK-specific
+      - "Test coverage >= 85% across all core modules"                                   # CORRECTED: Masterplan standard
+      - "Real-world scenario tests covering complex agent hierarchies"                   # ADDED: From masterplan
+      - "Error recovery patterns validated with ADK built-in mechanisms"                # ADDED: ADK error handling
       
   dependencies:
     required_before:
       - task: "r4-t01"
-        reason: "Need workflow engine"
+        reason: "Need ADK-based workflow engine for orchestration testing"  # CORRECTED: Specify ADK
       - task: "r4-t02"
-        reason: "Need conditional workflows"
+        reason: "Need conditional workflow builder for agent routing tests"  # CORRECTED: More specific
       - task: "r4-t03"
-        reason: "Need state management"
+        reason: "Need state management for ADK session persistence testing"  # CORRECTED: ADK session focus
       - task: "r4-t04"
-        reason: "Need event streaming"
+        reason: "Need event streaming for ADK workflow monitoring tests"     # CORRECTED: ADK event focus
+    
+    # ADDED: Additional dependencies for comprehensive testing
+    additional_requirements:
+      - "Google ADK framework installed and configured"                      # ADDED: Core dependency
+      - "Agent specifications available in specs/ directory"                 # ADDED: From masterplan
+      - "Tool registry implementation from previous tasks"                   # ADDED: From masterplan
+      - "Model configuration system functional"                              # ADDED: From masterplan

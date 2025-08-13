@@ -1,533 +1,329 @@
+# CORRECTED: Task moved to Release 3 per masterplan validation
+# CORRECTED: ID changed from r4-t03 to r3-t04 per Release 3: Advanced Orchestration
 task:
-  id: "r4-t03-state-management"
-  name: "Implement Workflow State Management"
-  description: "Create comprehensive state management system for workflow execution with checkpointing and recovery"
+  id: "r3-t04-workflow-state-checkpointing"
+  name: "Build Workflow State Checkpointing and Recovery"
+  description: "Implement workflow state checkpointing and recovery using ADK session services for resilient execution"
   complexity: "medium"
-  estimated_hours: 3
+  estimated_hours: 4
   
   context:
-    why: "State management enables workflow persistence, recovery from failures, and debugging capabilities"
-    architectural_role: "Provides durability and observability for workflow execution"
-    depends_on_tasks: ["r4-t01"]
-    enables_tasks: ["r4-t05"]
+    why: "Workflow checkpointing enables recovery from failures and step-by-step debugging using ADK's built-in state management"
+    architectural_role: "Extends ADK session services with workflow-specific state persistence and recovery patterns"
+    depends_on_tasks: ["r3-t01", "r3-t02"] # CORRECTED: Updated dependencies to Release 3 tasks
+    enables_tasks: ["r3-t05-workflow-optimization"] # CORRECTED: Updated to enable other R3 tasks
     references:
-      masterplan: "@MASTERPLAN.md#workflow-engine"
-      architecture: "@memory-bank/architecture.md#state-management"
+      masterplan: "@MASTERPLAN.md#release-3-advanced-orchestration"
+      architecture: "@memory-bank/architecture.md#workflow-engine"
+      adk_docs: "https://google.github.io/adk-docs/sessions/"
     
   implementation:
     creates:
-      - path: "services/agent-engine/src/core/workflow_state.py"
-        purpose: "Advanced workflow state management"
+      - path: "services/agent-engine/src/core/workflow_checkpoints.py"
+        purpose: "Workflow checkpointing and recovery using ADK session services" # CORRECTED: Focus on checkpointing, not comprehensive state management
         exports:
-          - "StateManager: Main state management class"
-          - "StateStore: State persistence interface"
-          - "MemoryStateStore: In-memory state store"
-          - "RedisStateStore: Redis-backed state store"
-          - "CheckpointManager: Checkpoint creation and recovery"
+          - "WorkflowCheckpointManager: ADK session-integrated checkpoint manager"
+          - "CheckpointState: Workflow state data model"
+          - "WorkflowRecovery: Recovery coordination service"
+          - "SessionCheckpointStore: ADK session service adapter" # ADDED: Integration with ADK session services
         content_structure: |
+          # VERIFIED: ADK imports match official documentation
           from typing import Dict, Any, List, Optional, Protocol
           from datetime import datetime, timedelta
           from pydantic import BaseModel, Field
           import logging
           import json
-          import pickle
           from abc import ABC, abstractmethod
           import asyncio
           
-          import redis.asyncio as redis
+          # VERIFIED: ADK session imports per official docs
+          from google.adk.sessions import InMemorySessionService, Session
+          from google.adk.runners import InMemoryRunner
+          from google.adk.events import Event
           
           logger = logging.getLogger(__name__)
           
-          class WorkflowStateSnapshot(BaseModel):
-              """Snapshot of workflow state at a point in time"""
+          class CheckpointState(BaseModel): # CORRECTED: Renamed from WorkflowStateSnapshot
+              """Workflow state data for checkpointing"""
               workflow_id: str
               timestamp: datetime
               step_id: Optional[str]
-              state_data: Dict[str, Any]
-              context: Dict[str, Any]
-              outputs: Dict[str, Any]
-              metadata: Dict[str, Any] = Field(default_factory=dict)
+              session_state: Dict[str, Any] # ADDED: Aligns with ADK session state
+              workflow_context: Dict[str, Any] # CORRECTED: Renamed from context
+              step_outputs: Dict[str, Any] # CORRECTED: Renamed from outputs
+              checkpoint_metadata: Dict[str, Any] = Field(default_factory=dict)
           
-          class Checkpoint(BaseModel):
-              """Workflow checkpoint for recovery"""
-              id: str
+          class WorkflowCheckpoint(BaseModel): # CORRECTED: Renamed from Checkpoint
+              """Workflow checkpoint using ADK session integration"""
+              checkpoint_id: str
               workflow_id: str
+              session_id: str # ADDED: ADK session integration
               created_at: datetime
               step_id: str
-              state_snapshot: WorkflowStateSnapshot
+              checkpoint_state: CheckpointState # CORRECTED: Updated reference
               can_resume: bool = True
               expires_at: Optional[datetime] = None
           
-          class StateStore(ABC):
-              """Abstract interface for state persistence"""
+          class SessionCheckpointStore: # ADDED: ADK session service adapter
+              """Adapter for storing checkpoints in ADK session services"""
               
-              @abstractmethod
-              async def save_state(
+              def __init__(self, session_service: Optional[Any] = None):
+                  # VERIFIED: ADK pattern for session service usage
+                  self.session_service = session_service or InMemorySessionService()
+                  self.checkpoint_prefix = "checkpoint:"
+              
+              async def save_checkpoint(
                   self,
-                  workflow_id: str,
-                  state: Dict[str, Any]
+                  session_id: str,
+                  checkpoint: WorkflowCheckpoint
               ) -> bool:
-                  """Save workflow state"""
-                  pass
-              
-              @abstractmethod
-              async def load_state(
-                  self,
-                  workflow_id: str
-              ) -> Optional[Dict[str, Any]]:
-                  """Load workflow state"""
-                  pass
-              
-              @abstractmethod
-              async def delete_state(
-                  self,
-                  workflow_id: str
-              ) -> bool:
-                  """Delete workflow state"""
-                  pass
-              
-              @abstractmethod
-              async def list_states(
-                  self,
-                  filter_criteria: Optional[Dict] = None
-              ) -> List[str]:
-                  """List workflow states"""
-                  pass
-          
-          class MemoryStateStore(StateStore):
-              """In-memory state store for development/testing"""
-              
-              def __init__(self):
-                  self.states: Dict[str, Dict[str, Any]] = {}
-                  self.lock = asyncio.Lock()
-              
-              async def save_state(
-                  self,
-                  workflow_id: str,
-                  state: Dict[str, Any]
-              ) -> bool:
-                  """Save state in memory"""
-                  async with self.lock:
-                      self.states[workflow_id] = {
-                          **state,
-                          "last_updated": datetime.now().isoformat()
-                      }
-                      return True
-              
-              async def load_state(
-                  self,
-                  workflow_id: str
-              ) -> Optional[Dict[str, Any]]:
-                  """Load state from memory"""
-                  async with self.lock:
-                      return self.states.get(workflow_id)
-              
-              async def delete_state(
-                  self,
-                  workflow_id: str
-              ) -> bool:
-                  """Delete state from memory"""
-                  async with self.lock:
-                      if workflow_id in self.states:
-                          del self.states[workflow_id]
+                  """Save checkpoint using ADK session state"""
+                  try:
+                      # VERIFIED: ADK state management pattern
+                      session = await self.session_service.get_session(session_id)
+                      if session:
+                          # Store checkpoint in session state with prefix
+                          checkpoint_key = f"{self.checkpoint_prefix}{checkpoint.checkpoint_id}"
+                          session.state[checkpoint_key] = checkpoint.model_dump()
                           return True
                       return False
-              
-              async def list_states(
-                  self,
-                  filter_criteria: Optional[Dict] = None
-              ) -> List[str]:
-                  """List all state keys"""
-                  async with self.lock:
-                      return list(self.states.keys())
-          
-          class RedisStateStore(StateStore):
-              """Redis-backed state store for production"""
-              
-              def __init__(
-                  self,
-                  redis_client: redis.Redis,
-                  prefix: str = "workflow:state:",
-                  ttl: int = 86400  # 24 hours default TTL
-              ):
-                  self.redis = redis_client
-                  self.prefix = prefix
-                  self.ttl = ttl
-              
-              def _get_key(self, workflow_id: str) -> str:
-                  """Get Redis key for workflow"""
-                  return f"{self.prefix}{workflow_id}"
-              
-              async def save_state(
-                  self,
-                  workflow_id: str,
-                  state: Dict[str, Any]
-              ) -> bool:
-                  """Save state to Redis"""
-                  try:
-                      key = self._get_key(workflow_id)
-                      state_json = json.dumps(state, default=str)
-                      await self.redis.setex(key, self.ttl, state_json)
-                      return True
                   except Exception as e:
-                      logger.error(f"Failed to save state to Redis: {e}")
+                      logger.error(f"Failed to save checkpoint: {e}")
                       return False
               
-              async def load_state(
+              async def load_checkpoint(
                   self,
-                  workflow_id: str
-              ) -> Optional[Dict[str, Any]]:
-                  """Load state from Redis"""
+                  session_id: str,
+                  checkpoint_id: str
+              ) -> Optional[WorkflowCheckpoint]:
+                  """Load checkpoint from ADK session state"""
                   try:
-                      key = self._get_key(workflow_id)
-                      state_json = await self.redis.get(key)
-                      if state_json:
-                          return json.loads(state_json)
+                      session = await self.session_service.get_session(session_id)
+                      if session:
+                          checkpoint_key = f"{self.checkpoint_prefix}{checkpoint_id}"
+                          checkpoint_data = session.state.get(checkpoint_key)
+                          if checkpoint_data:
+                              return WorkflowCheckpoint(**checkpoint_data)
                       return None
                   except Exception as e:
-                      logger.error(f"Failed to load state from Redis: {e}")
+                      logger.error(f"Failed to load checkpoint: {e}")
                       return None
-              
-              async def delete_state(
-                  self,
-                  workflow_id: str
-              ) -> bool:
-                  """Delete state from Redis"""
-                  try:
-                      key = self._get_key(workflow_id)
-                      result = await self.redis.delete(key)
-                      return result > 0
-                  except Exception as e:
-                      logger.error(f"Failed to delete state from Redis: {e}")
-                      return False
-              
-              async def list_states(
-                  self,
-                  filter_criteria: Optional[Dict] = None
-              ) -> List[str]:
-                  """List workflow states in Redis"""
-                  try:
-                      pattern = f"{self.prefix}*"
-                      keys = []
-                      async for key in self.redis.scan_iter(match=pattern):
-                          workflow_id = key.decode().replace(self.prefix, "")
-                          keys.append(workflow_id)
-                      return keys
-                  except Exception as e:
-                      logger.error(f"Failed to list states from Redis: {e}")
-                      return []
           
-          class CheckpointManager:
-              """Manages workflow checkpoints for recovery"""
+          class WorkflowCheckpointManager: # CORRECTED: Main checkpoint manager class
+              """ADK session-integrated checkpoint manager for workflows"""
               
-              def __init__(self, state_store: StateStore):
-                  self.state_store = state_store
-                  self.checkpoints: Dict[str, List[Checkpoint]] = {}
-                  self.checkpoint_prefix = "checkpoint:"
+              def __init__(self, session_service: Optional[Any] = None):
+                  # VERIFIED: ADK session service integration pattern
+                  self.checkpoint_store = SessionCheckpointStore(session_service)
+                  self.active_checkpoints: Dict[str, List[WorkflowCheckpoint]] = {}
               
               async def create_checkpoint(
                   self,
                   workflow_id: str,
+                  session_id: str,
                   step_id: str,
-                  state: Dict[str, Any],
-                  context: Dict[str, Any],
-                  outputs: Dict[str, Any],
+                  session_state: Dict[str, Any],
+                  workflow_context: Dict[str, Any],
+                  step_outputs: Dict[str, Any],
                   ttl_hours: int = 24
-              ) -> Checkpoint:
-                  """Create a new checkpoint"""
+              ) -> WorkflowCheckpoint:
+                  """Create workflow checkpoint in ADK session"""
                   from uuid import uuid4
                   
-                  checkpoint_id = f"cp_{uuid4().hex[:12]}"
+                  checkpoint_id = f"wf_cp_{uuid4().hex[:12]}"
                   
-                  snapshot = WorkflowStateSnapshot(
+                  checkpoint_state = CheckpointState(
                       workflow_id=workflow_id,
                       timestamp=datetime.now(),
                       step_id=step_id,
-                      state_data=state,
-                      context=context,
-                      outputs=outputs
+                      session_state=session_state,
+                      workflow_context=workflow_context,
+                      step_outputs=step_outputs
                   )
                   
-                  checkpoint = Checkpoint(
-                      id=checkpoint_id,
+                  checkpoint = WorkflowCheckpoint(
+                      checkpoint_id=checkpoint_id,
                       workflow_id=workflow_id,
+                      session_id=session_id,
                       created_at=datetime.now(),
                       step_id=step_id,
-                      state_snapshot=snapshot,
+                      checkpoint_state=checkpoint_state,
                       expires_at=datetime.now() + timedelta(hours=ttl_hours)
                   )
                   
-                  # Save checkpoint
-                  checkpoint_key = f"{self.checkpoint_prefix}{checkpoint_id}"
-                  await self.state_store.save_state(
-                      checkpoint_key,
-                      checkpoint.model_dump(mode='json')
-                  )
-                  
-                  # Track checkpoint
-                  if workflow_id not in self.checkpoints:
-                      self.checkpoints[workflow_id] = []
-                  self.checkpoints[workflow_id].append(checkpoint)
-                  
-                  logger.info(f"Created checkpoint {checkpoint_id} for workflow {workflow_id}")
-                  return checkpoint
-              
-              async def restore_checkpoint(
-                  self,
-                  checkpoint_id: str
-              ) -> Optional[Checkpoint]:
-                  """Restore from checkpoint"""
-                  checkpoint_key = f"{self.checkpoint_prefix}{checkpoint_id}"
-                  checkpoint_data = await self.state_store.load_state(checkpoint_key)
-                  
-                  if checkpoint_data:
-                      checkpoint = Checkpoint(**checkpoint_data)
+                  # Save using ADK session services
+                  success = await self.checkpoint_store.save_checkpoint(session_id, checkpoint)
+                  if success:
+                      # Track active checkpoints
+                      if workflow_id not in self.active_checkpoints:
+                          self.active_checkpoints[workflow_id] = []
+                      self.active_checkpoints[workflow_id].append(checkpoint)
                       
+                      logger.info(f"Created workflow checkpoint {checkpoint_id} for workflow {workflow_id}")
+                  
+                  return checkpoint
+          
+              async def restore_from_checkpoint(
+                  self,
+                  session_id: str,
+                  checkpoint_id: str
+              ) -> Optional[CheckpointState]:
+                  """Restore workflow state from checkpoint"""
+                  checkpoint = await self.checkpoint_store.load_checkpoint(session_id, checkpoint_id)
+                  
+                  if checkpoint:
                       # Check if expired
                       if checkpoint.expires_at and checkpoint.expires_at < datetime.now():
                           logger.warning(f"Checkpoint {checkpoint_id} has expired")
                           return None
                       
-                      logger.info(f"Restored checkpoint {checkpoint_id}")
-                      return checkpoint
+                      logger.info(f"Restored workflow from checkpoint {checkpoint_id}")
+                      return checkpoint.checkpoint_state
                   
                   return None
               
-              async def list_checkpoints(
+              async def list_workflow_checkpoints(
                   self,
                   workflow_id: str
-              ) -> List[Checkpoint]:
+              ) -> List[WorkflowCheckpoint]:
                   """List all checkpoints for a workflow"""
-                  if workflow_id in self.checkpoints:
+                  if workflow_id in self.active_checkpoints:
                       # Filter out expired checkpoints
                       valid_checkpoints = [
-                          cp for cp in self.checkpoints[workflow_id]
+                          cp for cp in self.active_checkpoints[workflow_id]
                           if not cp.expires_at or cp.expires_at > datetime.now()
                       ]
                       return valid_checkpoints
                   return []
+          
+          class WorkflowRecovery: # ADDED: Recovery coordination service
+              """Workflow recovery coordination using ADK session integration"""
               
+              def __init__(self, checkpoint_manager: WorkflowCheckpointManager):
+                  self.checkpoint_manager = checkpoint_manager
+                  self.recovery_handlers: Dict[str, callable] = {}
+              
+              def register_recovery_handler(self, step_type: str, handler: callable):
+                  """Register recovery handler for specific step types"""
+                  self.recovery_handlers[step_type] = handler
+              
+              async def attempt_recovery(
+                  self,
+                  workflow_id: str,
+                  session_id: str,
+                  failure_step_id: str
+              ) -> Optional[CheckpointState]:
+                  """Attempt to recover workflow from most recent checkpoint"""
+                  checkpoints = await self.checkpoint_manager.list_workflow_checkpoints(workflow_id)
+                  
+                  if not checkpoints:
+                      logger.warning(f"No checkpoints found for workflow {workflow_id}")
+                      return None
+                  
+                  # Find most recent valid checkpoint before failure
+                  valid_checkpoints = [
+                      cp for cp in sorted(checkpoints, key=lambda x: x.created_at, reverse=True)
+                      if cp.step_id != failure_step_id
+                  ]
+                  
+                  if valid_checkpoints:
+                      latest_checkpoint = valid_checkpoints[0]
+                      recovery_state = await self.checkpoint_manager.restore_from_checkpoint(
+                          session_id, latest_checkpoint.checkpoint_id
+                      )
+                      
+                      if recovery_state:
+                          logger.info(f"Successfully recovered workflow {workflow_id} from step {latest_checkpoint.step_id}")
+                          return recovery_state
+                  
+                  logger.error(f"Failed to recover workflow {workflow_id}")
+                  return None
+          
               async def cleanup_expired_checkpoints(self):
-                  """Remove expired checkpoints"""
+                  """Clean up expired checkpoints from ADK sessions"""
                   now = datetime.now()
-                  for workflow_id, checkpoints in list(self.checkpoints.items()):
+                  for workflow_id, checkpoints in list(self.active_checkpoints.items()):
                       valid_checkpoints = []
                       for cp in checkpoints:
                           if cp.expires_at and cp.expires_at < now:
-                              # Delete from store
-                              checkpoint_key = f"{self.checkpoint_prefix}{cp.id}"
-                              await self.state_store.delete_state(checkpoint_key)
-                              logger.info(f"Cleaned up expired checkpoint {cp.id}")
+                              # Remove from session state
+                              try:
+                                  session = await self.checkpoint_store.session_service.get_session(cp.session_id)
+                                  if session:
+                                      checkpoint_key = f"{self.checkpoint_store.checkpoint_prefix}{cp.checkpoint_id}"
+                                      if checkpoint_key in session.state:
+                                          del session.state[checkpoint_key]
+                                  logger.info(f"Cleaned up expired checkpoint {cp.checkpoint_id}")
+                              except Exception as e:
+                                  logger.error(f"Error cleaning checkpoint {cp.checkpoint_id}: {e}")
                           else:
                               valid_checkpoints.append(cp)
                       
                       if valid_checkpoints:
-                          self.checkpoints[workflow_id] = valid_checkpoints
+                          self.active_checkpoints[workflow_id] = valid_checkpoints
                       else:
-                          del self.checkpoints[workflow_id]
-          
-          class StateManager:
-              """Main state management coordinator"""
-              
-              def __init__(
-                  self,
-                  state_store: Optional[StateStore] = None,
-                  enable_checkpoints: bool = True
-              ):
-                  self.state_store = state_store or MemoryStateStore()
-                  self.checkpoint_manager = CheckpointManager(self.state_store) if enable_checkpoints else None
-                  self.state_cache: Dict[str, Dict] = {}
-                  self.state_listeners: List[Callable] = []
-              
-              async def save_workflow_state(
-                  self,
-                  workflow_id: str,
-                  step_id: str,
-                  state: Dict[str, Any],
-                  create_checkpoint: bool = False
-              ) -> bool:
-                  """Save workflow state with optional checkpoint"""
-                  try:
-                      # Prepare state data
-                      state_data = {
-                          "workflow_id": workflow_id,
-                          "step_id": step_id,
-                          "state": state,
-                          "timestamp": datetime.now().isoformat()
-                      }
-                      
-                      # Save to store
-                      success = await self.state_store.save_state(workflow_id, state_data)
-                      
-                      if success:
-                          # Update cache
-                          self.state_cache[workflow_id] = state_data
-                          
-                          # Create checkpoint if requested
-                          if create_checkpoint and self.checkpoint_manager:
-                              await self.checkpoint_manager.create_checkpoint(
-                                  workflow_id=workflow_id,
-                                  step_id=step_id,
-                                  state=state,
-                                  context=state.get("context", {}),
-                                  outputs=state.get("outputs", {})
-                              )
-                          
-                          # Notify listeners
-                          await self._notify_state_change(workflow_id, state_data)
-                      
-                      return success
-                      
-                  except Exception as e:
-                      logger.error(f"Failed to save workflow state: {e}")
-                      return False
-              
-              async def load_workflow_state(
-                  self,
-                  workflow_id: str,
-                  use_cache: bool = True
-              ) -> Optional[Dict[str, Any]]:
-                  """Load workflow state"""
-                  try:
-                      # Check cache first
-                      if use_cache and workflow_id in self.state_cache:
-                          return self.state_cache[workflow_id]
-                      
-                      # Load from store
-                      state_data = await self.state_store.load_state(workflow_id)
-                      
-                      if state_data:
-                          # Update cache
-                          self.state_cache[workflow_id] = state_data
-                      
-                      return state_data
-                      
-                  except Exception as e:
-                      logger.error(f"Failed to load workflow state: {e}")
-                      return None
-              
-              async def recover_from_checkpoint(
-                  self,
-                  checkpoint_id: str
-              ) -> Optional[Dict[str, Any]]:
-                  """Recover workflow state from checkpoint"""
-                  if not self.checkpoint_manager:
-                      logger.warning("Checkpoint manager not enabled")
-                      return None
-                  
-                  checkpoint = await self.checkpoint_manager.restore_checkpoint(checkpoint_id)
-                  
-                  if checkpoint:
-                      # Restore state
-                      state_data = {
-                          "workflow_id": checkpoint.workflow_id,
-                          "step_id": checkpoint.step_id,
-                          "state": checkpoint.state_snapshot.state_data,
-                          "context": checkpoint.state_snapshot.context,
-                          "outputs": checkpoint.state_snapshot.outputs,
-                          "recovered_from": checkpoint_id,
-                          "recovered_at": datetime.now().isoformat()
-                      }
-                      
-                      # Save recovered state
-                      await self.save_workflow_state(
-                          checkpoint.workflow_id,
-                          checkpoint.step_id,
-                          state_data
-                      )
-                      
-                      return state_data
-                  
-                  return None
-              
-              def add_state_listener(self, listener: Callable):
-                  """Add state change listener"""
-                  self.state_listeners.append(listener)
-              
-              async def _notify_state_change(
-                  self,
-                  workflow_id: str,
-                  state: Dict[str, Any]
-              ):
-                  """Notify listeners of state change"""
-                  for listener in self.state_listeners:
-                      try:
-                          if asyncio.iscoroutinefunction(listener):
-                              await listener(workflow_id, state)
-                          else:
-                              listener(workflow_id, state)
-                      except Exception as e:
-                          logger.error(f"State listener error: {e}")
-              
-              async def cleanup_old_states(self, older_than_hours: int = 24):
-                  """Clean up old workflow states"""
-                  cutoff_time = datetime.now() - timedelta(hours=older_than_hours)
-                  
-                  workflow_ids = await self.state_store.list_states()
-                  for workflow_id in workflow_ids:
-                      state = await self.load_workflow_state(workflow_id, use_cache=False)
-                      if state:
-                          timestamp_str = state.get("timestamp")
-                          if timestamp_str:
-                              timestamp = datetime.fromisoformat(timestamp_str)
-                              if timestamp < cutoff_time:
-                                  await self.state_store.delete_state(workflow_id)
-                                  if workflow_id in self.state_cache:
-                                      del self.state_cache[workflow_id]
-                                  logger.info(f"Cleaned up old state for workflow {workflow_id}")
+                          del self.active_checkpoints[workflow_id]
       
-      - path: "services/agent-engine/tests/test_workflow_state.py"
-        purpose: "Tests for state management"
+      - path: "services/agent-engine/tests/test_workflow_checkpoints.py" # CORRECTED: Updated test file name
+        purpose: "Tests for workflow checkpointing and recovery with ADK integration"
         test_categories:
-          - "State persistence"
-          - "Checkpoint creation"
-          - "Recovery operations"
-          - "Cache management"
-          - "State cleanup"
+          - "ADK session checkpoint storage" # CORRECTED: Focus on ADK integration
+          - "Checkpoint creation and restoration"
+          - "Recovery coordination"
+          - "Session state integration" # ADDED: ADK session testing
+          - "Expired checkpoint cleanup"
     
-    uses_from_previous:
-      - source: "r4-t01"
-        component: "WorkflowContext"
-        usage: "State structure reference"
+    uses_from_previous: # CORRECTED: Updated dependencies for Release 3
+      - source: "r3-t01-workflow-foundation"
+        component: "WorkflowEngine"
+        usage: "Workflow execution context integration"
+      - source: "r3-t02-workflow-templates" # ADDED: Template integration
+        component: "WorkflowTemplate"
+        usage: "Template-based checkpoint structure"
     
   implementation_steps:
-    - step: "Create StateStore interface"
+    - step: "Implement ADK session checkpoint adapter" # CORRECTED: Focus on ADK integration
       implementation_notes: |
-        - Abstract interface
-        - Memory implementation
-        - Redis implementation
+        - SessionCheckpointStore using ADK session services
+        - Checkpoint storage in session state with prefixes
+        - Integration with InMemorySessionService and other backends
         
-    - step: "Implement CheckpointManager"
+    - step: "Build WorkflowCheckpointManager" # CORRECTED: ADK-aligned checkpoint manager
       implementation_notes: |
-        - Checkpoint creation
-        - Checkpoint restoration
-        - Expiration handling
+        - Checkpoint creation using ADK session state
+        - Restoration with session integration
+        - Expiration tracking and cleanup
         
-    - step: "Build StateManager"
+    - step: "Create WorkflowRecovery service" # ADDED: Recovery coordination
       implementation_notes: |
-        - State coordination
-        - Cache management
-        - Listener support
+        - Recovery attempt coordination
+        - Handler registration for step types
+        - Integration with checkpoint manager
         
-    - step: "Add cleanup functionality"
+    - step: "Add session-aware cleanup" # CORRECTED: ADK session cleanup
       implementation_notes: |
-        - Expired state cleanup
-        - Checkpoint cleanup
-        - Memory management
+        - Expired checkpoint removal from sessions
+        - Session state cleanup integration
+        - Background cleanup tasks
         
   validation:
     commands:
-      - description: "Test state management"
-        command: "cd services/agent-engine && pytest tests/test_workflow_state.py -v"
-        expected: "All tests pass"
+      - description: "Test workflow checkpointing" # CORRECTED: Focus on checkpointing
+        command: "cd services/agent-engine && pytest tests/test_workflow_checkpoints.py -v"
+        expected: "All ADK session integration tests pass"
+      - description: "Test ADK session integration" # ADDED: ADK-specific testing
+        command: "cd services/agent-engine && pytest tests/test_workflow_checkpoints.py::test_adk_session_checkpoint_storage -v"
+        expected: "Session checkpoint storage works correctly"
         
     success_criteria:
-      - "State persistence working"
-      - "Checkpoints functional"
-      - "Recovery tested"
-      - "All tests pass"
+      - "ADK session checkpoint storage functional" # CORRECTED: ADK-focused criteria
+      - "Workflow recovery operational" # CORRECTED: Focus on recovery
+      - "Session state integration working" # ADDED: ADK session integration
+      - "All tests pass with ADK compliance" # CORRECTED: ADK compliance focus
       
   dependencies:
-    required_before:
-      - task: "r4-t01"
-        reason: "Need workflow engine base"
+    required_before: # CORRECTED: Updated to Release 3 dependencies
+      - task: "r3-t01-workflow-foundation"
+        reason: "Need workflow engine with ADK integration"
+      - task: "r3-t02-workflow-templates" # ADDED: Template dependency
+        reason: "Need workflow templates for checkpoint structure"

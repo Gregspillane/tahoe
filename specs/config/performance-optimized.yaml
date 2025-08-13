@@ -1,0 +1,26 @@
+apiVersion: "agent-engine/v1"
+kind: "ConfigOverride"
+metadata:
+  name: "performance-optimized"
+  description: "High-performance configuration for heavy workloads"
+  version: "1.0.0"
+  created_at: "2025-08-13T00:00:00Z"
+
+spec:
+  global:
+    # Global performance overrides
+    max_concurrent_executions: 100
+    cache_ttl: 7200
+    request_timeout: 600
+    
+    # ADK Performance
+    adk.timeout: 600
+    adk.retry_attempts: 5
+    
+    # Database Performance
+    database.max_connections: 50
+    database.connection_timeout: 60
+    
+    # Redis Performance
+    redis.max_connections: 30
+    redis.socket_timeout: 60
