@@ -1385,7 +1385,7 @@ async def warmup_caches():
 
 if __name__ == "__main__":
     import uvicorn
-    uvicorn.run(app, host="0.0.0.0", port=8000)
+    uvicorn.run(app, host="0.0.0.0", port=8001)
 ```
 
 ---
@@ -1411,7 +1411,7 @@ class ServiceConfig(BaseSettings):
     DATABASE_MAX_OVERFLOW: int = 20
     
     # Redis Configuration
-    REDIS_URL: str = "redis://localhost:6379"
+    REDIS_URL: str = "redis://localhost:6382"
     REDIS_MAX_CONNECTIONS: int = 100
     
     # Model Provider API Keys
@@ -1692,18 +1692,18 @@ USER appuser
 
 # Runtime configuration
 ENV SERVICE_NAME=agent-engine
-ENV PORT=8000
+ENV PORT=8001
 ENV PYTHONPATH=/app
 
 # Health check
 HEALTHCHECK --interval=30s --timeout=10s --start-period=5s --retries=3 \
-    CMD curl -f http://localhost:8000/health || exit 1
+    CMD curl -f http://localhost:8001/health || exit 1
 
 # Expose port
-EXPOSE 8000
+EXPOSE 8001
 
 # Start application
-CMD ["uvicorn", "src.main:app", "--host", "0.0.0.0", "--port", "8000"]
+CMD ["uvicorn", "src.main:app", "--host", "0.0.0.0", "--port", "8001"]
 ```
 
 ### Docker Compose for Development
@@ -1718,14 +1718,14 @@ services:
     container_name: agent-engine
     environment:
       - SERVICE_TOKEN=${SERVICE_TOKEN}
-      - DATABASE_URL=postgresql://tahoe:tahoe@postgres:5432/tahoe
-      - REDIS_URL=redis://redis:6379
+      - DATABASE_URL=postgresql://tahoe:tahoe@postgres:5435/tahoe
+      - REDIS_URL=redis://redis:6382
       - GOOGLE_API_KEY=${GOOGLE_API_KEY}
       - OPENAI_API_KEY=${OPENAI_API_KEY}
       - ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY}
       - LOG_LEVEL=DEBUG
     ports:
-      - "8000:8000"
+      - "8001:8001"
     depends_on:
       postgres:
         condition: service_healthy
@@ -1745,7 +1745,7 @@ services:
       - POSTGRES_PASSWORD=tahoe
       - POSTGRES_DB=tahoe
     ports:
-      - "5432:5432"
+      - "5435:5435"
     volumes:
       - postgres_data:/var/lib/postgresql/data
     networks:
@@ -1760,7 +1760,7 @@ services:
     image: redis:7-alpine
     container_name: tahoe-redis
     ports:
-      - "6379:6379"
+      - "6382:6382"
     volumes:
       - redis_data:/data
     networks:
@@ -1776,7 +1776,7 @@ services:
     image: rediscommander/redis-commander:latest
     container_name: redis-commander
     environment:
-      - REDIS_HOSTS=local:redis:6379
+      - REDIS_HOSTS=local:redis:6382
     ports:
       - "8081:8081"
     depends_on:
@@ -1844,7 +1844,7 @@ python -m prisma migrate dev         # Create and apply migration
 python scripts/seed.py               # Seed with initial data
 
 # Development server
-uvicorn src.main:app --reload --port 8000
+uvicorn src.main:app --reload --port 8001
 
 # Testing
 pytest tests/ -v                     # Run all tests
@@ -1869,15 +1869,15 @@ docker-compose exec postgres psql -U tahoe -d tahoe  # Connect to DB
 docker-compose exec redis redis-cli  # Connect to Redis
 
 # Monitoring
-curl http://localhost:8000/health    # Health check
-curl http://localhost:8000/metrics   # Service metrics
+curl http://localhost:8001/health    # Health check
+curl http://localhost:8001/metrics   # Service metrics
 ```
 
 ### Common Development Tasks
 
 ```bash
 # Add new agent template
-curl -X POST http://localhost:8000/agents/templates \
+curl -X POST http://localhost:8001/agents/templates \
   -H "Authorization: Bearer ${SERVICE_TOKEN}" \
   -H "Content-Type: application/json" \
   -d '{
@@ -1889,7 +1889,7 @@ curl -X POST http://localhost:8000/agents/templates \
   }'
 
 # Test analysis endpoint
-curl -X POST http://localhost:8000/analyze \
+curl -X POST http://localhost:8001/analyze \
   -H "Authorization: Bearer ${SERVICE_TOKEN}" \
   -H "Content-Type: application/json" \
   -d '{
@@ -1904,11 +1904,11 @@ curl -X POST http://localhost:8000/analyze \
   }'
 
 # Monitor analysis progress
-curl http://localhost:8000/status/analysis/{analysis_id} \
+curl http://localhost:8001/status/analysis/{analysis_id} \
   -H "Authorization: Bearer ${SERVICE_TOKEN}"
 
 # Get analysis results
-curl http://localhost:8000/analysis/{analysis_id} \
+curl http://localhost:8001/analysis/{analysis_id} \
   -H "Authorization: Bearer ${SERVICE_TOKEN}"
 ```
 

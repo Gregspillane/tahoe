@@ -1,5 +1,55 @@
 # Project Tahoe - Key Decisions Log
 
+## 2025-08-13: Task Alignment Updates (Evening)
+
+### Decision: Standardize on Port 8001
+**Context**: MASTERPLAN had inconsistent references to port 8000 vs 8001
+**Decision**: Updated all references to use port 8001 consistently
+**Rationale**:
+- Port 8001 avoids more common conflicts
+- Already established in task specifications
+- Consistent with infrastructure decisions
+**Impact**: MASTERPLAN.md updated throughout, all tasks use 8001
+
+### Decision: Enhance R1-T3 Task Specification
+**Context**: R1-T3 task was missing some endpoints from masterplan
+**Decision**: Added /status/analysis/{id}, PUT /agents/templates/{id}, and /metrics endpoints
+**Rationale**:
+- Complete API surface even in foundation phase
+- Status endpoint useful for monitoring
+- Metrics endpoint helps with observability
+**Impact**: R1-T3 now includes all masterplan endpoints
+
+## 2025-08-13: Database Implementation Session (Evening)
+
+### Decision: Infrastructure as Separate Service
+**Context**: Discussion about where PostgreSQL and Redis should live
+**Decision**: Created `/services/infrastructure/` with shared PostgreSQL and Redis
+**Rationale**:
+- Single PostgreSQL instance with multiple schemas is more efficient
+- Single Redis instance with namespaced keys reduces overhead
+- Easier backups, monitoring, and management
+- Matches production architecture (RDS + ElastiCache)
+**Impact**: All services connect to shared infrastructure, not embedded databases
+
+### Decision: Prisma with Computed Config Fields
+**Context**: Config management needs both component values and computed URLs
+**Decision**: Use Pydantic computed fields for DATABASE_URL and REDIS_URL
+**Rationale**:
+- Components (host, port, user) configurable individually
+- URLs computed from components
+- Flexibility for different environments
+**Impact**: DATABASE_URL must be exported separately for Prisma CLI
+
+### Decision: Enhanced Config.py
+**Context**: Need environment-aware configuration
+**Decision**: Added computed fields for service URLs, CORS, debug mode
+**Rationale**:
+- Service URLs change based on environment (dev/staging/prod)
+- CORS origins computed based on environment
+- Debug mode automatic in development
+**Impact**: More intelligent configuration with less manual setup
+
 ## 2025-08-13: Implementation Session (Afternoon)
 
 ### Decision: Infrastructure as Service

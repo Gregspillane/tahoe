@@ -34,11 +34,15 @@ task:
     core_logic:
       - "POST /analyze endpoint (returns placeholder for now)"
       - "GET /analysis/{id} to retrieve results"
+      - "GET /status/analysis/{id} for real-time status"
       - "GET /health with dependency checks"
-      - "GET /agents/templates to list agents"
+      - "GET /metrics for service monitoring"
+      - "CRUD endpoints for agents/templates"
+      - "CRUD endpoints for scorecards"
       - "Service token authentication middleware"
       - "TahoeOrchestrator skeleton class"
-      - "Redis connection for future caching"
+      - "Redis connection with session caching"
+      - "Cache warmup on startup"
       - "Comprehensive error handling"
     connects_to:
       - "PostgreSQL via Prisma client"
@@ -96,12 +100,14 @@ task:
   api_endpoints:
     - "POST /analyze - Submit interaction for analysis"
     - "GET /analysis/{id} - Get analysis results"
+    - "GET /status/analysis/{id} - Get real-time analysis status"
     - "GET /agents/templates - List agent templates"
     - "POST /agents/templates - Create agent template"
+    - "PUT /agents/templates/{id} - Update agent template"
     - "GET /scorecards - List scorecards"
     - "POST /scorecards - Create scorecard"
     - "GET /health - Service health check"
-    - "GET /metrics - Basic metrics (optional)"
+    - "GET /metrics - Basic metrics"
 
   placeholder_logic:
     analyze_endpoint: |

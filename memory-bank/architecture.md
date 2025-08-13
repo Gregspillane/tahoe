@@ -2,12 +2,13 @@
 
 ## Core Architecture Patterns
 
-### Service Architecture (Updated 2025-08-13)
+### Service Architecture (Updated 2025-08-13 Evening)
 - **Monorepo Structure**: Services organized under `/services/` directory
 - **Service Independence**: Each service completely self-contained
-- **Infrastructure as Service**: Infrastructure moved to `/services/infrastructure/`
-- **Database Isolation**: Shared PostgreSQL with service-specific schemas
-- **Cache Namespacing**: Shared Redis with namespaced keys
+- **Shared Infrastructure**: PostgreSQL and Redis run as separate infrastructure services
+- **Database Isolation**: Single PostgreSQL instance with service-specific schemas
+- **Cache Namespacing**: Single Redis instance with namespaced keys
+- **Connection Pattern**: Services connect to infrastructure via host machine ports
 
 ### Agent-Engine Service Patterns
 
@@ -34,14 +35,15 @@
 - Standardized agent result format
 - Factory pattern for agent creation
 
-### Technical Stack (Validated 2025-08-13)
+### Technical Stack (Validated 2025-08-13 Evening)
 - **Language**: Python 3.11
 - **API Framework**: FastAPI with Uvicorn
 - **Agent Framework**: Google ADK (v1.10.0+)
-- **ORM**: Prisma for Python
+- **ORM**: Prisma for Python (v0.15.0)
 - **Cache**: Redis with TTL management
 - **Container**: Docker with Docker Compose
 - **Dependency Management**: Flexible versioning (>=) to avoid conflicts
+- **Configuration**: Pydantic Settings with computed fields
 
 ### Caching Strategy
 ```
@@ -82,12 +84,22 @@ analysis:session:{id}   # TTL: 30 minutes
 
 ## Integration Points
 
-### External Services
-- **PostgreSQL**: Port 5435, agent_engine schema
-- **Redis**: Port 6382, agent-engine:* namespace
-- **Model Providers**: Via API keys in environment
+### Infrastructure Services (Shared)
+- **PostgreSQL**: Port 5435
+  - `agent_engine` schema for agent-engine service
+  - `auth` schema for future auth service
+  - `billing` schema for future billing service
+- **Redis**: Port 6382
+  - `agent-engine:*` namespace for agent-engine
+  - `auth:*` namespace for auth service
+  - `billing:*` namespace for billing service
 
-### Internal Components
+### Service Communication
+- **Local Development**: Direct connection via localhost ports
+- **Docker Environment**: Connection via host.docker.internal
+- **Production**: Connection via internal network or managed services
+
+### Internal Components (agent-engine)
 - Orchestrator ↔ Agent Factory
 - Agent Factory ↔ Model Registry
 - Orchestrator ↔ Result Aggregator

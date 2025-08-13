@@ -2,48 +2,46 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from contextlib import asynccontextmanager
 import redis.asyncio as redis
-import asyncpg
 from typing import Optional
 
 from .config import settings
+from .models.database import database_manager
 
 redis_client: Optional[redis.Redis] = None
-pg_pool: Optional[asyncpg.Pool] = None
 
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    global redis_client, pg_pool
+    global redis_client
     
+    # Initialize Redis connection
     redis_client = redis.from_url(
         settings.REDIS_URL,
         decode_responses=True
     )
     
-    pg_pool = await asyncpg.create_pool(
-        settings.DATABASE_URL,
-        min_size=1,
-        max_size=10
-    )
+    # Initialize Prisma connection
+    await database_manager.connect()
     
     yield
     
+    # Cleanup
     if redis_client:
         await redis_client.close()
-    if pg_pool:
-        await pg_pool.close()
+    await database_manager.disconnect()
 
 
 app = FastAPI(
     title="Agent Engine Service",
     description="Multi-agent orchestration service for compliance analysis",
-    version="0.1.0",
-    lifespan=lifespan
+    version=settings.SERVICE_VERSION,
+    lifespan=lifespan,
+    debug=settings.DEBUG
 )
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
+    allow_origins=settings.CORS_ORIGINS,
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -54,8 +52,10 @@ app.add_middleware(
 async def health_check():
     health_status = {
         "status": "healthy",
-        "service": "agent-engine",
-        "version": "0.1.0"
+        "service": settings.SERVICE_NAME,
+        "version": settings.SERVICE_VERSION,
+        "environment": settings.ENVIRONMENT,
+        "service_url": settings.SERVICE_URL
     }
     
     if redis_client:
@@ -66,14 +66,16 @@ async def health_check():
             health_status["redis"] = f"error: {str(e)}"
             health_status["status"] = "degraded"
     
-    if pg_pool:
-        try:
-            async with pg_pool.acquire() as conn:
-                await conn.fetchval("SELECT 1")
+    # Check Prisma/PostgreSQL connection
+    try:
+        if await database_manager.health_check():
             health_status["postgres"] = "connected"
-        except Exception as e:
-            health_status["postgres"] = f"error: {str(e)}"
+        else:
+            health_status["postgres"] = "disconnected"
             health_status["status"] = "degraded"
+    except Exception as e:
+        health_status["postgres"] = f"error: {str(e)}"
+        health_status["status"] = "degraded"
     
     return health_status
 
@@ -81,7 +83,9 @@ async def health_check():
 @app.get("/")
 async def root():
     return {
-        "service": "agent-engine",
+        "service": settings.SERVICE_NAME,
         "message": "Agent Engine Service is running",
-        "docs": "/docs"
+        "environment": settings.ENVIRONMENT,
+        "docs": "/docs",
+        "health": "/health"
     }

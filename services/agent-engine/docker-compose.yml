@@ -11,17 +11,37 @@ services:
     ports:
       - "8001:8001"
     environment:
-      # For local development (host machine)
-      DATABASE_URL: postgresql://tahoe:tahoe@host.docker.internal:5435/tahoe
-      REDIS_URL: redis://host.docker.internal:6382
-      # For production or docker network mode
-      # DATABASE_URL: postgresql://tahoe:tahoe@tahoe-postgres:5432/tahoe
-      # REDIS_URL: redis://tahoe-redis:6379
+      # Environment
+      ENVIRONMENT: ${ENVIRONMENT:-development}
+      
+      # Service Configuration
+      HOST: 0.0.0.0
       PORT: 8001
-      ENVIRONMENT: development
-      DEBUG: "true"
-      SERVICE_NAME: agent-engine
-      SERVICE_TOKEN: ${SERVICE_TOKEN:-dev-token}
+      DOMAIN: ${DOMAIN:-tahoe.local}
+      
+      # Database Configuration (using host machine services)
+      DATABASE_HOST: host.docker.internal
+      DATABASE_PORT: 5435
+      DATABASE_NAME: tahoe
+      DATABASE_USER: tahoe
+      DATABASE_PASSWORD: ${DATABASE_PASSWORD:-tahoe}
+      DATABASE_SCHEMA: agent_engine
+      
+      # Redis Configuration (using host machine services)
+      REDIS_HOST: host.docker.internal
+      REDIS_PORT: 6382
+      REDIS_PASSWORD: ${REDIS_PASSWORD:-}
+      REDIS_PREFIX: agent-engine:
+      
+      # Logging
+      LOG_LEVEL: ${LOG_LEVEL:-INFO}
+      
+      # Service Authentication
+      SERVICE_TO_SERVICE_TOKEN: ${SERVICE_TO_SERVICE_TOKEN:-}
+      
+      # Optional service URLs (computed if not set)
+      AUTH_SERVICE_URL: ${AUTH_SERVICE_URL:-}
+      BILLING_SERVICE_URL: ${BILLING_SERVICE_URL:-}
     volumes:
       - ./src:/app/src
       - ./prisma:/app/prisma

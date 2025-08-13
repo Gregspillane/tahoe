@@ -1,80 +1,89 @@
 # Session Context - Project Tahoe
 
 ## Current Session
-**Date/Time**: 2025-08-13 17:22 PST
-**Focus**: R1-T1 Project Setup Implementation - Docker Environment and Basic Structure
+**Date/Time**: 2025-08-13 18:05 PST
+**Focus**: R1-T2 Database Schema Implementation - Complete Prisma setup with infrastructure refactoring
 
 ## What Was Accomplished
-1. **Completed R1-T1 Project Setup Task**
-   - Created services/agent-engine directory structure
-   - Built minimal FastAPI application with health endpoint
-   - Set up Docker Compose environment with PostgreSQL and Redis
-   - Configured all services with correct ports (8001, 5435, 6382)
-   - All containers running successfully with health checks passing
+1. **Major Infrastructure Refactoring**
+   - Separated PostgreSQL and Redis into `services/infrastructure/`
+   - Created shared infrastructure docker-compose for all services
+   - Updated agent-engine to connect to external services
+   - Established proper monorepo pattern with service independence
 
-2. **Infrastructure Decisions**
-   - Moved infrastructure to services/infrastructure (monorepo pattern)
-   - Each service is self-contained with its own Docker setup
-   - Shared infrastructure available as separate service
+2. **Completed R1-T2 Database Schema**
+   - Implemented all 8 tables from masterplan (AgentTemplate, Scorecard, etc.)
+   - Set up Prisma ORM with Python client
+   - Created comprehensive seed script with sample data
+   - Built database helper utilities and CRUD tests
+   - All tests passing with full database connectivity
 
-3. **Fixed Configuration Issues**
-   - Resolved FastAPI/Starlette dependency conflicts
-   - Removed obsolete docker-compose version attributes
-   - Created pyproject.toml for Python project configuration
-   - Updated CLAUDE.md with correct port references
+3. **Configuration Management**
+   - Updated config.py with computed fields for DATABASE_URL and REDIS_URL
+   - Proper environment variable handling
+   - Service URLs computed based on environment (dev/staging/prod)
 
 ## Discoveries/Issues
-- Google ADK installed successfully (already present on system)
-- Dependency conflict between FastAPI 0.115.0 and google-adk requiring different Starlette versions
-- Resolved by using flexible version constraints (>=) instead of pinned versions
-- Port 8001 is correct per task specification (not 8000 from masterplan)
+- **Critical Architecture Decision**: PostgreSQL and Redis should be shared infrastructure, not embedded in services
+- Prisma requires DATABASE_URL environment variable separately from application config
+- Config.py was enhanced with computed fields for better configuration management
+- Each service will use database schemas (agent_engine, auth, billing) for isolation
 
 ## Specific Next Steps
-1. **Execute R1-T2 Database Configuration**
-   - Implement complete Prisma schema from masterplan
-   - Set up agent_templates, scorecards, portfolios tables
-   - Configure database migrations
-   - Test database connectivity and schema
+1. **Option A: Continue with R1-T3 Basic API**
+   - Implement authentication endpoints
+   - Add service-to-service token validation
+   - Create basic CRUD endpoints for agents/scorecards
 
-2. **Continue Foundation Tasks**
-   - R1-T3: Basic API with authentication after database is ready
-   - Validate each component before proceeding
+2. **Option B: Start R2 Orchestration Engine**
+   - Build orchestrator.py with ADK integration
+   - Implement agent factory pattern
+   - Create execution pipeline
 
-3. **Validation Points**
-   - Database schema properly created in PostgreSQL
-   - Prisma client generation working
-   - Models accessible from FastAPI application
+3. **Infrastructure Considerations**
+   - Future services will connect to same PostgreSQL/Redis instances
+   - Each service gets its own schema and Redis namespace
+   - Consider adding pgAdmin or Redis Commander for debugging
 
 ## Current File States
-### Created Files
-- `/tasks/releases.yaml` - Master release overview with 3 releases
-- `/tasks/shared/project-context.md` - Shared context for all tasks
-- `/tasks/r1-foundation/` - 3 task files for foundation infrastructure
-- `/tasks/r2-orchestration/` - 4 task files for orchestration engine
-- `/tasks/r3-specialist-agents/` - 3 task files for specialist agents
+### Infrastructure Files
+- `/services/infrastructure/docker-compose.yml` - Shared PostgreSQL & Redis
+- `/services/infrastructure/README.md` - Infrastructure documentation
+
+### Agent-Engine Service Files
+- `/services/agent-engine/prisma/schema.prisma` - Complete 8-table schema
+- `/services/agent-engine/scripts/seed.py` - Database seeding with sample data
+- `/services/agent-engine/src/models/database.py` - Database utilities
+- `/services/agent-engine/src/config.py` - Enhanced with computed fields
+- `/services/agent-engine/src/main.py` - Integrated with Prisma
+- `/services/agent-engine/tests/test_database.py` - CRUD test suite
+- `/services/agent-engine/.env` - Local development configuration
+- `/services/agent-engine/docker-compose.yml` - Service-only container
 
 ### Key Documents
 - `masterplan.md` - Complete technical blueprint (reference)
-- `roadmap.md` - Development roadmap (reference)
-- `CLAUDE.md` - Project instructions for Claude Code
+- `CLAUDE.md` - Updated with infrastructure pattern
+- Task specifications in `/tasks/` - All 10 tasks ready
 
 ## Environment Configuration
 ```bash
-# Updated ports for agent-engine service
-API_PORT=8001
+# Infrastructure Services (shared)
 POSTGRES_PORT=5435
 REDIS_PORT=6382
 
-# Connection strings
+# Agent-Engine Service
+API_PORT=8001
 DATABASE_URL=postgresql://tahoe:tahoe@localhost:5435/tahoe
 REDIS_URL=redis://localhost:6382
+
+# Note: DATABASE_URL must be exported for Prisma CLI operations
+export DATABASE_URL=postgresql://tahoe:tahoe@localhost:5435/tahoe
 ```
 
 ## Session Handoff
-The task specifications are complete and ready for implementation. The next session should:
-1. Read `/tasks/r1-foundation/r1-t1-project-setup.yaml`
-2. Create the services/agent-engine directory structure
-3. Implement the Docker Compose environment with updated ports
-4. Validate the basic infrastructure is running
+R1-T2 complete with infrastructure properly separated. Database schema fully implemented with seed data. Next session options:
+1. **R1-T3**: Add authentication and basic API endpoints
+2. **R2-T1**: Start building the orchestration engine with ADK
+3. Both paths are viable - R1-T3 completes foundation, R2-T1 starts core functionality
 
-All task files include detailed implementation guides, validation steps, and connection information. Follow the KISS principle throughout implementation.
+All infrastructure is running and tested. FastAPI app connects successfully to both PostgreSQL and Redis.
