@@ -55,7 +55,8 @@ class TahoeOrchestrator:
         from .services.content_analyzer import ContentAnalyzer
         from .services.aggregation import ResultAggregator
         
-        self.agent_factory = AgentFactory()
+        self.agent_factory = AgentFactory(db=self.db, cache=self.cache)
+        await self.agent_factory.initialize()
         self.content_analyzer = ContentAnalyzer()
         self.result_aggregator = ResultAggregator()
         

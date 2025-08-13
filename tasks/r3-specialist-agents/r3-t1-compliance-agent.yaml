@@ -23,31 +23,32 @@ task:
       - "scripts/seed.py (add compliance agent template)"
       - "src/agents/factory.py (register specialist)"
     uses:
-      - "Regulation rule sets"
-      - "Pattern matching for violations"
-      - "Evidence extraction"
-      - "Severity classification"
+      - "Google ADK for LLM-powered analysis"
+      - "Gemini models for compliance detection"
+      - "Regulation rule sets for context"
+      - "LLM-based evidence extraction"
+      - "AI-powered severity classification"
     
   implementation_guide:
     start_with: "Create ComplianceSpecialistAgent class extending BaseSpecialistAgent"
     core_logic:
-      - "Load regulation rule sets from JSON"
-      - "Analyze transcript for violations"
-      - "Extract evidence with context"
-      - "Calculate severity scores"
-      - "Generate compliance score"
-      - "Provide remediation recommendations"
-      - "Create detailed violation records"
+      - "Load regulation rule sets as LLM context"
+      - "Use Gemini to analyze transcript for violations"
+      - "LLM-powered evidence extraction with citations"
+      - "AI-driven severity score calculation"
+      - "Generate compliance score via LLM reasoning"
+      - "LLM-generated remediation recommendations"
+      - "Create detailed violation records with AI analysis"
     connects_to:
       - "Base agent framework"
       - "Orchestrator for execution"
       - "Aggregator for results"
     keeps_simple:
-      - "Rule-based detection (no ML yet)"
-      - "Keyword and pattern matching"
-      - "Static rule sets from files"
-      - "Basic severity calculation"
-      - "Simple evidence extraction"
+      - "LLM-powered analysis with structured prompts"
+      - "Regulation rules as context, not hard-coded logic"
+      - "Single-pass Gemini analysis for efficiency"
+      - "Structured output parsing from LLM responses"
+      - "Focus on FDCPA, TCPA, and Reg F regulations"
     
   local_validation:
     run_commands:

@@ -21,31 +21,32 @@ task:
       - "scripts/seed.py (add quality agent template)"
       - "src/agents/factory.py (register specialist)"
     uses:
-      - "Multi-dimensional scoring rubric"
-      - "Communication pattern analysis"
-      - "Customer sentiment detection"
-      - "Professional standards evaluation"
+      - "Google ADK for LLM-powered quality assessment"
+      - "Gemini models for communication analysis"
+      - "Multi-dimensional scoring rubric as LLM context"
+      - "AI-driven sentiment and empathy detection"
+      - "LLM-based professional standards evaluation"
     
   implementation_guide:
     start_with: "Create QualityAssessmentAgent class extending BaseSpecialistAgent"
     core_logic:
-      - "Score across 7 quality dimensions"
-      - "Analyze communication patterns"
-      - "Evaluate professionalism"
-      - "Assess empathy and rapport"
-      - "Check resolution effectiveness"
-      - "Measure clarity and accuracy"
-      - "Generate improvement suggestions"
+      - "Use Gemini to score across 7 quality dimensions"
+      - "LLM-powered communication pattern analysis"
+      - "AI evaluation of professionalism indicators"
+      - "Gemini assessment of empathy and rapport"
+      - "LLM-driven resolution effectiveness analysis"
+      - "AI measurement of clarity and accuracy"
+      - "Generate LLM-powered improvement suggestions"
     connects_to:
       - "Base agent framework"
       - "Orchestrator for execution"
       - "Aggregator for results"
     keeps_simple:
-      - "Rule-based scoring (no sentiment API)"
-      - "Keyword indicators for each dimension"
-      - "Static scoring rubric"
-      - "Basic pattern matching"
-      - "Simple weighted average"
+      - "Single Gemini call with structured quality analysis prompt"
+      - "Scoring rubric provided as LLM context"
+      - "Structured JSON output from LLM"
+      - "Focus on 7 core quality dimensions"
+      - "LLM-generated scores with reasoning"
     
   local_validation:
     run_commands:

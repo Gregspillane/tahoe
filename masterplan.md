@@ -29,6 +29,7 @@ This document serves as the definitive architectural and implementation referenc
 4. **External State Management**: Redis for high-performance caching and session management
 5. **Observable by Default**: Comprehensive tracing, metrics, and audit trails for every operation
 6. **Multi-Model Provider Support**: Provider-agnostic design supporting Gemini, OpenAI, Anthropic
+7. **ADK Event-Driven Execution**: Follows Google ADK's event-driven async patterns with Runner-based agent execution
 
 ### System Topology
 
@@ -302,12 +303,24 @@ CACHE_PATTERNS = {
 
 ## Core Implementation Components
 
+### ADK Integration Notes
+
+**Important**: This implementation follows Google ADK (Agent Development Kit) patterns. Key corrections made:
+
+1. **Agent Classes**: Uses `LlmAgent` instead of generic `Agent` class
+2. **Execution Pattern**: Uses `Runner` with `InMemorySessionService` for proper agent execution
+3. **Tool Integration**: Uses `FunctionTool` pattern instead of `@tool` decorator
+4. **Event-Driven Model**: Agent execution yields events processed by Runner
+5. **Session Management**: Proper session handling through ADK's session services
+
 ### 1. Orchestration Engine
 
 ```python
 # src/orchestrator.py
-from google.adk.agents import Agent, ParallelAgent, SequentialAgent
-from google.adk.tools import tool
+from google.adk.agents import LlmAgent, ParallelAgent, SequentialAgent
+from google.adk.tools import FunctionTool
+from google.adk.runners import Runner
+from google.adk.sessions import InMemorySessionService
 import redis.asyncio as redis
 from prisma import Prisma
 from typing import Dict, List, Optional
@@ -689,7 +702,10 @@ class TahoeOrchestrator:
 
 ```python
 # src/agents/factory.py
-from google.adk.agents import Agent
+from google.adk.agents import LlmAgent
+from google.adk.tools import FunctionTool
+from google.adk.runners import Runner
+from google.adk.sessions import InMemorySessionService
 from typing import Dict, Any
 import json
 
@@ -700,7 +716,7 @@ class AgentFactory:
         self.db = Prisma()
         self.cache = redis.Redis()
         self.model_registry = ModelRegistry()
-        self.tool_registry = ToolRegistry()
+        self.tool_registry = ToolRegistry()  # Custom registry to manage FunctionTool instances
     
     async def create_agent(self, template: dict) -> 'TahoeAgent':
         """Create an ADK agent from a template configuration"""
@@ -711,16 +727,16 @@ class AgentFactory:
             template.get("modelConfig", {})
         )
         
-        # Load tools
+        # Load tools (converted to FunctionTool instances)
         tools = await self.tool_registry.load_tools(template.get("tools", []))
         
         # Create base ADK agent
-        adk_agent = Agent(
-            name=template["name"],
+        adk_agent = LlmAgent(
             model=model_config.model_string,
+            name=template["name"],
             description=template.get("description", ""),
-            tools=tools,
-            **model_config.parameters
+            tools=tools
+            # Note: Additional model parameters should be handled through model configuration
         )
         
         # Wrap in Tahoe agent for additional functionality
@@ -758,7 +774,7 @@ class AgentFactory:
 class TahoeAgent:
     """Wrapper around ADK agent with Tahoe-specific functionality"""
     
-    def __init__(self, adk_agent: Agent, template: dict, factory: AgentFactory):
+    def __init__(self, adk_agent: LlmAgent, template: dict, factory: AgentFactory):
         self.adk_agent = adk_agent
         self.template = template
         self.factory = factory
@@ -767,17 +783,31 @@ class TahoeAgent:
         """Execute analysis with Tahoe-specific processing"""
         
         # Prepare prompts
-        system_prompt = self.template.get("systemPrompt", "")
         user_prompt = self._build_user_prompt(input_data)
         
-        # Execute ADK agent
-        result = await self.adk_agent.run(
-            input=user_prompt,
-            system=system_prompt
+        # Create session service for this analysis
+        session_service = InMemorySessionService()
+        
+        # Create runner for agent execution
+        runner = Runner(
+            agent=self.adk_agent,
+            session_service=session_service
         )
         
-        # Process and structure result
-        return self._process_result(result, input_data)
+        # Execute ADK agent using proper runner pattern
+        events = []
+        user_id = input_data.get("trace_id", "default_user")
+        session_id = f"analysis_{input_data.get('trace_id', 'default')}"
+        
+        async for event in runner.run_async(
+            user_id=user_id,
+            session_id=session_id,
+            new_message=user_prompt
+        ):
+            events.append(event)
+        
+        # Process and structure result from events
+        return self._process_events_result(events, input_data)
     
     def _build_user_prompt(self, input_data: dict) -> str:
         """Build user prompt from template and input data"""
@@ -793,15 +823,23 @@ class TahoeAgent:
         
         return prompt
     
-    def _process_result(self, result: Any, input_data: dict) -> dict:
-        """Process ADK agent result into standardized format"""
+    def _process_events_result(self, events: List[Any], input_data: dict) -> dict:
+        """Process ADK agent events into standardized format"""
+        
+        # Extract final response from events
+        final_response = None
+        for event in reversed(events):  # Look at events in reverse order for final response
+            if hasattr(event, 'content') or hasattr(event, 'response'):
+                final_response = getattr(event, 'content', getattr(event, 'response', None))
+                break
         
         return {
             "agent_name": self.template["name"],
             "agent_version": self.template["version"],
-            "result": result,
-            "confidence": self._calculate_confidence(result),
-            "execution_time": getattr(result, 'execution_time', None),
+            "result": final_response,
+            "events": events,  # Include all events for debugging
+            "confidence": self._calculate_confidence(final_response),
+            "execution_time": None,  # Would need to calculate from event timestamps
             "model_used": self.template["model"],
             "trace_id": input_data.get("trace_id")
         }
@@ -811,6 +849,30 @@ class TahoeAgent:
         # Implementation depends on result structure
         # This is a placeholder
         return 0.85
+
+class ToolRegistry:
+    """Registry for managing FunctionTool instances"""
+    
+    async def load_tools(self, tool_names: List[str]) -> List[FunctionTool]:
+        """Load and convert tool functions to FunctionTool instances"""
+        tools = []
+        
+        for tool_name in tool_names:
+            # Load tool function definition from database or configuration
+            tool_func = await self._get_tool_function(tool_name)
+            
+            # Create FunctionTool instance
+            if tool_func:
+                function_tool = FunctionTool(func=tool_func)
+                tools.append(function_tool)
+        
+        return tools
+    
+    async def _get_tool_function(self, tool_name: str):
+        """Get tool function by name"""
+        # This would load from database or registry
+        # Return actual function that tools can call
+        pass
 ```
 
 ### 3. Model Registry
@@ -1971,8 +2033,8 @@ class BaseSpecialistAgent(ABC):
 
 ```python
 # src/agents/specialists/compliance.py
-from google.adk.agents import Agent
-from google.adk.tools import tool
+from google.adk.agents import LlmAgent
+from google.adk.tools import FunctionTool
 from ..base import BaseSpecialistAgent, AgentResult
 import re
 from typing import Dict, Any, List

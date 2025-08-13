@@ -281,3 +281,21 @@ Redis caching with specific TTLs:
 4. Agent Execution - Run specialists with timeout management
 5. Result Aggregation - Combine outputs and calculate scores
 6. Persistence - Store results in PostgreSQL
+- # Production Architecture Guidelines
+
+We are building a production-ready service from day one. Our pre-launch status is an opportunity to establish clean architecture without technical debt.
+
+## Core Principles
+
+- **No Mocks or Workarounds**: Implement real solutions that will scale to production. Avoid temporary fixes or placeholder code.
+- **Root Cause Focus**: Always address the underlying architectural issue rather than patching symptoms.
+- **KISS with Sustainability**: Keep implementations simple while ensuring they're maintainable and extensible for long-term growth.
+- **Fail Fast Philosophy**: No silent failures or fallback behaviors. Systems should fail explicitly and early when issues occur.
+- **Clean Architecture First**: As a pre-launch application, prioritize establishing proper architectural patterns over quick feature delivery.
+
+## Implementation Standards
+
+- Build every component as if it's going into production tomorrow
+- Design for observability and debugging from the start
+- Ensure all error states are explicit and actionable
+- Create clear separation of concerns in all architectural decisions

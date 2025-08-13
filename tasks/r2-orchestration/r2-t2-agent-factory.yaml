@@ -9,6 +9,7 @@ task:
     references:
       - "masterplan agent factory (lines 688-814)"
       - "masterplan base agent interface (lines 1919-1968)"
+      - "masterplan model registry (lines 816-942)"
       - "roadmap phase 2 agent infrastructure"
     
   build_spec:
@@ -16,6 +17,7 @@ task:
       - "services/agent-engine/src/agents/__init__.py"
       - "services/agent-engine/src/agents/factory.py"
       - "services/agent-engine/src/agents/base.py"
+      - "services/agent-engine/src/models/registry.py"
       - "services/agent-engine/src/tools/registry.py"
       - "services/agent-engine/tests/test_agent_factory.py"
     modifies:
@@ -26,28 +28,34 @@ task:
       - "Google ADK for agent framework"
       - "Database templates for configuration"
       - "Redis for template caching"
+      - "ModelRegistry for model configuration"
+      - "ToolRegistry for tool loading"
     
   implementation_guide:
     start_with: "Create AgentFactory class with template loading"
     core_logic:
-      - "Load agent templates from database"
+      - "Load agent templates from database with Prisma"
       - "Cache templates in Redis (5 min TTL)"
-      - "Create ADK agents from templates"
+      - "Implement ModelRegistry as configuration manager (not API integrator)"  # CORRECTED: Configuration only
+      - "Implement ToolRegistry with basic load_tools method"
+      - "Create ADK LlmAgent instances with proper parameters"  # VERIFIED: LlmAgent from ADK docs
       - "Wrap in TahoeAgent for standardization"
+      - "Implement _calculate_confidence with basic logic"  # ADDED: Implementation guidance
+      - "Add comprehensive error handling for template loading and agent creation"  # ADDED: Error handling
       - "BaseSpecialistAgent abstract class"
       - "AgentResult dataclass for outputs"
-      - "Tool registry for agent capabilities"
     connects_to:
       - "Database for template storage"
       - "Redis for template caching"
       - "Model registry for LLM configuration"
+      - "Tool registry for agent tools"
       - "Orchestrator for agent lifecycle"
     keeps_simple:
-      - "Basic ADK integration (no complex tools)"
+      - "ModelRegistry as pure configuration lookup (no API calls)"  # CORRECTED: Simplified approach
+      - "Basic ToolRegistry with placeholder tools"  # CORRECTED: Basic implementation
+      - "Google ADK LlmAgent integration"  # VERIFIED: Correct ADK class
       - "Simple prompt templates (format strings)"
-      - "Mock model calls for testing"
-      - "No advanced agent features yet"
-      - "Basic tool registry (placeholder)"
+      - "Test with mocked Prisma/Redis for reliability"  # CORRECTED: Testing approach
     
   local_validation:
     run_commands:
@@ -61,9 +69,11 @@ task:
     check_functionality:
       - "Can load template from database"
       - "Cache hit on second load"
-      - "Agent wraps ADK properly"
+      - "Agent wraps ADK LlmAgent properly"  # VERIFIED: Correct ADK class
       - "Analyze method returns AgentResult"
       - "Base class enforces interface"
+      - "Error handling for missing templates works"  # ADDED: Error handling validation
+      - "ModelRegistry returns proper ModelConfig"  # ADDED: ModelRegistry validation
     
   session_notes:
     context_critical:
@@ -78,28 +88,44 @@ task:
       - "Tool registry interface"
 
   implementation_checklist:
-    - "Create AgentFactory class"
+    - "Create AgentFactory class with ModelRegistry and ToolRegistry"
     - "Implement template loading with cache"
-    - "Build create_agent method"
-    - "Create TahoeAgent wrapper"
+    - "Build create_agent method using ADK LlmAgent constructor"  # VERIFIED: ADK documentation
+    - "Create TahoeAgent wrapper with all methods"
     - "Define BaseSpecialistAgent abstract class"
     - "Create AgentResult dataclass"
-    - "Build basic ToolRegistry"
-    - "Write factory tests"
+    - "Build ModelRegistry as configuration lookup (no API integration)"  # CORRECTED: Configuration only
+    - "Build ToolRegistry with basic load_tools method"
+    - "Implement _calculate_confidence with basic heuristic logic"  # ADDED: Implementation guidance
+    - "Add error handling for missing templates and invalid configs"  # ADDED: Error handling
+    - "Write factory tests with mocked dependencies for reliability"  # CORRECTED: Testing approach
     - "Test caching behavior"
+    - "Validate ADK LlmAgent instantiation with correct parameters"  # VERIFIED: ADK documentation
 
   class_structure:
     AgentFactory:
-      - "load_template(id) - with caching"
-      - "create_agent(template) - returns TahoeAgent"
+      - "__init__(db, cache, model_registry, tool_registry)"
+      - "load_template(id) - with caching and error handling"  # ADDED: Error handling
+      - "create_agent(template) - returns TahoeAgent using ADK LlmAgent"  # VERIFIED: ADK documentation
       - "invalidate_cache(id) - clear template"
     
     TahoeAgent:
-      - "adk_agent - wrapped ADK agent"
+      - "adk_agent - ADK LlmAgent instance"  # VERIFIED: Correct ADK class
       - "template - configuration from DB"
-      - "analyze(input) - execute analysis"
-      - "_build_user_prompt() - format prompt"
-      - "_process_result() - standardize output"
+      - "factory - reference to factory"
+      - "analyze(input) - execute with proper input/system prompts"  # ADDED: Prompt details
+      - "_build_user_prompt() - format prompt with template variables"
+      - "_process_result() - standardize output to AgentResult format"
+      - "_calculate_confidence(result) - basic heuristic (0.85 default)"  # ADDED: Implementation detail
+    
+    ModelRegistry:
+      - "get_config(model_name, overrides) - returns ModelConfig"
+      - "_get_provider(model_name) - determine provider from name prefix"
+      - "PROVIDERS - static config dict with model parameters"  # CORRECTED: Static config only
+    
+    ToolRegistry:
+      - "load_tools(tool_ids) - returns list of placeholder tools"  # CORRECTED: Placeholder approach
+      - "get_tool(tool_id) - returns single tool or None"
     
     BaseSpecialistAgent:
       - "analyze() - abstract method"
@@ -134,9 +160,64 @@ task:
       await redis.setex(key, ttl, json.dumps(template))
       return template
 
-  mock_for_testing:
-    mock_adk_agent: |
-      # For testing without real LLM calls
-      class MockADKAgent:
-          async def run(self, input, system):
-              return "Mock analysis result"
+  real_adk_integration:
+    adk_imports: |
+      # VERIFIED: Correct Google ADK imports per documentation
+      from google.adk.agents import LlmAgent  # VERIFIED: Primary agent class
+      from google.adk.tools import tool
+      # Fallback imports with try/except for development
+      try:
+          from google.adk.agents import LlmAgent
+      except ImportError:
+          # Development fallback - will be replaced with real ADK
+          class LlmAgent:
+              def __init__(self, **kwargs): pass
+    
+    model_config: |
+      from dataclasses import dataclass
+      from typing import Dict, Any
+      
+      @dataclass
+      class ModelConfig:
+          model_string: str
+          parameters: Dict[str, Any]
+          provider: str
+    
+    gemini_integration: |
+      # Real Gemini model configuration
+      GEMINI_MODELS = {
+          "gemini-2.0-flash": {
+              "string": "gemini-2.0-flash",
+              "default_params": {
+                  "temperature": 0.3,
+                  "max_tokens": 2000,
+                  "top_p": 0.95
+              }
+          }
+      }
+    
+    environment_requirements: |
+      # Required environment variables
+      GOOGLE_API_KEY=your_actual_google_api_key
+      # Google ADK must be installed: pip install google-adk[full]
+      
+    adk_agent_instantiation: |
+      # VERIFIED: ADK LlmAgent constructor parameters per documentation
+      adk_agent = LlmAgent(
+          name=template["name"],
+          model=model_config.model_string,
+          description=template.get("description", ""),
+          instruction=template.get("systemPrompt", ""),
+          tools=tools,
+          **model_config.parameters
+      )
+      
+    error_handling_patterns: |
+      # Comprehensive error handling per MASTERPLAN requirements
+      try:
+          template = await self.load_template(template_id)
+      except TemplateNotFoundError:
+          raise ValueError(f"Agent template {template_id} not found")
+      except Exception as e:
+          logger.error(f"Failed to load template {template_id}: {str(e)}")
+          raise

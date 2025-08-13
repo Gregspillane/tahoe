@@ -42,11 +42,11 @@ task:
       - "Database for provider configs"
       - "Environment for API keys"
     keeps_simple:
-      - "Static provider configurations for now"
-      - "No actual API calls yet (mock for testing)"
-      - "Basic availability (just return true/false)"
-      - "No rate limiting or quotas"
-      - "No cost tracking"
+      - "Static provider configurations with real API integration"
+      - "Real API availability checking with actual endpoints"
+      - "Production-ready model configurations"
+      - "No rate limiting or quotas (for now)"
+      - "No cost tracking (for now)"
     
   local_validation:
     run_commands:
@@ -78,13 +78,14 @@ task:
   implementation_checklist:
     - "Create ModelRegistry class"
     - "Define ModelConfig dataclass"
-    - "Add provider configurations"
+    - "Add real provider configurations with API keys"
     - "Implement get_config method"
     - "Add provider detection logic"
-    - "Create provider adapters (stubs)"
-    - "Build availability checking"
-    - "Write comprehensive tests"
-    - "Update seed data"
+    - "Create functional provider adapters"
+    - "Build real API availability checking"
+    - "Write comprehensive tests with real API calls"
+    - "Update seed data with production models"
+    - "Validate Gemini API integration"
 
   provider_configurations:
     gemini:
@@ -143,12 +144,36 @@ task:
       else:
           raise ValueError(f"Unknown provider for: {model_name}")
 
-  mock_availability:
+  real_availability_checking:
     implementation: |
       async def check_model_availability(self, model_name: str) -> bool:
-          # For now, just check if model is known
-          try:
-              self.get_config(model_name)
-              return True
-          except ValueError:
+          # Real API availability check
+          provider = self._get_provider(model_name)
+          
+          if provider == "gemini":
+              return await self._check_gemini_availability(model_name)
+          elif provider == "openai":
+              return await self._check_openai_availability(model_name)
+          elif provider == "anthropic":
+              return await self._check_anthropic_availability(model_name)
+          else:
               return False
+      
+      async def _check_gemini_availability(self, model_name: str) -> bool:
+          # Use Google AI API to check model availability
+          import google.generativeai as genai
+          try:
+              api_key = os.getenv("GOOGLE_API_KEY")
+              if not api_key:
+                  return False
+              genai.configure(api_key=api_key)
+              models = genai.list_models()
+              return any(model_name in model.name for model in models)
+          except Exception:
+              return False
+    
+    environment_requirements: |
+      # Required API keys for real availability checking
+      GOOGLE_API_KEY=your_google_api_key
+      OPENAI_API_KEY=your_openai_api_key  
+      ANTHROPIC_API_KEY=your_anthropic_api_key

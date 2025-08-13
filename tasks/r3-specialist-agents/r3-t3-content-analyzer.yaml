@@ -22,31 +22,32 @@ task:
       - "src/agents/factory.py (register specialist)"
       - "src/services/content_analyzer.py (enhance existing)"
     uses:
-      - "Pattern recognition for entities"
-      - "Topic categorization"
-      - "Regulatory indicator detection"
-      - "Sentiment analysis (basic)"
+      - "Google ADK for LLM-powered content analysis"
+      - "Gemini models for entity extraction"
+      - "AI-driven topic categorization"
+      - "LLM-based regulatory context detection"
+      - "Gemini sentiment and tone analysis"
     
   implementation_guide:
     start_with: "Create ContentAnalyzerAgent class extending BaseSpecialistAgent"
     core_logic:
-      - "Extract key entities (names, amounts, dates)"
-      - "Identify conversation topics"
-      - "Detect regulatory context"
-      - "Analyze sentiment and tone"
-      - "Calculate complexity score"
-      - "Extract action items"
-      - "Identify critical information"
+      - "Use Gemini to extract key entities (names, amounts, dates)"
+      - "LLM-powered conversation topic identification"
+      - "AI detection of regulatory context and indicators"
+      - "Gemini sentiment and tone analysis"
+      - "LLM-calculated complexity scoring"
+      - "AI extraction of action items and commitments"
+      - "Gemini identification of critical information"
     connects_to:
       - "Orchestrator uses for agent selection"
       - "Other agents use extracted context"
       - "Aggregator uses for metadata"
     keeps_simple:
-      - "Pattern-based extraction"
-      - "Keyword topic detection"
-      - "Basic sentiment (positive/negative/neutral)"
-      - "No NLP libraries yet"
-      - "Static categorization rules"
+      - "Single Gemini call with comprehensive analysis prompt"
+      - "Structured JSON output for entity extraction"
+      - "LLM-generated topic categories and sentiment"
+      - "AI-powered content analysis without complex pipelines"
+      - "Focus on financial services conversation patterns"
     
   local_validation:
     run_commands:

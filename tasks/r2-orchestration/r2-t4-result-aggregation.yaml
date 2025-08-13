@@ -75,14 +75,15 @@ task:
 
   implementation_checklist:
     - "Create ResultAggregator class"
-    - "Implement weighted scoring"
-    - "Build confidence calculation"
-    - "Add violation processing"
-    - "Create recommendation logic"
+    - "Implement weighted scoring for real LLM results"
+    - "Build confidence calculation from agent outputs"
+    - "Add violation processing from real agent findings"
+    - "Create recommendation logic from LLM suggestions"
     - "Implement category scoring"
     - "Add threshold evaluation"
     - "Generate audit trails"
-    - "Write comprehensive tests"
+    - "Write comprehensive tests with real agent data"
+    - "Validate with actual ADK agent outputs"
 
   aggregation_logic:
     weighted_score: |

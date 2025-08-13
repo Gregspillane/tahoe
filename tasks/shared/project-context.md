@@ -92,7 +92,7 @@ ANTHROPIC_API_KEY=<optional-for-anthropic>
 
 ### Unit Tests
 - Test individual components in isolation
-- Mock external dependencies
+- Real Google ADK and Gemini integration
 - Focus on business logic correctness
 
 ### Integration Tests

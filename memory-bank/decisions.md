@@ -1,5 +1,84 @@
 # Project Tahoe - Key Decisions Log
 
+## 2025-08-13: R2-T2 Task Validation and ADK Documentation Verification (Evening - Session 6)
+
+### Decision: Task Validation Process is Essential for Quality
+**Context**: R2-T2 Agent Factory task had multiple critical misalignments with MASTERPLAN
+**Decision**: Mandatory validation of task specifications against MASTERPLAN before implementation
+**Rationale**:
+- MASTERPLAN is definitive architectural reference with detailed implementation guidance
+- Task specifications may contain outdated or incorrect assumptions
+- Validation prevents building wrong implementations that require later refactoring
+- Early detection of issues saves significant development time
+**Impact**: R2-T2 corrected comprehensively - ModelRegistry simplified, error handling added, ADK classes verified
+
+### Decision: ADK Documentation Verification is Required
+**Context**: Task referenced unverified ADK classes and patterns
+**Decision**: All ADK components must be verified against official Google ADK documentation
+**Rationale**:
+- Ensures correct class names, methods, and constructor parameters
+- Prevents runtime errors from incorrect ADK usage
+- Official documentation provides authoritative patterns and best practices
+- Custom patterns (like AgentFactory) need verification that they don't conflict with ADK
+**Impact**: Confirmed LlmAgent is correct class, verified constructor parameters, validated no official AgentFactory exists
+
+### Decision: Configuration-Only ModelRegistry Approach
+**Context**: Original task over-engineered ModelRegistry with API integration
+**Decision**: Implement ModelRegistry as pure configuration lookup without API calls
+**Rationale**:
+- MASTERPLAN shows static configuration pattern (lines 829-942)
+- KISS principle: simplest solution that meets requirements
+- API availability checking adds complexity without immediate value
+- Focus on core agent factory functionality first
+**Impact**: Simplified ModelRegistry specification, reduced implementation complexity
+
+### Decision: Mocked Dependencies for Unit Testing
+**Context**: Task originally specified real API calls in unit tests
+**Decision**: Use mocked dependencies for reliable unit testing
+**Rationale**:
+- Unit tests must be fast, reliable, and not dependent on external services
+- Real API calls in tests create flaky test suite
+- Production integration tested separately from unit functionality
+- Allows testing error conditions without triggering real API errors
+**Impact**: More reliable test suite, faster development cycle
+
+## 2025-08-13: Critical Architecture Remediation (Evening - Session 5)
+
+### Decision: ELIMINATE ALL Mock/Stub References - Production-First Architecture
+**Context**: Task specifications contained mock/stub language inconsistent with production architecture
+**Decision**: Systematically remove ALL mock references and specify real Google ADK/Gemini integration
+**Rationale**:
+- Building production-ready service from day one, not prototype
+- Mock architecture leads to technical debt and delayed real integration  
+- Google API key available, no cost concerns for development
+- Fail-fast philosophy: better to catch integration issues early
+- Clean architecture: real dependencies from start, not workarounds
+**Impact**: 
+- 6 task files completely rewritten for real LLM integration
+- All R2/R3 tasks now specify actual Gemini API calls
+- Environment requirements updated: `GOOGLE_API_KEY` mandatory
+- Production architecture enforced throughout
+
+### Decision: Task Validation Process Required
+**Context**: R2-T2 task had critical misalignments with MASTERPLAN
+**Decision**: All task specifications must be validated against MASTERPLAN before implementation
+**Rationale**:
+- MASTERPLAN is definitive architectural reference
+- Task files were created before MASTERPLAN was complete
+- Prevents building incorrect implementations
+- Ensures production-ready specifications
+**Impact**: Validation process catches architectural misalignments early
+
+### Decision: Real LLM Integration is Non-Negotiable
+**Context**: Previous decisions suggested mock-first development
+**Decision**: No mocks, stubs, or placeholders - real Google ADK/Gemini throughout
+**Rationale**:
+- Pre-launch status allows establishing clean architecture
+- No technical debt from mock implementations
+- Real integration testing from day one
+- Production patterns established early
+**Impact**: All specialist agents use real LLM capabilities, not rule-based logic
+
 ## 2025-08-13: R2 Task Validation (Evening - Session 3)
 
 ### Decision: Validate Tasks Against MASTERPLAN Before Implementation
@@ -237,11 +316,8 @@
 - Simplified debugging
 **Impact**: All tasks include local validation
 
-### Decision: Mock-First Testing
+### Decision: Production-First Architecture (**SUPERSEDED**)
 **Context**: External API dependencies expensive
-**Decision**: Use mocks for initial development
-**Rationale**:
-- Faster development cycles
-- No API costs during development
-- Predictable test results
-**Impact**: Mock implementations in early tasks
+**Decision**: ~~Use mocks for initial development~~ **SUPERSEDED BY SESSION 5**
+**Rationale**: ~~Faster development cycles, no API costs~~ **NO LONGER VALID**
+**Impact**: ~~Mock implementations in early tasks~~ **ELIMINATED IN SESSION 5**
