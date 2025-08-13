@@ -1,0 +1,478 @@
+task:
+  id: "r4-t01-workflow-engine-base"
+  name: "Implement Core Workflow Engine"
+  description: "Create the foundational workflow engine that executes workflow templates using ADK agents"
+  complexity: "medium"
+  estimated_hours: 4
+  
+  context:
+    why: "The workflow engine is the core component that orchestrates complex multi-step agent workflows"
+    architectural_role: "Central workflow orchestration system using ADK's workflow agents"
+    depends_on_tasks: ["r2-t01", "r2-t03", "r2-t05"]
+    enables_tasks: ["r4-t02", "r4-t03", "r4-t04", "r4-t05"]
+    references:
+      masterplan: "@MASTERPLAN.md#workflow-engine"
+      adk_patterns: "@tasks/adk-patterns.md#workflow-orchestration"
+      project_context: "@tasks/project-context.md#workflow-architecture"
+    
+  adk_components:
+    primary:
+      - component: "SequentialAgent"
+        usage: "Execute steps in order"
+      - component: "ParallelAgent"
+        usage: "Execute parallel branches"
+      - component: "LoopAgent"
+        usage: "Iterative execution"
+      - component: "InMemoryRunner"
+        usage: "Workflow execution runtime"
+    patterns:
+      - "Workflow as Agent composition"
+      - "Template-driven execution"
+      - "State management between steps"
+    
+  implementation:
+    creates:
+      - path: "services/agent-engine/src/core/workflow.py"
+        purpose: "Core workflow engine implementation"
+        exports:
+          - "WorkflowEngine: Main workflow orchestration class"
+          - "WorkflowBuilder: Builds workflow agents from templates"
+          - "WorkflowContext: Execution context management"
+          - "WorkflowState: State tracking between steps"
+        content_structure: |
+          from typing import Dict, Any, List, Optional, AsyncIterator
+          from datetime import datetime
+          from pydantic import BaseModel, Field
+          import logging
+          import asyncio
+          
+          from google.adk.agents import SequentialAgent, ParallelAgent, LoopAgent, BaseAgent
+          from google.adk.runners import InMemoryRunner
+          from google.adk.events import Event
+          
+          from .composition import UniversalAgentFactory
+          from ..models.specifications import WorkflowTemplate
+          
+          logger = logging.getLogger(__name__)
+          
+          class WorkflowState(BaseModel):
+              """Manages state between workflow steps"""
+              workflow_id: str
+              template_name: str
+              current_step: Optional[str] = None
+              step_outputs: Dict[str, Any] = Field(default_factory=dict)
+              context: Dict[str, Any] = Field(default_factory=dict)
+              status: str = "pending"  # pending, running, completed, failed
+              started_at: Optional[datetime] = None
+              completed_at: Optional[datetime] = None
+              error: Optional[str] = None
+          
+          class WorkflowContext:
+              """Context manager for workflow execution"""
+              
+              def __init__(self, workflow_id: str, input_data: Dict[str, Any]):
+                  self.workflow_id = workflow_id
+                  self.input_data = input_data
+                  self.state = WorkflowState(
+                      workflow_id=workflow_id,
+                      template_name="",
+                      context={"input": input_data}
+                  )
+                  self.checkpoints: List[Dict] = []
+              
+              def update_step(self, step_id: str, output: Any):
+                  """Update state after step completion"""
+                  self.state.current_step = step_id
+                  self.state.step_outputs[step_id] = output
+                  self.state.context[step_id] = output
+                  
+              def checkpoint(self):
+                  """Create state checkpoint for recovery"""
+                  checkpoint = {
+                      "timestamp": datetime.now(),
+                      "state": self.state.model_dump()
+                  }
+                  self.checkpoints.append(checkpoint)
+                  return checkpoint
+              
+              def restore_checkpoint(self, index: int = -1):
+                  """Restore from checkpoint"""
+                  if self.checkpoints:
+                      checkpoint = self.checkpoints[index]
+                      self.state = WorkflowState(**checkpoint["state"])
+          
+          class WorkflowBuilder:
+              """Builds workflow agents from templates"""
+              
+              def __init__(self, agent_factory: UniversalAgentFactory):
+                  self.agent_factory = agent_factory
+              
+              def build_workflow_agent(
+                  self, 
+                  template: WorkflowTemplate, 
+                  context: WorkflowContext
+              ) -> BaseAgent:
+                  """Build workflow agent from template"""
+                  workflow_type = template.spec.type
+                  
+                  if workflow_type == "sequential":
+                      return self._build_sequential_workflow(template, context)
+                  elif workflow_type == "parallel":
+                      return self._build_parallel_workflow(template, context)
+                  elif workflow_type == "loop":
+                      return self._build_loop_workflow(template, context)
+                  elif workflow_type == "conditional":
+                      return self._build_conditional_workflow(template, context)
+                  else:
+                      return self._build_custom_workflow(template, context)
+              
+              def _build_sequential_workflow(
+                  self,
+                  template: WorkflowTemplate,
+                  context: WorkflowContext
+              ) -> SequentialAgent:
+                  """Build sequential workflow agent"""
+                  sub_agents = []
+                  
+                  for step in template.spec.steps:
+                      agent = self.agent_factory.build_agent(
+                          spec_name=step.agent_spec,
+                          context=context.state.context
+                      )
+                      sub_agents.append(agent)
+                  
+                  return SequentialAgent(
+                      name=template.metadata.name,
+                      description=template.metadata.description,
+                      sub_agents=sub_agents
+                  )
+              
+              def _build_parallel_workflow(
+                  self,
+                  template: WorkflowTemplate,
+                  context: WorkflowContext
+              ) -> ParallelAgent:
+                  """Build parallel workflow agent"""
+                  sub_agents = []
+                  
+                  for step in template.spec.steps:
+                      if step.parallel:
+                          agent = self.agent_factory.build_agent(
+                              spec_name=step.agent_spec,
+                              context=context.state.context
+                          )
+                          sub_agents.append(agent)
+                  
+                  return ParallelAgent(
+                      name=template.metadata.name,
+                      description=template.metadata.description,
+                      sub_agents=sub_agents
+                  )
+              
+              def _build_loop_workflow(
+                  self,
+                  template: WorkflowTemplate,
+                  context: WorkflowContext
+              ) -> LoopAgent:
+                  """Build loop workflow agent"""
+                  loop_spec = template.spec.loop_config
+                  
+                  agent = self.agent_factory.build_agent(
+                      spec_name=loop_spec.agent_spec,
+                      context=context.state.context
+                  )
+                  
+                  return LoopAgent(
+                      name=template.metadata.name,
+                      description=template.metadata.description,
+                      sub_agent=agent,
+                      max_iterations=loop_spec.max_iterations,
+                      condition=loop_spec.condition
+                  )
+              
+              def _build_conditional_workflow(
+                  self,
+                  template: WorkflowTemplate,
+                  context: WorkflowContext
+              ) -> BaseAgent:
+                  """Build conditional workflow with dynamic routing"""
+                  # Evaluate conditions and build appropriate agent
+                  for condition in template.spec.conditions:
+                      if self._evaluate_condition(condition.if_expr, context):
+                          return self.agent_factory.build_agent(
+                              spec_name=condition.then_agent,
+                              context=context.state.context
+                          )
+                  
+                  # Default agent if no conditions match
+                  if template.spec.default_agent:
+                      return self.agent_factory.build_agent(
+                          spec_name=template.spec.default_agent,
+                          context=context.state.context
+                      )
+                  
+                  raise ValueError(f"No matching condition for workflow {template.metadata.name}")
+              
+              def _evaluate_condition(self, expression: str, context: WorkflowContext) -> bool:
+                  """Safely evaluate condition expression"""
+                  try:
+                      # Safe evaluation with limited scope
+                      allowed_names = {
+                          "input": context.input_data,
+                          "context": context.state.context,
+                          "outputs": context.state.step_outputs
+                      }
+                      return eval(expression, {"__builtins__": {}}, allowed_names)
+                  except Exception as e:
+                      logger.warning(f"Condition evaluation failed: {e}")
+                      return False
+          
+          class WorkflowEngine:
+              """Main workflow orchestration engine"""
+              
+              def __init__(
+                  self,
+                  agent_factory: UniversalAgentFactory,
+                  session_service=None
+              ):
+                  self.agent_factory = agent_factory
+                  self.builder = WorkflowBuilder(agent_factory)
+                  self.session_service = session_service
+                  self.active_workflows: Dict[str, WorkflowContext] = {}
+              
+              async def execute_workflow(
+                  self,
+                  template_name: str,
+                  input_data: Dict[str, Any],
+                  workflow_id: Optional[str] = None,
+                  session_id: Optional[str] = None,
+                  stream: bool = False
+              ) -> Dict[str, Any]:
+                  """Execute workflow from template"""
+                  workflow_id = workflow_id or self._generate_workflow_id()
+                  context = WorkflowContext(workflow_id, input_data)
+                  
+                  try:
+                      # Load workflow template
+                      template = await self._load_template(template_name)
+                      context.state.template_name = template_name
+                      
+                      # Build workflow agent
+                      workflow_agent = self.builder.build_workflow_agent(template, context)
+                      
+                      # Track active workflow
+                      self.active_workflows[workflow_id] = context
+                      context.state.status = "running"
+                      context.state.started_at = datetime.now()
+                      
+                      # Execute workflow
+                      if stream:
+                          return self._execute_streaming(
+                              workflow_agent, context, session_id
+                          )
+                      else:
+                          return await self._execute_sync(
+                              workflow_agent, context, session_id
+                          )
+                      
+                  except Exception as e:
+                      context.state.status = "failed"
+                      context.state.error = str(e)
+                      logger.error(f"Workflow {workflow_id} failed: {e}")
+                      raise
+                  finally:
+                      context.state.completed_at = datetime.now()
+                      if workflow_id in self.active_workflows:
+                          del self.active_workflows[workflow_id]
+              
+              async def _execute_sync(
+                  self,
+                  agent: BaseAgent,
+                  context: WorkflowContext,
+                  session_id: Optional[str] = None
+              ) -> Dict[str, Any]:
+                  """Execute workflow synchronously"""
+                  runner = InMemoryRunner(agent, app_name="workflow_engine")
+                  
+                  # Create or get session
+                  if session_id:
+                      session = runner.session_service().get_session(session_id)
+                  else:
+                      session = runner.session_service().create_session(
+                          app_name="workflow_engine",
+                          user_id="system"
+                      )
+                  
+                  # Run workflow
+                  result = runner.run(
+                      user_id=session.user_id,
+                      session_id=session.id,
+                      prompt=context.input_data
+                  )
+                  
+                  context.state.status = "completed"
+                  
+                  return {
+                      "workflow_id": context.workflow_id,
+                      "status": context.state.status,
+                      "result": result,
+                      "outputs": context.state.step_outputs,
+                      "execution_time": (
+                          context.state.completed_at - context.state.started_at
+                      ).total_seconds() if context.state.completed_at else None
+                  }
+              
+              async def _execute_streaming(
+                  self,
+                  agent: BaseAgent,
+                  context: WorkflowContext,
+                  session_id: Optional[str] = None
+              ) -> AsyncIterator[Dict[str, Any]]:
+                  """Execute workflow with streaming output"""
+                  runner = InMemoryRunner(agent, app_name="workflow_engine")
+                  
+                  # Create or get session
+                  if session_id:
+                      session = runner.session_service().get_session(session_id)
+                  else:
+                      session = runner.session_service().create_session(
+                          app_name="workflow_engine",
+                          user_id="system"
+                      )
+                  
+                  # Stream workflow execution
+                  async for event in runner.run_async(
+                      user_id=session.user_id,
+                      session_id=session.id,
+                      prompt=context.input_data
+                  ):
+                      yield {
+                          "workflow_id": context.workflow_id,
+                          "event": event,
+                          "current_step": context.state.current_step,
+                          "status": context.state.status
+                      }
+                  
+                  context.state.status = "completed"
+              
+              def get_workflow_status(self, workflow_id: str) -> Optional[Dict]:
+                  """Get current workflow status"""
+                  if workflow_id in self.active_workflows:
+                      context = self.active_workflows[workflow_id]
+                      return context.state.model_dump()
+                  return None
+              
+              def pause_workflow(self, workflow_id: str) -> bool:
+                  """Pause running workflow"""
+                  if workflow_id in self.active_workflows:
+                      context = self.active_workflows[workflow_id]
+                      context.checkpoint()
+                      context.state.status = "paused"
+                      return True
+                  return False
+              
+              def resume_workflow(self, workflow_id: str) -> bool:
+                  """Resume paused workflow"""
+                  if workflow_id in self.active_workflows:
+                      context = self.active_workflows[workflow_id]
+                      if context.state.status == "paused":
+                          context.state.status = "running"
+                          return True
+                  return False
+              
+              async def _load_template(self, template_name: str) -> WorkflowTemplate:
+                  """Load workflow template from storage"""
+                  # Implementation will load from specs/workflows/
+                  pass
+              
+              def _generate_workflow_id(self) -> str:
+                  """Generate unique workflow ID"""
+                  from uuid import uuid4
+                  return f"wf_{uuid4().hex[:12]}"
+      
+      - path: "services/agent-engine/tests/test_workflow_engine.py"
+        purpose: "Tests for workflow engine"
+        test_categories:
+          - "Workflow building"
+          - "Sequential execution"
+          - "Parallel execution"
+          - "Conditional routing"
+          - "State management"
+          - "Error handling"
+    
+    uses_from_previous:
+      - source: "r2-t01"
+        component: "UniversalAgentFactory"
+        usage: "Build agents for workflow steps"
+      - source: "r2-t03"
+        component: "Workflow agent builders"
+        usage: "Reference implementation patterns"
+      - source: "r2-t05"
+        component: "Runner integration"
+        usage: "Execution runtime patterns"
+    
+  implementation_steps:
+    - step: "Create WorkflowState and Context"
+      implementation_notes: |
+        - State tracking between steps
+        - Context propagation
+        - Checkpoint support
+        
+    - step: "Implement WorkflowBuilder"
+      implementation_notes: |
+        - Build sequential workflows
+        - Build parallel workflows
+        - Build loop workflows
+        - Build conditional workflows
+        
+    - step: "Create WorkflowEngine"
+      implementation_notes: |
+        - Template loading
+        - Workflow execution
+        - Stream support
+        - State management
+        
+    - step: "Add workflow control"
+      implementation_notes: |
+        - Pause/resume capability
+        - Status monitoring
+        - Error recovery
+        
+    - step: "Write comprehensive tests"
+      implementation_notes: |
+        - Test all workflow types
+        - Test state management
+        - Test error scenarios
+        
+  validation:
+    commands:
+      - description: "Test workflow engine"
+        command: "cd services/agent-engine && pytest tests/test_workflow_engine.py -v"
+        expected: "All tests pass"
+        
+      - description: "Test sequential workflow"
+        command: |
+          cd services/agent-engine && python -c "
+          from src.core.workflow import WorkflowEngine
+          from src.core.composition import UniversalAgentFactory
+          factory = UniversalAgentFactory()
+          engine = WorkflowEngine(factory)
+          print('Workflow engine initialized')
+          "
+        expected: "Engine initializes successfully"
+        
+    success_criteria:
+      - "WorkflowEngine implemented"
+      - "All workflow types supported"
+      - "State management working"
+      - "Stream execution functional"
+      - "All tests pass"
+      
+  dependencies:
+    required_before:
+      - task: "r2-t01"
+        reason: "Need agent factory for step agents"
+      - task: "r2-t03"
+        reason: "Need workflow agent patterns"
+      - task: "r2-t05"
+        reason: "Need runner integration"

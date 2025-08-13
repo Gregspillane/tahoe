@@ -1,0 +1,423 @@
+task:
+  id: "r4-t02-conditional-workflows"
+  name: "Implement Conditional Workflow Execution"
+  description: "Create advanced conditional workflow capabilities with dynamic routing based on runtime conditions"
+  complexity: "medium"
+  estimated_hours: 3
+  
+  context:
+    why: "Conditional workflows enable dynamic agent selection and branching logic based on runtime data"
+    architectural_role: "Provides intelligent routing and decision-making in workflows"
+    depends_on_tasks: ["r4-t01"]
+    enables_tasks: ["r4-t05"]
+    references:
+      masterplan: "@MASTERPLAN.md#workflow-engine"
+      project_context: "@tasks/project-context.md#conditional-execution"
+    
+  implementation:
+    creates:
+      - path: "services/agent-engine/src/core/workflow_conditional.py"
+        purpose: "Conditional workflow implementation"
+        exports:
+          - "ConditionalWorkflowBuilder: Builds conditional workflows"
+          - "ConditionEvaluator: Evaluates runtime conditions"
+          - "RouteSelector: Selects execution path"
+          - "BranchManager: Manages workflow branches"
+        content_structure: |
+          from typing import Dict, Any, List, Optional, Callable
+          from pydantic import BaseModel, Field
+          import logging
+          import ast
+          import operator
+          
+          from google.adk.agents import BaseAgent, SequentialAgent
+          from .workflow import WorkflowContext, WorkflowBuilder
+          
+          logger = logging.getLogger(__name__)
+          
+          class Condition(BaseModel):
+              """Represents a workflow condition"""
+              id: str
+              expression: str
+              if_true: str  # Agent spec or workflow to execute
+              if_false: Optional[str] = None
+              priority: int = 0
+              metadata: Dict[str, Any] = Field(default_factory=dict)
+          
+          class ConditionEvaluator:
+              """Safely evaluates workflow conditions"""
+              
+              # Safe operations for condition evaluation
+              ALLOWED_OPS = {
+                  ast.Eq: operator.eq,
+                  ast.NotEq: operator.ne,
+                  ast.Lt: operator.lt,
+                  ast.LtE: operator.le,
+                  ast.Gt: operator.gt,
+                  ast.GtE: operator.ge,
+                  ast.And: operator.and_,
+                  ast.Or: operator.or_,
+                  ast.Not: operator.not_,
+                  ast.In: lambda x, y: x in y,
+                  ast.NotIn: lambda x, y: x not in y,
+                  ast.Is: operator.is_,
+                  ast.IsNot: operator.is_not,
+              }
+              
+              def __init__(self):
+                  self.cache: Dict[str, ast.AST] = {}
+              
+              def evaluate(
+                  self, 
+                  expression: str, 
+                  context: Dict[str, Any]
+              ) -> bool:
+                  """Safely evaluate condition expression"""
+                  try:
+                      # Parse and cache AST
+                      if expression not in self.cache:
+                          self.cache[expression] = ast.parse(expression, mode='eval')
+                      
+                      tree = self.cache[expression]
+                      
+                      # Validate AST is safe
+                      self._validate_ast(tree)
+                      
+                      # Evaluate with restricted scope
+                      result = self._eval_node(tree.body, context)
+                      return bool(result)
+                      
+                  except Exception as e:
+                      logger.error(f"Condition evaluation failed: {e}")
+                      return False
+              
+              def _validate_ast(self, tree: ast.AST):
+                  """Validate AST contains only safe operations"""
+                  for node in ast.walk(tree):
+                      if isinstance(node, ast.Call):
+                          # Only allow specific safe functions
+                          if not self._is_safe_function(node):
+                              raise ValueError(f"Unsafe function call in condition")
+                      elif isinstance(node, (ast.Import, ast.ImportFrom)):
+                          raise ValueError("Imports not allowed in conditions")
+                      elif isinstance(node, (ast.FunctionDef, ast.ClassDef)):
+                          raise ValueError("Definitions not allowed in conditions")
+              
+              def _is_safe_function(self, node: ast.Call) -> bool:
+                  """Check if function call is safe"""
+                  safe_functions = {'len', 'str', 'int', 'float', 'bool', 'any', 'all'}
+                  if isinstance(node.func, ast.Name):
+                      return node.func.id in safe_functions
+                  return False
+              
+              def _eval_node(self, node: ast.AST, context: Dict[str, Any]) -> Any:
+                  """Recursively evaluate AST node"""
+                  if isinstance(node, ast.BoolOp):
+                      op = self.ALLOWED_OPS[type(node.op)]
+                      values = [self._eval_node(v, context) for v in node.values]
+                      return op(*values) if op == operator.and_ or op == operator.or_ else op(values)
+                      
+                  elif isinstance(node, ast.Compare):
+                      left = self._eval_node(node.left, context)
+                      for op, comp in zip(node.ops, node.comparators):
+                          if type(op) not in self.ALLOWED_OPS:
+                              raise ValueError(f"Unsupported operation: {type(op)}")
+                          right = self._eval_node(comp, context)
+                          if not self.ALLOWED_OPS[type(op)](left, right):
+                              return False
+                          left = right
+                      return True
+                      
+                  elif isinstance(node, ast.UnaryOp):
+                      if type(node.op) not in self.ALLOWED_OPS:
+                          raise ValueError(f"Unsupported operation: {type(node.op)}")
+                      op = self.ALLOWED_OPS[type(node.op)]
+                      return op(self._eval_node(node.operand, context))
+                      
+                  elif isinstance(node, ast.Name):
+                      return context.get(node.id)
+                      
+                  elif isinstance(node, ast.Attribute):
+                      obj = self._eval_node(node.value, context)
+                      return getattr(obj, node.attr, None) if obj else None
+                      
+                  elif isinstance(node, ast.Subscript):
+                      obj = self._eval_node(node.value, context)
+                      index = self._eval_node(node.slice, context)
+                      return obj[index] if obj else None
+                      
+                  elif isinstance(node, ast.Constant):
+                      return node.value
+                      
+                  else:
+                      raise ValueError(f"Unsupported node type: {type(node)}")
+          
+          class RouteSelector:
+              """Selects execution path based on conditions"""
+              
+              def __init__(self, evaluator: ConditionEvaluator):
+                  self.evaluator = evaluator
+              
+              def select_route(
+                  self,
+                  conditions: List[Condition],
+                  context: Dict[str, Any]
+              ) -> Optional[str]:
+                  """Select route based on first matching condition"""
+                  # Sort by priority (higher first)
+                  sorted_conditions = sorted(
+                      conditions, 
+                      key=lambda c: c.priority, 
+                      reverse=True
+                  )
+                  
+                  for condition in sorted_conditions:
+                      if self.evaluator.evaluate(condition.expression, context):
+                          logger.info(f"Condition {condition.id} matched: {condition.expression}")
+                          return condition.if_true
+                      elif condition.if_false:
+                          return condition.if_false
+                  
+                  return None
+              
+              def select_multiple_routes(
+                  self,
+                  conditions: List[Condition],
+                  context: Dict[str, Any]
+              ) -> List[str]:
+                  """Select all matching routes for parallel execution"""
+                  routes = []
+                  
+                  for condition in conditions:
+                      if self.evaluator.evaluate(condition.expression, context):
+                          routes.append(condition.if_true)
+                  
+                  return routes
+          
+          class BranchManager:
+              """Manages workflow branching and merging"""
+              
+              def __init__(self):
+                  self.branches: Dict[str, List[str]] = {}
+                  self.merge_points: Dict[str, str] = {}
+              
+              def create_branch(
+                  self,
+                  workflow_id: str,
+                  branch_point: str,
+                  branches: List[str]
+              ):
+                  """Create workflow branches"""
+                  self.branches[f"{workflow_id}:{branch_point}"] = branches
+              
+              def set_merge_point(
+                  self,
+                  workflow_id: str,
+                  branch_point: str,
+                  merge_agent: str
+              ):
+                  """Set where branches merge"""
+                  self.merge_points[f"{workflow_id}:{branch_point}"] = merge_agent
+              
+              def get_branches(
+                  self,
+                  workflow_id: str,
+                  branch_point: str
+              ) -> List[str]:
+                  """Get branches for a branch point"""
+                  return self.branches.get(f"{workflow_id}:{branch_point}", [])
+              
+              def get_merge_point(
+                  self,
+                  workflow_id: str,
+                  branch_point: str
+              ) -> Optional[str]:
+                  """Get merge point for branches"""
+                  return self.merge_points.get(f"{workflow_id}:{branch_point}")
+          
+          class ConditionalWorkflowBuilder(WorkflowBuilder):
+              """Builds conditional workflows with advanced routing"""
+              
+              def __init__(self, agent_factory):
+                  super().__init__(agent_factory)
+                  self.evaluator = ConditionEvaluator()
+                  self.route_selector = RouteSelector(self.evaluator)
+                  self.branch_manager = BranchManager()
+              
+              def build_conditional_workflow(
+                  self,
+                  conditions: List[Condition],
+                  context: WorkflowContext,
+                  default_agent: Optional[str] = None,
+                  merge_agent: Optional[str] = None
+              ) -> BaseAgent:
+                  """Build conditional workflow with dynamic routing"""
+                  
+                  # Prepare context for evaluation
+                  eval_context = {
+                      "input": context.input_data,
+                      "state": context.state.context,
+                      "outputs": context.state.step_outputs
+                  }
+                  
+                  # Select route based on conditions
+                  selected_route = self.route_selector.select_route(
+                      conditions, 
+                      eval_context
+                  )
+                  
+                  if not selected_route and default_agent:
+                      selected_route = default_agent
+                  
+                  if not selected_route:
+                      raise ValueError("No route selected and no default agent provided")
+                  
+                  # Build agent for selected route
+                  route_agent = self.agent_factory.build_agent(
+                      spec_name=selected_route,
+                      context=eval_context
+                  )
+                  
+                  # If merge agent specified, create sequential with merge
+                  if merge_agent:
+                      merge = self.agent_factory.build_agent(
+                          spec_name=merge_agent,
+                          context=eval_context
+                      )
+                      return SequentialAgent(
+                          name="conditional_with_merge",
+                          sub_agents=[route_agent, merge]
+                      )
+                  
+                  return route_agent
+              
+              def build_multi_branch_workflow(
+                  self,
+                  conditions: List[Condition],
+                  context: WorkflowContext,
+                  parallel: bool = False
+              ) -> BaseAgent:
+                  """Build workflow with multiple conditional branches"""
+                  
+                  eval_context = {
+                      "input": context.input_data,
+                      "state": context.state.context,
+                      "outputs": context.state.step_outputs
+                  }
+                  
+                  # Select all matching routes
+                  selected_routes = self.route_selector.select_multiple_routes(
+                      conditions,
+                      eval_context
+                  )
+                  
+                  if not selected_routes:
+                      raise ValueError("No routes selected for multi-branch workflow")
+                  
+                  # Build agents for all selected routes
+                  agents = []
+                  for route in selected_routes:
+                      agent = self.agent_factory.build_agent(
+                          spec_name=route,
+                          context=eval_context
+                      )
+                      agents.append(agent)
+                  
+                  # Create parallel or sequential execution
+                  if parallel:
+                      from google.adk.agents import ParallelAgent
+                      return ParallelAgent(
+                          name="multi_branch_parallel",
+                          sub_agents=agents
+                      )
+                  else:
+                      return SequentialAgent(
+                          name="multi_branch_sequential",
+                          sub_agents=agents
+                      )
+              
+              def build_switch_workflow(
+                  self,
+                  switch_var: str,
+                  cases: Dict[Any, str],
+                  context: WorkflowContext,
+                  default: Optional[str] = None
+              ) -> BaseAgent:
+                  """Build switch-case style workflow"""
+                  
+                  eval_context = {
+                      "input": context.input_data,
+                      "state": context.state.context,
+                      "outputs": context.state.step_outputs
+                  }
+                  
+                  # Get switch variable value
+                  switch_value = eval_context.get(switch_var)
+                  
+                  # Select case
+                  selected_case = cases.get(switch_value, default)
+                  
+                  if not selected_case:
+                      raise ValueError(f"No case for value {switch_value} and no default")
+                  
+                  # Build agent for selected case
+                  return self.agent_factory.build_agent(
+                      spec_name=selected_case,
+                      context=eval_context
+                  )
+      
+      - path: "services/agent-engine/tests/test_conditional_workflows.py"
+        purpose: "Tests for conditional workflows"
+        test_categories:
+          - "Condition evaluation"
+          - "Route selection"
+          - "Branch management"
+          - "Multi-branch workflows"
+          - "Switch workflows"
+    
+    uses_from_previous:
+      - source: "r4-t01"
+        component: "WorkflowEngine"
+        usage: "Base workflow functionality"
+    
+  implementation_steps:
+    - step: "Create ConditionEvaluator"
+      implementation_notes: |
+        - Safe AST evaluation
+        - Caching for performance
+        - Comprehensive validation
+        
+    - step: "Implement RouteSelector"
+      implementation_notes: |
+        - Priority-based selection
+        - Multiple route support
+        - Default handling
+        
+    - step: "Build BranchManager"
+      implementation_notes: |
+        - Branch tracking
+        - Merge point management
+        - Branch lifecycle
+        
+    - step: "Create ConditionalWorkflowBuilder"
+      implementation_notes: |
+        - Single condition workflows
+        - Multi-branch workflows
+        - Switch-case workflows
+        
+  validation:
+    commands:
+      - description: "Test conditional workflows"
+        command: "cd services/agent-engine && pytest tests/test_conditional_workflows.py -v"
+        expected: "All tests pass"
+        
+    success_criteria:
+      - "Condition evaluation safe and robust"
+      - "Dynamic routing working"
+      - "Multi-branch support"
+      - "All tests pass"
+      
+  dependencies:
+    required_before:
+      - task: "r4-t01"
+        reason: "Need base workflow engine"

@@ -1,0 +1,125 @@
+task:
+  id: "r4-t05-workflow-testing"
+  name: "Create Comprehensive Workflow Testing Framework"
+  description: "Build testing framework for all workflow components including engine, state, events, and conditional logic"
+  complexity: "simple"
+  estimated_hours: 2
+  
+  context:
+    why: "Comprehensive testing ensures workflow reliability and enables confident deployment"
+    architectural_role: "Quality assurance layer for workflow system"
+    depends_on_tasks: ["r4-t01", "r4-t02", "r4-t03", "r4-t04"]
+    enables_tasks: []
+    references:
+      masterplan: "@MASTERPLAN.md#testing-standards"
+      decisions: "@memory-bank/decisions.md#test-driven-development"
+    
+  implementation:
+    creates:
+      - path: "services/agent-engine/tests/workflows/"
+        purpose: "Workflow testing directory"
+        content:
+          - "__init__.py"
+          - "test_workflow_integration.py"
+          - "test_workflow_scenarios.py"
+          - "test_workflow_performance.py"
+          - "fixtures.py"
+      
+      - path: "services/agent-engine/tests/workflows/test_workflow_integration.py"
+        purpose: "Integration tests for workflow system"
+        test_categories:
+          - "End-to-end workflows"
+          - "Component integration"
+          - "Error recovery"
+          - "State persistence"
+      
+      - path: "services/agent-engine/tests/workflows/test_workflow_scenarios.py"
+        purpose: "Real-world workflow scenarios"
+        test_categories:
+          - "Sequential processing"
+          - "Parallel execution"
+          - "Conditional routing"
+          - "Loop workflows"
+          - "Nested workflows"
+      
+      - path: "services/agent-engine/tests/workflows/test_workflow_performance.py"
+        purpose: "Performance and load tests"
+        test_categories:
+          - "Throughput testing"
+          - "Latency measurement"
+          - "Resource usage"
+          - "Scalability tests"
+      
+      - path: "services/agent-engine/tests/workflows/fixtures.py"
+        purpose: "Test fixtures and utilities"
+        exports:
+          - "create_test_workflow"
+          - "create_test_agent"
+          - "mock_adk_runner"
+          - "workflow_test_data"
+    
+    uses_from_previous:
+      - source: "r4-t01"
+        component: "WorkflowEngine"
+        usage: "Core testing target"
+      - source: "r4-t02"
+        component: "ConditionalWorkflowBuilder"
+        usage: "Conditional logic testing"
+      - source: "r4-t03"
+        component: "StateManager"
+        usage: "State testing"
+      - source: "r4-t04"
+        component: "WorkflowEventStream"
+        usage: "Event testing"
+    
+  implementation_steps:
+    - step: "Create test fixtures"
+      implementation_notes: |
+        - Mock agents and tools
+        - Test workflow templates
+        - Sample data sets
+        
+    - step: "Write integration tests"
+      implementation_notes: |
+        - Full workflow execution
+        - Component interaction
+        - Error scenarios
+        
+    - step: "Build scenario tests"
+      implementation_notes: |
+        - Real-world use cases
+        - Complex workflows
+        - Edge cases
+        
+    - step: "Add performance tests"
+      implementation_notes: |
+        - Load testing
+        - Benchmark suite
+        - Resource monitoring
+        
+  validation:
+    commands:
+      - description: "Run all workflow tests"
+        command: "cd services/agent-engine && pytest tests/workflows/ -v"
+        expected: "All tests pass"
+        
+      - description: "Check test coverage"
+        command: "cd services/agent-engine && pytest tests/workflows/ --cov=src/core --cov-report=term-missing"
+        expected: "Coverage > 80%"
+        
+    success_criteria:
+      - "All workflow components tested"
+      - "Integration tests passing"
+      - "Performance benchmarks established"
+      - "Coverage > 80%"
+      
+  dependencies:
+    required_before:
+      - task: "r4-t01"
+        reason: "Need workflow engine"
+      - task: "r4-t02"
+        reason: "Need conditional workflows"
+      - task: "r4-t03"
+        reason: "Need state management"
+      - task: "r4-t04"
+        reason: "Need event streaming"

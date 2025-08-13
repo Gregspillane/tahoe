@@ -19,7 +19,7 @@ def create_basic_agent() -> LlmAgent:
     
     # Create a simple agent
     agent = LlmAgent(
-        name="basic-assistant",
+        name="basic_assistant",
         model="gemini-2.0-flash",
         instruction="""You are a helpful assistant. 
         Provide clear, concise answers to questions.
@@ -41,22 +41,19 @@ def create_agent_with_parameters() -> LlmAgent:
     print("="*60)
     
     # Agent with custom parameters
+    # Note: Model parameters like temperature are set at runtime, not in agent creation
     agent = LlmAgent(
-        name="precise-assistant",
+        name="precise_assistant",
         model="gemini-2.0-flash",
         instruction="""You are a precise technical assistant.
         Focus on accuracy and detail in your responses.
         Use technical terminology when appropriate.""",
-        description="Precise technical assistant",
-        temperature=0.2,  # Lower temperature for more deterministic responses
-        max_tokens=2048,  # Limit response length
-        top_p=0.9  # Nucleus sampling parameter
+        description="Precise technical assistant"
     )
     
     print(f"✓ Created agent: {agent.name}")
     print(f"  - Model: {agent.model}")
-    print(f"  - Temperature: 0.2 (more focused)")
-    print(f"  - Max tokens: 2048")
+    print(f"  - Note: Model parameters set at runtime via model config")
     
     return agent
 
@@ -100,7 +97,7 @@ def create_agent_with_tools() -> LlmAgent:
     
     # Create agent with tools
     agent = LlmAgent(
-        name="tool-equipped-assistant",
+        name="tool_equipped_assistant",
         model="gemini-2.0-flash",
         instruction="""You are an assistant with access to several tools:
         1. word_counter - Count words and characters in text
@@ -130,7 +127,7 @@ def create_specialized_agents():
     
     # Code reviewer agent
     code_reviewer = LlmAgent(
-        name="code-reviewer",
+        name="code_reviewer",
         model="gemini-2.0-flash",
         instruction="""You are a code review specialist.
         Review code for:
@@ -141,8 +138,7 @@ def create_specialized_agents():
         - Documentation quality
         
         Provide constructive feedback with specific suggestions.""",
-        description="Specialized code review agent",
-        temperature=0.3  # Focused responses
+        description="Specialized code review agent"
     )
     
     print(f"✓ Created agent: {code_reviewer.name}")
@@ -150,7 +146,7 @@ def create_specialized_agents():
     
     # Data analyst agent
     data_analyst = LlmAgent(
-        name="data-analyst",
+        name="data_analyst",
         model="gemini-2.0-flash",
         instruction="""You are a data analysis expert.
         Help users with:
@@ -161,8 +157,7 @@ def create_specialized_agents():
         - Insights and patterns
         
         Explain findings in clear, non-technical language when needed.""",
-        description="Data analysis specialist",
-        temperature=0.4
+        description="Data analysis specialist"
     )
     
     print(f"✓ Created agent: {data_analyst.name}")
@@ -170,7 +165,7 @@ def create_specialized_agents():
     
     # Creative writer agent
     creative_writer = LlmAgent(
-        name="creative-writer",
+        name="creative_writer",
         model="gemini-2.0-flash",
         instruction="""You are a creative writing assistant.
         Help users with:
@@ -181,13 +176,11 @@ def create_specialized_agents():
         - Plot development
         
         Be creative and imaginative in your suggestions.""",
-        description="Creative writing assistant",
-        temperature=0.8  # More creative/varied responses
+        description="Creative writing assistant"
     )
     
     print(f"✓ Created agent: {creative_writer.name}")
     print(f"  - Specialization: Creative writing")
-    print(f"  - Temperature: 0.8 (more creative)")
     
     return code_reviewer, data_analyst, creative_writer
 
@@ -202,16 +195,27 @@ def execute_agent(agent: Optional[LlmAgent] = None):
         agent = create_basic_agent()
     
     # Create runner for the agent
-    runner = InMemoryRunner(agent, app_name="example-app")
+    runner = InMemoryRunner(agent, app_name="example_app")
     print(f"✓ Created InMemoryRunner for: {agent.name}")
     print(f"  - App name: example-app")
     
     # Create session
-    session_service = runner.session_service()
-    session = session_service.create_session(
-        app_name="example-app",
-        user_id="example-user"
-    )
+    session_service = runner.session_service
+    # Use sync version if available
+    if hasattr(session_service, 'create_session_sync'):
+        session = session_service.create_session_sync(
+            app_name="example_app",
+            user_id="example-user"
+        )
+    else:
+        # Fall back to async
+        import asyncio
+        async def create():
+            return await session_service.create_session(
+                app_name="example_app",
+                user_id="example-user"
+            )
+        session = asyncio.run(create())
     
     print(f"✓ Created session")
     print(f"  - Session ID: {session.id}")
@@ -234,14 +238,14 @@ def demonstrate_agent_alias():
     
     # Create using LlmAgent
     llm_agent = LlmAgent(
-        name="using-llmagent",
+        name="using_llmagent",
         model="gemini-2.0-flash",
         instruction="Created with LlmAgent"
     )
     
     # Create using Agent alias
     alias_agent = Agent(
-        name="using-agent-alias",
+        name="using_agent_alias",
         model="gemini-2.0-flash",
         instruction="Created with Agent alias"
     )

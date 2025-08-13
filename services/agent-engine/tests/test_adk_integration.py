@@ -17,13 +17,13 @@ class TestADKComponents:
     def test_llm_agent_creation(self):
         """Test LlmAgent creation with various parameters."""
         agent = LlmAgent(
-            name="test-llm",
+            name="test_llm",
             model="gemini-2.0-flash",
             instruction="You are a test agent",
             description="Test LLM agent for verification"
         )
         
-        assert agent.name == "test-llm"
+        assert agent.name == "test_llm"
         assert agent.model == "gemini-2.0-flash"
         assert agent.instruction == "You are a test agent"
         assert agent.description == "Test LLM agent for verification"
@@ -31,22 +31,22 @@ class TestADKComponents:
     def test_agent_alias(self):
         """Test that Agent is an alias for LlmAgent."""
         agent = Agent(
-            name="test-alias",
+            name="test_alias",
             model="gemini-2.0-flash",
             instruction="Testing alias"
         )
         
         assert type(agent).__name__ == "LlmAgent"
-        assert agent.name == "test-alias"
+        assert agent.name == "test_alias"
     
     def test_runner_creation(self):
         """Test InMemoryRunner creation."""
         agent = LlmAgent(
-            name="runner-test",
+            name="runner_test",
             model="gemini-2.0-flash",
             instruction="Test"
         )
-        runner = InMemoryRunner(agent, app_name="test-app")
+        runner = InMemoryRunner(agent, app_name="test_app")
         
         assert runner is not None
         assert hasattr(runner, 'run')
@@ -56,15 +56,15 @@ class TestADKComponents:
     def test_session_creation(self):
         """Test session creation and management."""
         agent = LlmAgent(
-            name="session-test",
+            name="session_test",
             model="gemini-2.0-flash",
             instruction="Test"
         )
-        runner = InMemoryRunner(agent, app_name="test-app")
-        session_service = runner.session_service()
+        runner = InMemoryRunner(agent, app_name="test_app")
+        session_service = runner.session_service
         
         session = session_service.create_session(
-            app_name="test-app",
+            app_name="test_app",
             user_id="test-user"
         )
         
@@ -75,12 +75,12 @@ class TestADKComponents:
     def test_session_with_initial_state(self):
         """Test session creation with initial state."""
         agent = LlmAgent(
-            name="state-test",
+            name="state_test",
             model="gemini-2.0-flash",
             instruction="Test"
         )
-        runner = InMemoryRunner(agent, app_name="test-app")
-        session_service = runner.session_service()
+        runner = InMemoryRunner(agent, app_name="test_app")
+        session_service = runner.session_service
         
         initial_state = {
             "counter": 0,
@@ -89,7 +89,7 @@ class TestADKComponents:
         }
         
         session = session_service.create_session(
-            app_name="test-app",
+            app_name="test_app",
             user_id="test-user",
             initial_state=initial_state
         )
@@ -115,12 +115,12 @@ class TestAgentTypes:
         )
         
         seq_agent = SequentialAgent(
-            name="sequential-test",
+            name="sequential_test",
             sub_agents=[sub_agent1, sub_agent2],
             description="Sequential workflow test"
         )
         
-        assert seq_agent.name == "sequential-test"
+        assert seq_agent.name == "sequential_test"
         assert len(seq_agent.sub_agents) == 2
         assert seq_agent.sub_agents[0].name == "sub1"
         assert seq_agent.sub_agents[1].name == "sub2"
@@ -133,32 +133,33 @@ class TestAgentTypes:
         ]
         
         par_agent = ParallelAgent(
-            name="parallel-test",
+            name="parallel_test",
             sub_agents=sub_agents,
             description="Parallel workflow test"
         )
         
-        assert par_agent.name == "parallel-test"
+        assert par_agent.name == "parallel_test"
         assert len(par_agent.sub_agents) == 3
     
     def test_loop_agent(self):
         """Test LoopAgent creation."""
         sub_agent = LlmAgent(
-            name="loop-sub",
+            name="loop_sub",
             model="gemini-2.0-flash",
             instruction="Loop iteration agent"
         )
         
         loop_agent = LoopAgent(
-            name="loop-test",
-            sub_agent=sub_agent,
+            name="loop_test",
+            sub_agents=[sub_agent],  # LoopAgent takes sub_agents as a list
             max_iterations=5,
             description="Loop workflow test"
         )
         
-        assert loop_agent.name == "loop-test"
+        assert loop_agent.name == "loop_test"
         assert loop_agent.max_iterations == 5
-        assert loop_agent.sub_agent.name == "loop-sub"
+        assert len(loop_agent.sub_agents) == 1
+        assert loop_agent.sub_agents[0].name == "loop_sub"
     
     def test_custom_agent(self):
         """Test custom agent extending BaseAgent."""
@@ -168,9 +169,9 @@ class TestAgentTypes:
                 super().__init__(name=name, description="Custom analyzer")
                 self.threshold = threshold
         
-        custom = CustomAnalyzer(name="custom-test", threshold=0.8)
+        custom = CustomAnalyzer(name="custom_test", threshold=0.8)
         
-        assert custom.name == "custom-test"
+        assert custom.name == "custom_test"
         assert custom.threshold == 0.8
         assert isinstance(custom, BaseAgent)
     
@@ -182,20 +183,20 @@ class TestAgentTypes:
         
         # Create parallel workflow
         parallel = ParallelAgent(
-            name="parallel-sub",
+            name="parallel_sub",
             sub_agents=[agent1, agent2]
         )
         
         # Create sequential workflow with parallel as sub-agent
         sequential = SequentialAgent(
-            name="main-workflow",
+            name="main_workflow",
             sub_agents=[parallel],
             description="Nested workflow"
         )
         
-        assert sequential.name == "main-workflow"
+        assert sequential.name == "main_workflow"
         assert len(sequential.sub_agents) == 1
-        assert sequential.sub_agents[0].name == "parallel-sub"
+        assert sequential.sub_agents[0].name == "parallel_sub"
 
 
 class TestToolIntegration:
@@ -214,13 +215,13 @@ class TestToolIntegration:
                 return a * b
         
         agent = LlmAgent(
-            name="calc-agent",
+            name="calc_agent",
             model="gemini-2.0-flash",
             instruction="Calculator agent",
             tools=[calculator]  # Automatic wrapping
         )
         
-        assert agent.name == "calc-agent"
+        assert agent.name == "calc_agent"
         assert len(agent.tools) == 1
     
     def test_explicit_function_tool(self):
@@ -234,13 +235,13 @@ class TestToolIntegration:
         tool = FunctionTool(analyzer)
         
         agent = LlmAgent(
-            name="analyzer-agent",
+            name="analyzer_agent",
             model="gemini-2.0-flash",
             instruction="Text analyzer",
             tools=[tool]
         )
         
-        assert agent.name == "analyzer-agent"
+        assert agent.name == "analyzer_agent"
         assert len(agent.tools) == 1
     
     def test_multiple_tools(self):
@@ -256,13 +257,13 @@ class TestToolIntegration:
             return "key" in data
         
         agent = LlmAgent(
-            name="multi-tool",
+            name="multi_tool",
             model="gemini-2.0-flash",
             instruction="Multi-tool agent",
             tools=[tool1, tool2, tool3]
         )
         
-        assert agent.name == "multi-tool"
+        assert agent.name == "multi_tool"
         assert len(agent.tools) == 3
     
     def test_mixed_tool_types(self):
@@ -277,33 +278,33 @@ class TestToolIntegration:
         explicit_tool = FunctionTool(explicit_func)
         
         agent = LlmAgent(
-            name="mixed-tools",
+            name="mixed_tools",
             model="gemini-2.0-flash",
             instruction="Mixed tool types",
             tools=[auto_tool, explicit_tool]  # Mixed types
         )
         
-        assert agent.name == "mixed-tools"
+        assert agent.name == "mixed_tools"
         assert len(agent.tools) == 2
     
     def test_agent_as_tool(self):
         """Test using an agent as a tool for another agent."""
         tool_agent = LlmAgent(
-            name="tool-agent",
+            name="tool_agent",
             model="gemini-2.0-flash",
             instruction="I am a specialized tool"
         )
         
         main_agent = LlmAgent(
-            name="main-agent",
+            name="main_agent",
             model="gemini-2.0-flash",
             instruction="Main agent with sub-agent as tool",
             sub_agents=[tool_agent]  # Agent as tool via sub_agents
         )
         
-        assert main_agent.name == "main-agent"
+        assert main_agent.name == "main_agent"
         assert len(main_agent.sub_agents) == 1
-        assert main_agent.sub_agents[0].name == "tool-agent"
+        assert main_agent.sub_agents[0].name == "tool_agent"
 
 
 class TestRunnerPatterns:
@@ -317,7 +318,7 @@ class TestRunnerPatterns:
             instruction="Simple test"
         )
         
-        runner = InMemoryRunner(agent, app_name="simple-app")
+        runner = InMemoryRunner(agent, app_name="simple_app")
         
         assert runner is not None
         assert callable(getattr(runner, 'run', None))
@@ -335,7 +336,7 @@ class TestRunnerPatterns:
             sub_agents=agents
         )
         
-        runner = InMemoryRunner(workflow, app_name="workflow-app")
+        runner = InMemoryRunner(workflow, app_name="workflow_app")
         
         assert runner is not None
     
@@ -358,12 +359,12 @@ class TestRunnerPatterns:
         runner1 = InMemoryRunner(agent, app_name="app1")
         runner2 = InMemoryRunner(agent, app_name="app2")
         
-        session1 = runner1.session_service().create_session(
+        session1 = runner1.session_service.create_session(
             app_name="app1",
             user_id="user1"
         )
         
-        session2 = runner2.session_service().create_session(
+        session2 = runner2.session_service.create_session(
             app_name="app2",
             user_id="user2"
         )
@@ -382,9 +383,6 @@ class TestAdvancedPatterns:
             name="parameterized",
             model="gemini-2.0-flash",
             instruction="Test with parameters",
-            temperature=0.2,
-            max_tokens=1000,
-            top_p=0.9
         )
         
         assert agent.name == "parameterized"
@@ -411,12 +409,12 @@ class TestAdvancedPatterns:
         
         # Level 3: Sequential orchestration
         main_workflow = SequentialAgent(
-            name="complex-workflow",
+            name="complex_workflow",
             sub_agents=[parallel1, parallel2],
             description="Complex multi-level workflow"
         )
         
-        assert main_workflow.name == "complex-workflow"
+        assert main_workflow.name == "complex_workflow"
         assert len(main_workflow.sub_agents) == 2
         assert main_workflow.sub_agents[0].name == "parallel1"
         assert main_workflow.sub_agents[1].name == "parallel2"
@@ -456,6 +454,6 @@ class TestAdvancedPatterns:
         
         agent = create_agent_from_config(config)
         
-        assert agent.name == "dynamic-workflow"
+        assert agent.name == "dynamic_workflow"
         assert isinstance(agent, SequentialAgent)
         assert len(agent.sub_agents) == 2

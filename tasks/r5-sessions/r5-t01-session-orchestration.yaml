@@ -1,0 +1,809 @@
+task:
+  id: "r5-t01-session-orchestration"
+  name: "Implement Session Orchestration System"
+  description: "Create comprehensive session management system with multiple persistence backends and lifecycle management"
+  complexity: "medium"
+  estimated_hours: 4
+  
+  context:
+    why: "Sessions provide stateful interactions, conversation history, and context persistence across agent executions"
+    architectural_role: "Central session management layer for all agent interactions"
+    depends_on_tasks: ["r1-t01", "r2-t05"]
+    enables_tasks: ["r5-t02", "r5-t03", "r5-t04"]
+    references:
+      masterplan: "@MASTERPLAN.md#session-management"
+      adk_patterns: "@tasks/adk-patterns.md#session-services"
+      architecture: "@memory-bank/architecture.md#session-management"
+    
+  adk_components:
+    primary:
+      - component: "InMemorySessionService"
+        usage: "Default session backend"
+      - component: "Session"
+        usage: "Session state management"
+      - component: "InMemoryRunner"
+        usage: "Session-aware execution"
+    patterns:
+      - "Multi-backend session support"
+      - "Session forking and merging"
+      - "State persistence across executions"
+    
+  implementation:
+    creates:
+      - path: "services/agent-engine/src/core/session.py"
+        purpose: "Core session orchestration system"
+        exports:
+          - "SessionOrchestrator: Main session coordinator"
+          - "SessionBackend: Abstract backend interface"
+          - "MemoryBackend: In-memory session backend"
+          - "RedisBackend: Redis session backend"
+          - "SessionLifecycle: Session lifecycle management"
+          - "SessionContext: Session execution context"
+        content_structure: |
+          from typing import Dict, Any, List, Optional, Protocol, AsyncIterator
+          from datetime import datetime, timedelta
+          from pydantic import BaseModel, Field
+          import logging
+          import json
+          import asyncio
+          from abc import ABC, abstractmethod
+          from uuid import uuid4
+          
+          from google.adk.sessions import InMemorySessionService, Session
+          from google.adk.runners import InMemoryRunner
+          import redis.asyncio as redis
+          
+          logger = logging.getLogger(__name__)
+          
+          class SessionMetadata(BaseModel):
+              """Session metadata and configuration"""
+              session_id: str
+              user_id: str
+              app_name: str
+              created_at: datetime = Field(default_factory=datetime.now)
+              updated_at: datetime = Field(default_factory=datetime.now)
+              tags: List[str] = Field(default_factory=list)
+              config: Dict[str, Any] = Field(default_factory=dict)
+              parent_session_id: Optional[str] = None  # For forked sessions
+              is_active: bool = True
+              ttl_seconds: Optional[int] = None
+          
+          class SessionState(BaseModel):
+              """Session state container"""
+              conversation_history: List[Dict[str, Any]] = Field(default_factory=list)
+              context: Dict[str, Any] = Field(default_factory=dict)
+              variables: Dict[str, Any] = Field(default_factory=dict)
+              checkpoints: List[Dict[str, Any]] = Field(default_factory=list)
+              metrics: Dict[str, Any] = Field(default_factory=dict)
+          
+          class SessionBackend(ABC):
+              """Abstract interface for session persistence backends"""
+              
+              @abstractmethod
+              async def create_session(
+                  self,
+                  metadata: SessionMetadata,
+                  initial_state: Optional[SessionState] = None
+              ) -> str:
+                  """Create new session"""
+                  pass
+              
+              @abstractmethod
+              async def get_session(
+                  self,
+                  session_id: str
+              ) -> Optional[tuple[SessionMetadata, SessionState]]:
+                  """Retrieve session"""
+                  pass
+              
+              @abstractmethod
+              async def update_session(
+                  self,
+                  session_id: str,
+                  state: SessionState,
+                  metadata_update: Optional[Dict] = None
+              ) -> bool:
+                  """Update session state"""
+                  pass
+              
+              @abstractmethod
+              async def delete_session(self, session_id: str) -> bool:
+                  """Delete session"""
+                  pass
+              
+              @abstractmethod
+              async def list_sessions(
+                  self,
+                  user_id: Optional[str] = None,
+                  app_name: Optional[str] = None,
+                  active_only: bool = True
+              ) -> List[SessionMetadata]:
+                  """List sessions with filters"""
+                  pass
+              
+              @abstractmethod
+              async def fork_session(
+                  self,
+                  source_session_id: str,
+                  new_session_id: str
+              ) -> Optional[str]:
+                  """Fork session creating a copy"""
+                  pass
+          
+          class MemoryBackend(SessionBackend):
+              """In-memory session backend using ADK's InMemorySessionService"""
+              
+              def __init__(self):
+                  self.adk_service = InMemorySessionService()
+                  self.metadata_store: Dict[str, SessionMetadata] = {}
+                  self.state_store: Dict[str, SessionState] = {}
+                  self._lock = asyncio.Lock()
+              
+              async def create_session(
+                  self,
+                  metadata: SessionMetadata,
+                  initial_state: Optional[SessionState] = None
+              ) -> str:
+                  """Create session in memory"""
+                  async with self._lock:
+                      # Create ADK session
+                      adk_session = self.adk_service.create_session(
+                          app_name=metadata.app_name,
+                          user_id=metadata.user_id,
+                          session_id=metadata.session_id
+                      )
+                      
+                      # Store metadata and state
+                      self.metadata_store[metadata.session_id] = metadata
+                      self.state_store[metadata.session_id] = initial_state or SessionState()
+                      
+                      logger.info(f"Created memory session: {metadata.session_id}")
+                      return metadata.session_id
+              
+              async def get_session(
+                  self,
+                  session_id: str
+              ) -> Optional[tuple[SessionMetadata, SessionState]]:
+                  """Get session from memory"""
+                  async with self._lock:
+                      if session_id in self.metadata_store:
+                          return (
+                              self.metadata_store[session_id],
+                              self.state_store[session_id]
+                          )
+                      return None
+              
+              async def update_session(
+                  self,
+                  session_id: str,
+                  state: SessionState,
+                  metadata_update: Optional[Dict] = None
+              ) -> bool:
+                  """Update session in memory"""
+                  async with self._lock:
+                      if session_id not in self.metadata_store:
+                          return False
+                      
+                      self.state_store[session_id] = state
+                      
+                      if metadata_update:
+                          metadata = self.metadata_store[session_id]
+                          for key, value in metadata_update.items():
+                              setattr(metadata, key, value)
+                          metadata.updated_at = datetime.now()
+                      
+                      return True
+              
+              async def delete_session(self, session_id: str) -> bool:
+                  """Delete session from memory"""
+                  async with self._lock:
+                      if session_id in self.metadata_store:
+                          del self.metadata_store[session_id]
+                          del self.state_store[session_id]
+                          
+                          # Delete from ADK service
+                          self.adk_service.delete_session(session_id)
+                          return True
+                      return False
+              
+              async def list_sessions(
+                  self,
+                  user_id: Optional[str] = None,
+                  app_name: Optional[str] = None,
+                  active_only: bool = True
+              ) -> List[SessionMetadata]:
+                  """List sessions from memory"""
+                  async with self._lock:
+                      sessions = list(self.metadata_store.values())
+                      
+                      # Apply filters
+                      if user_id:
+                          sessions = [s for s in sessions if s.user_id == user_id]
+                      if app_name:
+                          sessions = [s for s in sessions if s.app_name == app_name]
+                      if active_only:
+                          sessions = [s for s in sessions if s.is_active]
+                      
+                      return sessions
+              
+              async def fork_session(
+                  self,
+                  source_session_id: str,
+                  new_session_id: str
+              ) -> Optional[str]:
+                  """Fork session in memory"""
+                  async with self._lock:
+                      if source_session_id not in self.metadata_store:
+                          return None
+                      
+                      # Copy metadata
+                      source_metadata = self.metadata_store[source_session_id]
+                      new_metadata = SessionMetadata(
+                          session_id=new_session_id,
+                          user_id=source_metadata.user_id,
+                          app_name=source_metadata.app_name,
+                          parent_session_id=source_session_id,
+                          tags=source_metadata.tags.copy(),
+                          config=source_metadata.config.copy()
+                      )
+                      
+                      # Copy state
+                      source_state = self.state_store[source_session_id]
+                      new_state = SessionState(
+                          conversation_history=source_state.conversation_history.copy(),
+                          context=source_state.context.copy(),
+                          variables=source_state.variables.copy()
+                      )
+                      
+                      # Create forked session
+                      await self.create_session(new_metadata, new_state)
+                      return new_session_id
+          
+          class RedisBackend(SessionBackend):
+              """Redis-backed session storage for distributed systems"""
+              
+              def __init__(
+                  self,
+                  redis_client: redis.Redis,
+                  prefix: str = "session:",
+                  default_ttl: int = 86400  # 24 hours
+              ):
+                  self.redis = redis_client
+                  self.prefix = prefix
+                  self.default_ttl = default_ttl
+              
+              def _get_metadata_key(self, session_id: str) -> str:
+                  return f"{self.prefix}metadata:{session_id}"
+              
+              def _get_state_key(self, session_id: str) -> str:
+                  return f"{self.prefix}state:{session_id}"
+              
+              async def create_session(
+                  self,
+                  metadata: SessionMetadata,
+                  initial_state: Optional[SessionState] = None
+              ) -> str:
+                  """Create session in Redis"""
+                  try:
+                      metadata_key = self._get_metadata_key(metadata.session_id)
+                      state_key = self._get_state_key(metadata.session_id)
+                      
+                      ttl = metadata.ttl_seconds or self.default_ttl
+                      
+                      # Store metadata
+                      await self.redis.setex(
+                          metadata_key,
+                          ttl,
+                          json.dumps(metadata.model_dump(mode='json'), default=str)
+                      )
+                      
+                      # Store state
+                      state = initial_state or SessionState()
+                      await self.redis.setex(
+                          state_key,
+                          ttl,
+                          json.dumps(state.model_dump(mode='json'), default=str)
+                      )
+                      
+                      logger.info(f"Created Redis session: {metadata.session_id}")
+                      return metadata.session_id
+                      
+                  except Exception as e:
+                      logger.error(f"Failed to create Redis session: {e}")
+                      raise
+              
+              async def get_session(
+                  self,
+                  session_id: str
+              ) -> Optional[tuple[SessionMetadata, SessionState]]:
+                  """Get session from Redis"""
+                  try:
+                      metadata_key = self._get_metadata_key(session_id)
+                      state_key = self._get_state_key(session_id)
+                      
+                      # Get metadata and state
+                      metadata_json = await self.redis.get(metadata_key)
+                      state_json = await self.redis.get(state_key)
+                      
+                      if metadata_json and state_json:
+                          metadata = SessionMetadata(**json.loads(metadata_json))
+                          state = SessionState(**json.loads(state_json))
+                          return (metadata, state)
+                      
+                      return None
+                      
+                  except Exception as e:
+                      logger.error(f"Failed to get Redis session: {e}")
+                      return None
+              
+              async def update_session(
+                  self,
+                  session_id: str,
+                  state: SessionState,
+                  metadata_update: Optional[Dict] = None
+              ) -> bool:
+                  """Update session in Redis"""
+                  try:
+                      # Get current session
+                      session_data = await self.get_session(session_id)
+                      if not session_data:
+                          return False
+                      
+                      metadata, _ = session_data
+                      
+                      # Update metadata if provided
+                      if metadata_update:
+                          for key, value in metadata_update.items():
+                              setattr(metadata, key, value)
+                          metadata.updated_at = datetime.now()
+                      
+                      # Calculate TTL
+                      ttl = metadata.ttl_seconds or self.default_ttl
+                      
+                      # Store updated data
+                      metadata_key = self._get_metadata_key(session_id)
+                      state_key = self._get_state_key(session_id)
+                      
+                      await self.redis.setex(
+                          metadata_key,
+                          ttl,
+                          json.dumps(metadata.model_dump(mode='json'), default=str)
+                      )
+                      
+                      await self.redis.setex(
+                          state_key,
+                          ttl,
+                          json.dumps(state.model_dump(mode='json'), default=str)
+                      )
+                      
+                      return True
+                      
+                  except Exception as e:
+                      logger.error(f"Failed to update Redis session: {e}")
+                      return False
+              
+              async def delete_session(self, session_id: str) -> bool:
+                  """Delete session from Redis"""
+                  try:
+                      metadata_key = self._get_metadata_key(session_id)
+                      state_key = self._get_state_key(session_id)
+                      
+                      result = await self.redis.delete(metadata_key, state_key)
+                      return result > 0
+                      
+                  except Exception as e:
+                      logger.error(f"Failed to delete Redis session: {e}")
+                      return False
+              
+              async def list_sessions(
+                  self,
+                  user_id: Optional[str] = None,
+                  app_name: Optional[str] = None,
+                  active_only: bool = True
+              ) -> List[SessionMetadata]:
+                  """List sessions from Redis"""
+                  try:
+                      sessions = []
+                      pattern = f"{self.prefix}metadata:*"
+                      
+                      async for key in self.redis.scan_iter(match=pattern):
+                          metadata_json = await self.redis.get(key)
+                          if metadata_json:
+                              metadata = SessionMetadata(**json.loads(metadata_json))
+                              
+                              # Apply filters
+                              if user_id and metadata.user_id != user_id:
+                                  continue
+                              if app_name and metadata.app_name != app_name:
+                                  continue
+                              if active_only and not metadata.is_active:
+                                  continue
+                              
+                              sessions.append(metadata)
+                      
+                      return sessions
+                      
+                  except Exception as e:
+                      logger.error(f"Failed to list Redis sessions: {e}")
+                      return []
+              
+              async def fork_session(
+                  self,
+                  source_session_id: str,
+                  new_session_id: str
+              ) -> Optional[str]:
+                  """Fork session in Redis"""
+                  session_data = await self.get_session(source_session_id)
+                  if not session_data:
+                      return None
+                  
+                  source_metadata, source_state = session_data
+                  
+                  # Create forked metadata
+                  new_metadata = SessionMetadata(
+                      session_id=new_session_id,
+                      user_id=source_metadata.user_id,
+                      app_name=source_metadata.app_name,
+                      parent_session_id=source_session_id,
+                      tags=source_metadata.tags.copy(),
+                      config=source_metadata.config.copy()
+                  )
+                  
+                  # Create forked state
+                  new_state = SessionState(
+                      conversation_history=source_state.conversation_history.copy(),
+                      context=source_state.context.copy(),
+                      variables=source_state.variables.copy()
+                  )
+                  
+                  # Create forked session
+                  await self.create_session(new_metadata, new_state)
+                  return new_session_id
+          
+          class SessionContext:
+              """Session execution context for agents"""
+              
+              def __init__(
+                  self,
+                  session_id: str,
+                  metadata: SessionMetadata,
+                  state: SessionState
+              ):
+                  self.session_id = session_id
+                  self.metadata = metadata
+                  self.state = state
+                  self.start_time = datetime.now()
+                  self.events: List[Dict] = []
+              
+              def add_message(self, role: str, content: str):
+                  """Add message to conversation history"""
+                  message = {
+                      "role": role,
+                      "content": content,
+                      "timestamp": datetime.now().isoformat()
+                  }
+                  self.state.conversation_history.append(message)
+              
+              def set_variable(self, key: str, value: Any):
+                  """Set session variable"""
+                  self.state.variables[key] = value
+              
+              def get_variable(self, key: str, default: Any = None) -> Any:
+                  """Get session variable"""
+                  return self.state.variables.get(key, default)
+              
+              def checkpoint(self) -> Dict:
+                  """Create session checkpoint"""
+                  checkpoint = {
+                      "timestamp": datetime.now().isoformat(),
+                      "conversation_length": len(self.state.conversation_history),
+                      "variables": self.state.variables.copy(),
+                      "context": self.state.context.copy()
+                  }
+                  self.state.checkpoints.append(checkpoint)
+                  return checkpoint
+              
+              def get_metrics(self) -> Dict:
+                  """Get session metrics"""
+                  return {
+                      "duration_seconds": (datetime.now() - self.start_time).total_seconds(),
+                      "message_count": len(self.state.conversation_history),
+                      "variable_count": len(self.state.variables),
+                      "checkpoint_count": len(self.state.checkpoints),
+                      "event_count": len(self.events)
+                  }
+          
+          class SessionLifecycle:
+              """Manages session lifecycle events and hooks"""
+              
+              def __init__(self):
+                  self.hooks = {
+                      "on_create": [],
+                      "on_update": [],
+                      "on_delete": [],
+                      "on_fork": [],
+                      "on_expire": []
+                  }
+              
+              def register_hook(
+                  self,
+                  event: str,
+                  callback: Callable
+              ):
+                  """Register lifecycle hook"""
+                  if event in self.hooks:
+                      self.hooks[event].append(callback)
+              
+              async def trigger_hook(
+                  self,
+                  event: str,
+                  session_id: str,
+                  **kwargs
+              ):
+                  """Trigger lifecycle hooks"""
+                  if event in self.hooks:
+                      for callback in self.hooks[event]:
+                          try:
+                              if asyncio.iscoroutinefunction(callback):
+                                  await callback(session_id, **kwargs)
+                              else:
+                                  callback(session_id, **kwargs)
+                          except Exception as e:
+                              logger.error(f"Hook error for {event}: {e}")
+          
+          class SessionOrchestrator:
+              """Main session orchestration coordinator"""
+              
+              def __init__(
+                  self,
+                  backend: Optional[SessionBackend] = None,
+                  enable_lifecycle: bool = True
+              ):
+                  self.backend = backend or MemoryBackend()
+                  self.lifecycle = SessionLifecycle() if enable_lifecycle else None
+                  self.active_contexts: Dict[str, SessionContext] = {}
+                  self.session_metrics: Dict[str, Dict] = {}
+              
+              async def create_session(
+                  self,
+                  user_id: str,
+                  app_name: str,
+                  session_id: Optional[str] = None,
+                  config: Optional[Dict] = None,
+                  initial_state: Optional[Dict] = None
+              ) -> SessionContext:
+                  """Create new session with context"""
+                  session_id = session_id or f"session_{uuid4().hex[:12]}"
+                  
+                  # Create metadata
+                  metadata = SessionMetadata(
+                      session_id=session_id,
+                      user_id=user_id,
+                      app_name=app_name,
+                      config=config or {}
+                  )
+                  
+                  # Create initial state
+                  state = SessionState()
+                  if initial_state:
+                      state.context = initial_state
+                  
+                  # Create in backend
+                  await self.backend.create_session(metadata, state)
+                  
+                  # Create context
+                  context = SessionContext(session_id, metadata, state)
+                  self.active_contexts[session_id] = context
+                  
+                  # Trigger lifecycle hook
+                  if self.lifecycle:
+                      await self.lifecycle.trigger_hook(
+                          "on_create",
+                          session_id,
+                          metadata=metadata
+                      )
+                  
+                  logger.info(f"Created session {session_id} for user {user_id}")
+                  return context
+              
+              async def get_session(
+                  self,
+                  session_id: str,
+                  activate: bool = True
+              ) -> Optional[SessionContext]:
+                  """Get session context"""
+                  # Check active contexts
+                  if session_id in self.active_contexts:
+                      return self.active_contexts[session_id]
+                  
+                  # Load from backend
+                  session_data = await self.backend.get_session(session_id)
+                  if session_data:
+                      metadata, state = session_data
+                      context = SessionContext(session_id, metadata, state)
+                      
+                      if activate:
+                          self.active_contexts[session_id] = context
+                      
+                      return context
+                  
+                  return None
+              
+              async def update_session(
+                  self,
+                  session_id: str,
+                  context: Optional[SessionContext] = None
+              ) -> bool:
+                  """Update session state"""
+                  if not context:
+                      context = self.active_contexts.get(session_id)
+                  
+                  if not context:
+                      return False
+                  
+                  # Update backend
+                  success = await self.backend.update_session(
+                      session_id,
+                      context.state,
+                      {"updated_at": datetime.now()}
+                  )
+                  
+                  # Trigger lifecycle hook
+                  if success and self.lifecycle:
+                      await self.lifecycle.trigger_hook(
+                          "on_update",
+                          session_id,
+                          state=context.state
+                      )
+                  
+                  return success
+              
+              async def delete_session(self, session_id: str) -> bool:
+                  """Delete session"""
+                  # Remove from active contexts
+                  if session_id in self.active_contexts:
+                      del self.active_contexts[session_id]
+                  
+                  # Delete from backend
+                  success = await self.backend.delete_session(session_id)
+                  
+                  # Trigger lifecycle hook
+                  if success and self.lifecycle:
+                      await self.lifecycle.trigger_hook(
+                          "on_delete",
+                          session_id
+                      )
+                  
+                  return success
+              
+              async def fork_session(
+                  self,
+                  source_session_id: str,
+                  new_session_id: Optional[str] = None
+              ) -> Optional[SessionContext]:
+                  """Fork session creating a branch"""
+                  new_session_id = new_session_id or f"session_{uuid4().hex[:12]}"
+                  
+                  # Fork in backend
+                  result = await self.backend.fork_session(
+                      source_session_id,
+                      new_session_id
+                  )
+                  
+                  if result:
+                      # Get forked session
+                      context = await self.get_session(new_session_id)
+                      
+                      # Trigger lifecycle hook
+                      if context and self.lifecycle:
+                          await self.lifecycle.trigger_hook(
+                              "on_fork",
+                              new_session_id,
+                              parent_id=source_session_id
+                          )
+                      
+                      return context
+                  
+                  return None
+              
+              async def list_sessions(
+                  self,
+                  user_id: Optional[str] = None,
+                  app_name: Optional[str] = None,
+                  active_only: bool = True
+              ) -> List[SessionMetadata]:
+                  """List sessions with filters"""
+                  return await self.backend.list_sessions(
+                      user_id,
+                      app_name,
+                      active_only
+                  )
+              
+              def get_metrics(self) -> Dict:
+                  """Get orchestrator metrics"""
+                  return {
+                      "active_sessions": len(self.active_contexts),
+                      "backend_type": type(self.backend).__name__,
+                      "lifecycle_enabled": self.lifecycle is not None
+                  }
+      
+      - path: "services/agent-engine/tests/test_session_orchestration.py"
+        purpose: "Tests for session orchestration"
+        test_categories:
+          - "Session creation and lifecycle"
+          - "Backend operations"
+          - "Session forking"
+          - "Context management"
+          - "Metrics collection"
+    
+    uses_from_previous:
+      - source: "r1-t01"
+        component: "Project setup"
+        usage: "Base infrastructure"
+      - source: "r2-t05"
+        component: "Runner integration"
+        usage: "Session-aware execution"
+    
+  implementation_steps:
+    - step: "Create session models"
+      implementation_notes: |
+        - SessionMetadata structure
+        - SessionState container
+        - Context wrapper
+        
+    - step: "Implement backends"
+      implementation_notes: |
+        - Memory backend with ADK
+        - Redis backend
+        - Abstract interface
+        
+    - step: "Build orchestrator"
+      implementation_notes: |
+        - Session management
+        - Context handling
+        - Lifecycle hooks
+        
+    - step: "Add forking support"
+      implementation_notes: |
+        - Fork operation
+        - Parent tracking
+        - State copying
+        
+    - step: "Write comprehensive tests"
+      implementation_notes: |
+        - Test all backends
+        - Lifecycle testing
+        - Fork scenarios
+        
+  validation:
+    commands:
+      - description: "Test session orchestration"
+        command: "cd services/agent-engine && pytest tests/test_session_orchestration.py -v"
+        expected: "All tests pass"
+        
+      - description: "Test session creation"
+        command: |
+          cd services/agent-engine && python -c "
+          from src.core.session import SessionOrchestrator
+          orchestrator = SessionOrchestrator()
+          import asyncio
+          async def test():
+              session = await orchestrator.create_session('user1', 'test_app')
+              print(f'Created session: {session.session_id}')
+          asyncio.run(test())
+          "
+        expected: "Session created successfully"
+        
+    success_criteria:
+      - "SessionOrchestrator implemented"
+      - "Multiple backends working"
+      - "Forking functional"
+      - "Lifecycle hooks tested"
+      - "All tests pass"
+      
+  dependencies:
+    required_before:
+      - task: "r1-t01"
+        reason: "Need project setup"
+      - task: "r2-t05"
+        reason: "Need runner integration for session execution"

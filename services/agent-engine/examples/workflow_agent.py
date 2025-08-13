@@ -19,7 +19,7 @@ def create_sequential_workflow() -> SequentialAgent:
     
     # Step 1: Data gatherer
     data_gatherer = LlmAgent(
-        name="data-gatherer",
+        name="data_gatherer",
         model="gemini-2.0-flash",
         instruction="""You are the first step in a data processing pipeline.
         Your role is to gather and structure initial information.
@@ -30,7 +30,7 @@ def create_sequential_workflow() -> SequentialAgent:
     
     # Step 2: Data analyzer
     data_analyzer = LlmAgent(
-        name="data-analyzer",
+        name="data_analyzer",
         model="gemini-2.0-flash",
         instruction="""You are the analysis step in the pipeline.
         Analyze the structured data from the previous step.
@@ -41,7 +41,7 @@ def create_sequential_workflow() -> SequentialAgent:
     
     # Step 3: Report generator
     report_generator = LlmAgent(
-        name="report-generator",
+        name="report_generator",
         model="gemini-2.0-flash",
         instruction="""You are the final step - report generation.
         Take the analysis from the previous step.
@@ -55,7 +55,7 @@ def create_sequential_workflow() -> SequentialAgent:
     
     # Create sequential workflow
     workflow = SequentialAgent(
-        name="data-processing-pipeline",
+        name="data_processing_pipeline",
         sub_agents=[data_gatherer, data_analyzer, report_generator],
         description="Sequential data processing workflow"
     )
@@ -76,7 +76,7 @@ def create_parallel_workflow() -> ParallelAgent:
     
     # Create multiple parallel analyzers
     sentiment_analyzer = LlmAgent(
-        name="sentiment-analyzer",
+        name="sentiment_analyzer",
         model="gemini-2.0-flash",
         instruction="""Analyze sentiment and emotional tone.
         Identify: positive, negative, neutral sentiments.
@@ -85,7 +85,7 @@ def create_parallel_workflow() -> ParallelAgent:
     )
     
     keyword_extractor = LlmAgent(
-        name="keyword-extractor",
+        name="keyword_extractor",
         model="gemini-2.0-flash",
         instruction="""Extract key terms and phrases.
         Identify: main topics, important entities, technical terms.
@@ -94,7 +94,7 @@ def create_parallel_workflow() -> ParallelAgent:
     )
     
     summary_generator = LlmAgent(
-        name="summary-generator",
+        name="summary_generator",
         model="gemini-2.0-flash",
         instruction="""Create concise summaries.
         Focus on: main points, key decisions, action items.
@@ -103,7 +103,7 @@ def create_parallel_workflow() -> ParallelAgent:
     )
     
     fact_checker = LlmAgent(
-        name="fact-checker",
+        name="fact_checker",
         model="gemini-2.0-flash",
         instruction="""Verify factual claims and statements.
         Check: dates, numbers, names, technical facts.
@@ -113,7 +113,7 @@ def create_parallel_workflow() -> ParallelAgent:
     
     # Create parallel workflow
     workflow = ParallelAgent(
-        name="multi-analysis-workflow",
+        name="multi_analysis_workflow",
         sub_agents=[sentiment_analyzer, keyword_extractor, summary_generator, fact_checker],
         description="Parallel multi-aspect analysis"
     )
@@ -134,7 +134,7 @@ def create_loop_workflow() -> LoopAgent:
     
     # Create the iterative refinement agent
     refiner = LlmAgent(
-        name="content-refiner",
+        name="content_refiner",
         model="gemini-2.0-flash",
         instruction="""You are an iterative content refiner.
         Each iteration should:
@@ -152,19 +152,18 @@ def create_loop_workflow() -> LoopAgent:
         
         Stop when content meets high quality standards.""",
         description="Iterative content refinement",
-        temperature=0.3  # Consistent refinements
     )
     
     # Create loop workflow
     workflow = LoopAgent(
-        name="refinement-loop",
-        sub_agent=refiner,
+        name="refinement_loop",
+        sub_agents=[refiner],  # LoopAgent takes sub_agents as a list
         max_iterations=5,
         description="Iterative content refinement loop"
     )
     
     print(f"✓ Created loop workflow: {workflow.name}")
-    print(f"  - Sub-agent: {workflow.sub_agent.name}")
+    print(f"  - Sub-agents: {len(workflow.sub_agents)}")
     print(f"  - Max iterations: {workflow.max_iterations}")
     
     return workflow
@@ -178,64 +177,59 @@ def create_nested_workflow() -> SequentialAgent:
     
     # Phase 1: Initial processing (parallel)
     initial_analyzer = LlmAgent(
-        name="initial-analyzer",
+        name="initial_analyzer",
         model="gemini-2.0-flash",
         instruction="Perform initial analysis of input",
-        temperature=0.3
     )
     
     initial_validator = LlmAgent(
-        name="initial-validator",
+        name="initial_validator",
         model="gemini-2.0-flash",
         instruction="Validate input format and completeness",
-        temperature=0.2
     )
     
     phase1_parallel = ParallelAgent(
-        name="phase1-parallel-processing",
+        name="phase1_parallel_processing",
         sub_agents=[initial_analyzer, initial_validator],
         description="Parallel initial processing"
     )
     
     # Phase 2: Deep analysis (sequential)
     deep_analyzer = LlmAgent(
-        name="deep-analyzer",
+        name="deep_analyzer",
         model="gemini-2.0-flash",
         instruction="Perform deep analysis on validated data",
-        temperature=0.4
     )
     
     insight_generator = LlmAgent(
-        name="insight-generator",
+        name="insight_generator",
         model="gemini-2.0-flash",
         instruction="Generate insights from deep analysis",
-        temperature=0.5
     )
     
     phase2_sequential = SequentialAgent(
-        name="phase2-deep-processing",
+        name="phase2_deep_processing",
         sub_agents=[deep_analyzer, insight_generator],
         description="Sequential deep processing"
     )
     
     # Phase 3: Refinement (loop)
     refiner = LlmAgent(
-        name="output-refiner",
+        name="output_refiner",
         model="gemini-2.0-flash",
         instruction="Refine and polish the final output",
-        temperature=0.3
     )
     
     phase3_loop = LoopAgent(
-        name="phase3-refinement",
-        sub_agent=refiner,
+        name="phase3_refinement",
+        sub_agents=[refiner],  # LoopAgent takes sub_agents as a list
         max_iterations=3,
         description="Iterative refinement"
     )
     
     # Combine all phases into main workflow
     main_workflow = SequentialAgent(
-        name="complex-nested-workflow",
+        name="complex_nested_workflow",
         sub_agents=[phase1_parallel, phase2_sequential, phase3_loop],
         description="Complex multi-phase nested workflow"
     )
@@ -258,7 +252,7 @@ def create_conditional_workflow_example():
     
     # Create specialized agents for different conditions
     technical_expert = LlmAgent(
-        name="technical-expert",
+        name="technical_expert",
         model="gemini-2.0-flash",
         instruction="""You are a technical expert.
         Handle technical questions about:
@@ -266,11 +260,10 @@ def create_conditional_workflow_example():
         - System architecture
         - Technical specifications
         Provide detailed, accurate technical responses.""",
-        temperature=0.2
     )
     
     business_expert = LlmAgent(
-        name="business-expert",
+        name="business_expert",
         model="gemini-2.0-flash",
         instruction="""You are a business expert.
         Handle business questions about:
@@ -278,11 +271,10 @@ def create_conditional_workflow_example():
         - Market analysis
         - Business operations
         Provide strategic business insights.""",
-        temperature=0.4
     )
     
     creative_expert = LlmAgent(
-        name="creative-expert",
+        name="creative_expert",
         model="gemini-2.0-flash",
         instruction="""You are a creative expert.
         Handle creative tasks:
@@ -290,12 +282,11 @@ def create_conditional_workflow_example():
         - Design concepts
         - Creative problem solving
         Provide innovative, creative solutions.""",
-        temperature=0.8
     )
     
     # Router agent (would determine which expert to use)
     router = LlmAgent(
-        name="request-router",
+        name="request_router",
         model="gemini-2.0-flash",
         instruction="""You are a request router.
         Analyze incoming requests and determine:
@@ -304,7 +295,6 @@ def create_conditional_workflow_example():
         - Is this a creative task? → creative-expert
         
         Route to the appropriate expert.""",
-        temperature=0.1  # Very deterministic routing
     )
     
     print("✓ Created conditional workflow components:")
@@ -330,15 +320,26 @@ def demonstrate_workflow_execution():
     workflow = create_sequential_workflow()
     
     # Create runner for the workflow
-    runner = InMemoryRunner(workflow, app_name="workflow-app")
+    runner = InMemoryRunner(workflow, app_name="workflow_app")
     print(f"\n✓ Created InMemoryRunner for workflow: {workflow.name}")
     
     # Create session
-    session_service = runner.session_service()
-    session = session_service.create_session(
-        app_name="workflow-app",
-        user_id="workflow-user"
-    )
+    session_service = runner.session_service
+    
+    # Use sync version if available
+    if hasattr(session_service, 'create_session_sync'):
+        session = session_service.create_session_sync(
+            app_name="workflow_app",
+            user_id="workflow-user"
+        )
+    else:
+        import asyncio
+        async def create():
+            return await session_service.create_session(
+                app_name="workflow_app",
+                user_id="workflow-user"
+            )
+        session = asyncio.run(create())
     
     print(f"✓ Created session for workflow execution")
     print(f"  - Session ID: {session.id}")

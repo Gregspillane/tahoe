@@ -1,0 +1,512 @@
+task:
+  id: "r4-t04-event-streaming"
+  name: "Implement Workflow Event Streaming"
+  description: "Create real-time event streaming system for workflow execution monitoring and reactive processing"
+  complexity: "medium"
+  estimated_hours: 3
+  
+  context:
+    why: "Event streaming enables real-time monitoring, debugging, and reactive workflow orchestration"
+    architectural_role: "Provides observability and event-driven capabilities for workflows"
+    depends_on_tasks: ["r4-t01"]
+    enables_tasks: ["r4-t05"]
+    references:
+      masterplan: "@MASTERPLAN.md#real-time-processing"
+      architecture: "@memory-bank/architecture.md#event-driven-architecture"
+    
+  implementation:
+    creates:
+      - path: "services/agent-engine/src/core/workflow_events.py"
+        purpose: "Workflow event streaming system"
+        exports:
+          - "WorkflowEventStream: Main event streaming class"
+          - "EventBus: Event distribution system"
+          - "EventSubscriber: Event subscription interface"
+          - "EventFilter: Event filtering logic"
+          - "StreamManager: SSE stream management"
+        content_structure: |
+          from typing import Dict, Any, List, Optional, Callable, AsyncIterator, Set
+          from datetime import datetime
+          from pydantic import BaseModel, Field
+          from enum import Enum
+          import logging
+          import asyncio
+          import json
+          from collections import defaultdict
+          
+          from google.adk.events import Event as ADKEvent
+          
+          logger = logging.getLogger(__name__)
+          
+          class EventType(str, Enum):
+              """Workflow event types"""
+              WORKFLOW_STARTED = "workflow.started"
+              WORKFLOW_COMPLETED = "workflow.completed"
+              WORKFLOW_FAILED = "workflow.failed"
+              WORKFLOW_PAUSED = "workflow.paused"
+              WORKFLOW_RESUMED = "workflow.resumed"
+              
+              STEP_STARTED = "step.started"
+              STEP_COMPLETED = "step.completed"
+              STEP_FAILED = "step.failed"
+              STEP_SKIPPED = "step.skipped"
+              
+              AGENT_INVOKED = "agent.invoked"
+              AGENT_RESPONSE = "agent.response"
+              TOOL_CALLED = "tool.called"
+              TOOL_RESULT = "tool.result"
+              
+              STATE_CHANGED = "state.changed"
+              CHECKPOINT_CREATED = "checkpoint.created"
+              ERROR_OCCURRED = "error.occurred"
+              
+              CUSTOM = "custom"
+          
+          class WorkflowEvent(BaseModel):
+              """Represents a workflow event"""
+              id: str
+              type: EventType
+              workflow_id: str
+              timestamp: datetime = Field(default_factory=datetime.now)
+              step_id: Optional[str] = None
+              data: Dict[str, Any] = Field(default_factory=dict)
+              metadata: Dict[str, Any] = Field(default_factory=dict)
+              source: str = "workflow_engine"
+              correlation_id: Optional[str] = None
+              
+              def to_sse(self) -> str:
+                  """Convert to Server-Sent Events format"""
+                  event_data = {
+                      "id": self.id,
+                      "type": self.type,
+                      "workflow_id": self.workflow_id,
+                      "timestamp": self.timestamp.isoformat(),
+                      "step_id": self.step_id,
+                      "data": self.data
+                  }
+                  return f"data: {json.dumps(event_data)}\n\n"
+          
+          class EventFilter:
+              """Filters events based on criteria"""
+              
+              def __init__(
+                  self,
+                  event_types: Optional[List[EventType]] = None,
+                  workflow_ids: Optional[List[str]] = None,
+                  step_ids: Optional[List[str]] = None,
+                  custom_filter: Optional[Callable[[WorkflowEvent], bool]] = None
+              ):
+                  self.event_types = set(event_types) if event_types else None
+                  self.workflow_ids = set(workflow_ids) if workflow_ids else None
+                  self.step_ids = set(step_ids) if step_ids else None
+                  self.custom_filter = custom_filter
+              
+              def matches(self, event: WorkflowEvent) -> bool:
+                  """Check if event matches filter criteria"""
+                  # Check event type
+                  if self.event_types and event.type not in self.event_types:
+                      return False
+                  
+                  # Check workflow ID
+                  if self.workflow_ids and event.workflow_id not in self.workflow_ids:
+                      return False
+                  
+                  # Check step ID
+                  if self.step_ids and event.step_id not in self.step_ids:
+                      return False
+                  
+                  # Apply custom filter
+                  if self.custom_filter and not self.custom_filter(event):
+                      return False
+                  
+                  return True
+          
+          class EventSubscriber:
+              """Event subscription handler"""
+              
+              def __init__(
+                  self,
+                  subscriber_id: str,
+                  callback: Callable[[WorkflowEvent], None],
+                  event_filter: Optional[EventFilter] = None,
+                  async_callback: bool = False
+              ):
+                  self.subscriber_id = subscriber_id
+                  self.callback = callback
+                  self.event_filter = event_filter or EventFilter()
+                  self.async_callback = async_callback
+                  self.queue: asyncio.Queue = asyncio.Queue()
+                  self.active = True
+              
+              async def handle_event(self, event: WorkflowEvent):
+                  """Handle incoming event"""
+                  if not self.active:
+                      return
+                  
+                  if self.event_filter.matches(event):
+                      if self.async_callback:
+                          await self.callback(event)
+                      else:
+                          self.callback(event)
+              
+              def pause(self):
+                  """Pause subscription"""
+                  self.active = False
+              
+              def resume(self):
+                  """Resume subscription"""
+                  self.active = True
+          
+          class EventBus:
+              """Central event distribution system"""
+              
+              def __init__(self):
+                  self.subscribers: Dict[str, EventSubscriber] = {}
+                  self.event_history: List[WorkflowEvent] = []
+                  self.event_streams: Dict[str, asyncio.Queue] = {}
+                  self.max_history_size = 10000
+                  self._lock = asyncio.Lock()
+              
+              async def publish(self, event: WorkflowEvent):
+                  """Publish event to all subscribers"""
+                  async with self._lock:
+                      # Add to history
+                      self.event_history.append(event)
+                      if len(self.event_history) > self.max_history_size:
+                          self.event_history.pop(0)
+                      
+                      # Notify subscribers
+                      tasks = []
+                      for subscriber in self.subscribers.values():
+                          task = asyncio.create_task(subscriber.handle_event(event))
+                          tasks.append(task)
+                      
+                      # Add to streams
+                      for stream_queue in self.event_streams.values():
+                          await stream_queue.put(event)
+                      
+                      # Wait for all handlers
+                      if tasks:
+                          await asyncio.gather(*tasks, return_exceptions=True)
+              
+              def subscribe(
+                  self,
+                  subscriber_id: str,
+                  callback: Callable[[WorkflowEvent], None],
+                  event_filter: Optional[EventFilter] = None
+              ) -> EventSubscriber:
+                  """Subscribe to events"""
+                  subscriber = EventSubscriber(
+                      subscriber_id,
+                      callback,
+                      event_filter,
+                      async_callback=asyncio.iscoroutinefunction(callback)
+                  )
+                  self.subscribers[subscriber_id] = subscriber
+                  logger.info(f"Subscriber {subscriber_id} registered")
+                  return subscriber
+              
+              def unsubscribe(self, subscriber_id: str) -> bool:
+                  """Unsubscribe from events"""
+                  if subscriber_id in self.subscribers:
+                      del self.subscribers[subscriber_id]
+                      logger.info(f"Subscriber {subscriber_id} unregistered")
+                      return True
+                  return False
+              
+              def create_stream(self, stream_id: str) -> asyncio.Queue:
+                  """Create event stream queue"""
+                  queue = asyncio.Queue()
+                  self.event_streams[stream_id] = queue
+                  return queue
+              
+              def close_stream(self, stream_id: str):
+                  """Close event stream"""
+                  if stream_id in self.event_streams:
+                      del self.event_streams[stream_id]
+              
+              def get_history(
+                  self,
+                  event_filter: Optional[EventFilter] = None,
+                  limit: int = 100
+              ) -> List[WorkflowEvent]:
+                  """Get filtered event history"""
+                  if event_filter:
+                      filtered = [e for e in self.event_history if event_filter.matches(e)]
+                  else:
+                      filtered = self.event_history
+                  
+                  return filtered[-limit:]
+          
+          class StreamManager:
+              """Manages SSE streams for real-time events"""
+              
+              def __init__(self, event_bus: EventBus):
+                  self.event_bus = event_bus
+                  self.active_streams: Dict[str, Dict] = {}
+              
+              async def create_sse_stream(
+                  self,
+                  client_id: str,
+                  event_filter: Optional[EventFilter] = None
+              ) -> AsyncIterator[str]:
+                  """Create Server-Sent Events stream"""
+                  from uuid import uuid4
+                  stream_id = f"stream_{uuid4().hex[:12]}"
+                  
+                  # Create queue for this stream
+                  queue = self.event_bus.create_stream(stream_id)
+                  
+                  # Track stream
+                  self.active_streams[client_id] = {
+                      "stream_id": stream_id,
+                      "filter": event_filter,
+                      "created_at": datetime.now()
+                  }
+                  
+                  try:
+                      # Send initial connection event
+                      yield f"data: {json.dumps({'type': 'connected', 'stream_id': stream_id})}\n\n"
+                      
+                      # Stream events
+                      while True:
+                          try:
+                              # Wait for event with timeout
+                              event = await asyncio.wait_for(queue.get(), timeout=30)
+                              
+                              # Apply filter if specified
+                              if not event_filter or event_filter.matches(event):
+                                  yield event.to_sse()
+                          
+                          except asyncio.TimeoutError:
+                              # Send heartbeat
+                              yield f"data: {json.dumps({'type': 'heartbeat'})}\n\n"
+                              
+                  except asyncio.CancelledError:
+                      # Clean up on cancellation
+                      pass
+                  finally:
+                      # Close stream
+                      self.event_bus.close_stream(stream_id)
+                      if client_id in self.active_streams:
+                          del self.active_streams[client_id]
+              
+              def get_active_streams(self) -> Dict[str, Dict]:
+                  """Get information about active streams"""
+                  return {
+                      client_id: {
+                          **info,
+                          "age_seconds": (datetime.now() - info["created_at"]).total_seconds()
+                      }
+                      for client_id, info in self.active_streams.items()
+                  }
+          
+          class WorkflowEventStream:
+              """Main workflow event streaming coordinator"""
+              
+              def __init__(self):
+                  self.event_bus = EventBus()
+                  self.stream_manager = StreamManager(self.event_bus)
+                  self.event_counter = 0
+                  self._adk_event_adapter = ADKEventAdapter()
+              
+              async def emit_event(
+                  self,
+                  event_type: EventType,
+                  workflow_id: str,
+                  step_id: Optional[str] = None,
+                  data: Optional[Dict[str, Any]] = None,
+                  metadata: Optional[Dict[str, Any]] = None
+              ):
+                  """Emit a workflow event"""
+                  from uuid import uuid4
+                  
+                  self.event_counter += 1
+                  
+                  event = WorkflowEvent(
+                      id=f"evt_{uuid4().hex[:12]}",
+                      type=event_type,
+                      workflow_id=workflow_id,
+                      step_id=step_id,
+                      data=data or {},
+                      metadata=metadata or {}
+                  )
+                  
+                  await self.event_bus.publish(event)
+                  logger.debug(f"Emitted event: {event.type} for workflow {workflow_id}")
+              
+              async def emit_workflow_started(
+                  self,
+                  workflow_id: str,
+                  template_name: str,
+                  input_data: Dict[str, Any]
+              ):
+                  """Emit workflow started event"""
+                  await self.emit_event(
+                      EventType.WORKFLOW_STARTED,
+                      workflow_id,
+                      data={
+                          "template_name": template_name,
+                          "input": input_data
+                      }
+                  )
+              
+              async def emit_step_completed(
+                  self,
+                  workflow_id: str,
+                  step_id: str,
+                  output: Any,
+                  duration_ms: Optional[int] = None
+              ):
+                  """Emit step completed event"""
+                  await self.emit_event(
+                      EventType.STEP_COMPLETED,
+                      workflow_id,
+                      step_id=step_id,
+                      data={
+                          "output": output,
+                          "duration_ms": duration_ms
+                      }
+                  )
+              
+              async def adapt_adk_event(
+                  self,
+                  adk_event: ADKEvent,
+                  workflow_id: str
+              ):
+                  """Adapt ADK event to workflow event"""
+                  workflow_event = self._adk_event_adapter.convert(adk_event, workflow_id)
+                  await self.event_bus.publish(workflow_event)
+              
+              def subscribe(
+                  self,
+                  subscriber_id: str,
+                  callback: Callable,
+                  event_types: Optional[List[EventType]] = None,
+                  workflow_ids: Optional[List[str]] = None
+              ) -> EventSubscriber:
+                  """Subscribe to workflow events"""
+                  event_filter = EventFilter(
+                      event_types=event_types,
+                      workflow_ids=workflow_ids
+                  )
+                  return self.event_bus.subscribe(subscriber_id, callback, event_filter)
+              
+              async def create_stream(
+                  self,
+                  client_id: str,
+                  event_types: Optional[List[EventType]] = None,
+                  workflow_id: Optional[str] = None
+              ) -> AsyncIterator[str]:
+                  """Create SSE stream for client"""
+                  event_filter = None
+                  if event_types or workflow_id:
+                      event_filter = EventFilter(
+                          event_types=event_types,
+                          workflow_ids=[workflow_id] if workflow_id else None
+                      )
+                  
+                  async for event in self.stream_manager.create_sse_stream(client_id, event_filter):
+                      yield event
+              
+              def get_metrics(self) -> Dict[str, Any]:
+                  """Get event streaming metrics"""
+                  return {
+                      "total_events": self.event_counter,
+                      "subscribers": len(self.event_bus.subscribers),
+                      "active_streams": len(self.stream_manager.active_streams),
+                      "history_size": len(self.event_bus.event_history)
+                  }
+          
+          class ADKEventAdapter:
+              """Adapts ADK events to workflow events"""
+              
+              def convert(
+                  self,
+                  adk_event: ADKEvent,
+                  workflow_id: str
+              ) -> WorkflowEvent:
+                  """Convert ADK event to workflow event"""
+                  from uuid import uuid4
+                  
+                  # Map ADK event types to workflow event types
+                  event_type_map = {
+                      "agent_invoked": EventType.AGENT_INVOKED,
+                      "agent_response": EventType.AGENT_RESPONSE,
+                      "tool_called": EventType.TOOL_CALLED,
+                      "tool_result": EventType.TOOL_RESULT
+                  }
+                  
+                  event_type = event_type_map.get(
+                      adk_event.type,
+                      EventType.CUSTOM
+                  )
+                  
+                  return WorkflowEvent(
+                      id=f"evt_{uuid4().hex[:12]}",
+                      type=event_type,
+                      workflow_id=workflow_id,
+                      data={
+                          "adk_event": adk_event.to_dict() if hasattr(adk_event, 'to_dict') else str(adk_event)
+                      },
+                      metadata={
+                          "source": "adk",
+                          "original_type": adk_event.type
+                      }
+                  )
+      
+      - path: "services/agent-engine/tests/test_workflow_events.py"
+        purpose: "Tests for event streaming"
+        test_categories:
+          - "Event publishing"
+          - "Event filtering"
+          - "Subscriptions"
+          - "SSE streaming"
+          - "ADK event adaptation"
+    
+    uses_from_previous:
+      - source: "r4-t01"
+        component: "WorkflowEngine"
+        usage: "Integration with workflow execution"
+    
+  implementation_steps:
+    - step: "Create event models"
+      implementation_notes: |
+        - Event types enum
+        - WorkflowEvent model
+        - SSE formatting
+        
+    - step: "Implement EventBus"
+      implementation_notes: |
+        - Event distribution
+        - Subscriber management
+        - Event history
+        
+    - step: "Build StreamManager"
+      implementation_notes: |
+        - SSE stream creation
+        - Client management
+        - Heartbeat support
+        
+    - step: "Create WorkflowEventStream"
+      implementation_notes: |
+        - High-level API
+        - ADK integration
+        - Metrics collection
+        
+  validation:
+    commands:
+      - description: "Test event streaming"
+        command: "cd services/agent-engine && pytest tests/test_workflow_events.py -v"
+        expected: "All tests pass"
+        
+    success_criteria:
+      - "Event publishing working"
+      - "Subscriptions functional"
+      - "SSE streaming tested"
+      - "All tests pass"
+      
+  dependencies:
+    required_before:
+      - task: "r4-t01"
+        reason: "Need workflow engine for integration"
