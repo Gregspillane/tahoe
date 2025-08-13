@@ -1,5 +1,125 @@
 # Project Tahoe - Key Decisions Log
 
+## 2025-08-13: Centralized Configuration Management (Evening - Session 8 continued)
+
+### Decision: Centralized .env at Monorepo Root
+**Context**: Multiple services need shared infrastructure configuration and API keys
+**Decision**: Single .env file at project root with service-specific prefixes
+**Rationale**:
+- Single source of truth for all configuration
+- Easier secret management in one location
+- Services can share infrastructure settings
+- Environment-specific overrides in /config/ directory
+**Impact**: All services load from same configuration source with proper isolation
+
+### Decision: dotenv Loading Before Pydantic
+**Context**: Pydantic settings wasn't finding centralized .env file
+**Decision**: Use python-dotenv to explicitly load .env before creating pydantic config
+**Rationale**:
+- Ensures correct path resolution to project root
+- Allows environment-specific override loading
+- Works with pydantic's environment variable reading
+- More explicit and debuggable than pydantic's env_file
+**Impact**: Reliable configuration loading from centralized location
+
+## 2025-08-13: R2-T4 Result Aggregation Implementation (Evening - Session 8)
+
+### Decision: Scorecard-Driven Weighted Scoring
+**Context**: Need to aggregate multiple agent results with different importance levels
+**Decision**: Use scorecard-configured weights for each agent in weighted average calculation
+**Rationale**:
+- Allows different scorecards to prioritize different agents based on use case
+- Weights stored in database enable runtime configuration changes
+- Weighted average is simple, understandable, and effective
+- Matches industry standard compliance scoring approaches
+**Impact**: Flexible scoring system that adapts to different compliance requirements
+
+### Decision: Smart Violation/Recommendation Deduplication
+**Context**: Multiple agents may detect same violations or suggest similar actions
+**Decision**: Group by key attributes while preserving all detection sources
+**Rationale**:
+- Prevents duplicate violations in final report while showing consensus
+- Tracks which agents detected each issue for confidence scoring
+- Aggregates evidence from all sources for comprehensive documentation
+- Maintains audit trail of all detection sources
+**Impact**: Clean, deduplicated results with full traceability
+
+### Decision: Business Rules for Critical Violations
+**Context**: Some violations should automatically fail regardless of score
+**Decision**: Implement configurable business rules that cap scores and auto-fail
+**Rationale**:
+- Critical regulatory violations require immediate attention
+- Score capping ensures critical issues aren't masked by high scores elsewhere
+- Configurable thresholds allow different severity handling per use case
+- Aligns with regulatory compliance best practices
+**Impact**: Ensures critical issues are never overlooked due to averaging
+
+### Decision: Per-Agent Category Results
+**Context**: Need to show detailed breakdown beyond overall score
+**Decision**: Categories object contains full per-agent results with metadata
+**Rationale**:
+- Users need to understand which areas passed/failed
+- Detailed breakdown helps identify improvement areas
+- Preserves agent-specific findings and confidence levels
+- Enables drill-down analysis in UI
+**Impact**: Rich result structure supporting detailed analysis and reporting
+
+## 2025-08-13: R2-T2 Agent Factory Implementation (Evening - Session 7)
+
+### Decision: Real ADK Integration with Development Fallbacks
+**Context**: Need to implement Agent Factory with real Google ADK while maintaining development flexibility
+**Decision**: Use try/except import pattern for ADK components with mock fallbacks
+**Rationale**:
+- Enables real ADK integration in production with proper LlmAgent instances
+- Allows development without ADK installed through fallback mock classes  
+- Maintains production-first architecture while supporting local development
+- Try/except pattern is standard for optional dependencies in Python
+**Impact**: Agent Factory works both in development (with mocks) and production (with real ADK)
+
+### Decision: Static ModelRegistry Configuration Approach
+**Context**: ModelRegistry could fetch model configs from APIs vs static configuration
+**Decision**: Implement ModelRegistry as static configuration manager with no API calls
+**Rationale**:
+- KISS principle: simplest solution that meets current requirements
+- Avoids API dependencies and failure modes in agent creation path
+- Faster agent instantiation without network calls
+- Model parameters are relatively stable and don't need real-time updates
+- Can be enhanced later if dynamic configuration becomes necessary
+**Impact**: ModelRegistry provides reliable, fast model configuration lookup
+
+### Decision: Comprehensive Result Processing in TahoeAgent
+**Context**: ADK agents return various result formats that need standardization
+**Decision**: Implement robust result parsing with heuristic score/confidence extraction
+**Rationale**:
+- AgentResult dataclass requires consistent structure regardless of ADK output format
+- Heuristic parsing handles both structured (dict) and unstructured (string) responses
+- Pattern matching for scores (85%, 8.5/10, Score: 85) covers common LLM output formats
+- Confidence calculation uses content analysis (length, uncertainty indicators)
+- Extensible approach allows enhancement as more LLM response patterns are discovered
+**Impact**: Reliable AgentResult generation from any ADK agent response format
+
+### Decision: 5-Minute Template Caching Strategy
+**Context**: Database template loading could impact performance vs cache consistency
+**Decision**: Implement 5-minute TTL for Redis template caching with manual invalidation
+**Rationale**:
+- Balances performance (avoids repeated DB queries) with configuration freshness
+- 5 minutes allows template updates to propagate reasonably quickly
+- Manual invalidation (invalidate_cache method) enables immediate updates when needed
+- Follows established cache patterns from MASTERPLAN architecture
+- Long enough to provide performance benefit, short enough to avoid stale data issues
+**Impact**: Fast agent creation with reasonable configuration update latency
+
+### Decision: Placeholder Tool Implementation Strategy
+**Context**: ToolRegistry needed for agent factory but specialist tools not yet implemented
+**Decision**: Create placeholder tools with standardized interface and mock execution
+**Rationale**:
+- Enables AgentFactory testing and integration without requiring full tool implementations
+- Placeholder tools provide realistic structure for future tool development
+- Mock execution functions allow end-to-end testing of agent workflows
+- Tool interface established early prevents future breaking changes
+- Follows incremental development approach of the project
+**Impact**: AgentFactory fully functional while specialist tools await R3 implementation
+
 ## 2025-08-13: R2-T2 Task Validation and ADK Documentation Verification (Evening - Session 6)
 
 ### Decision: Task Validation Process is Essential for Quality

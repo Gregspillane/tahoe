@@ -9,6 +9,12 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 ### Monorepo Structure
 ```
 tahoe/                       # Monorepo root
+├── .env                    # Centralized environment configuration
+├── .env.example           # Template for all environments
+├── config/                # Environment-specific overrides
+│   ├── development.env    # Development settings
+│   ├── staging.env        # Staging overrides
+│   └── production.env     # Production overrides
 ├── services/
 │   ├── agent-engine/       # Multi-agent orchestration service (agent.tahoe.com)
 │   ├── tahoe-auth/         # (Future) Authentication service (auth.tahoe.com)
@@ -31,6 +37,7 @@ tahoe/                       # Monorepo root
   - DNS/domain (e.g., agent.tahoe.com, auth.tahoe.com)
 - Services communicate via **service-to-service tokens**
 - No centralized API gateway - each service exposes its own API
+- **Centralized configuration**: All services use the monorepo root `.env` with service-specific prefixes
 
 ### Data Architecture
 - **PostgreSQL**: Shared instance with service-specific schemas
@@ -132,7 +139,11 @@ The memory bank provides persistent context across sessions:
 
 ### Infrastructure Setup
 ```bash
-# Start shared infrastructure services (PostgreSQL & Redis)
+# 1. Setup centralized environment configuration
+cp .env.example .env
+# Edit .env with your secure values
+
+# 2. Start shared infrastructure services (PostgreSQL & Redis)
 cd infrastructure/
 docker-compose up -d
 

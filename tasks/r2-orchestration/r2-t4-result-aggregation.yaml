@@ -7,162 +7,209 @@ task:
     why: "Combines specialist agent outputs into final compliance scores and recommendations"
     integrates_with: ["orchestration-engine", "agent-factory", "database-schema"]
     references:
-      - "masterplan aggregation logic (lines 593-607)"
-      - "roadmap phase 2 result aggregation"
+      - "masterplan aggregation logic (lines 2902-3080)"  # CORRECTED: Updated line numbers
+      - "orchestrator aggregate_results method (lines 606-620)"  # ADDED: Specific method reference
+      - "TahoeAgent output format (lines 836-845)"  # ADDED: Agent output format reference
     
   build_spec:
     creates:
       - "services/agent-engine/src/services/aggregation.py"
-      - "services/agent-engine/src/models/results.py"
+      # CORRECTED: Removed results.py - AnalysisResult is in aggregation.py
       - "services/agent-engine/tests/test_aggregation.py"
       - "services/agent-engine/tests/fixtures/agent_results.json"
     modifies:
-      - "src/orchestrator.py (use real aggregator)"
-      - "src/models/api.py (enhance AnalysisResult)"
-      - "scripts/seed.py (add aggregation rules)"
+      - "src/orchestrator.py (use real aggregator - replace stub)"
+      # CORRECTED: AnalysisResult already exists, no API model changes needed
+      - "scripts/seed.py (add aggregation rules to scorecard data)"
     uses:
       - "Weighted scoring algorithms"
       - "Business rule evaluation"
       - "Threshold-based categorization"
     
   implementation_guide:
-    start_with: "Create ResultAggregator class with aggregate method"
+    start_with: "Create ResultAggregator class matching masterplan interface (lines 2925-2930)"
     core_logic:
-      - "Weighted score calculation"
-      - "Confidence score combination"
-      - "Violation deduplication and severity"
-      - "Recommendation prioritization"
-      - "Category scoring (compliance, quality, etc.)"
-      - "Pass/fail/review determination"
-      - "Audit trail generation"
+      # CORRECTED: Process dict results from TahoeAgent, not AgentResult objects
+      - "Process dict agent results from orchestrator execution"
+      - "Weighted score calculation using scorecard agent weights"
+      - "Confidence score combination from individual agents"
+      - "Violation deduplication and severity ranking"
+      - "Recommendation prioritization and deduplication"
+      - "Category scoring (agent-specific results)"
+      - "Pass/fail/review determination using scorecard thresholds"
+      - "Audit trail generation with execution metadata"
     connects_to:
-      - "Agent results from execution"
-      - "Scorecard for rules and thresholds"
-      - "Database for configuration"
+      # CORRECTED: Align with actual orchestrator interface
+      - "Dict agent results from execute_agents (lines 604, 588, 600)"
+      - "Scorecard aggregationRules and thresholds (lines 120, 119)"
+      - "Database for scorecard configuration loading"
     keeps_simple:
       - "Basic weighted average for scores"
-      - "Simple confidence calculation"
+      - "Simple confidence calculation using statistics.mean"
       - "No ML-based aggregation"
-      - "Fixed business rules"
-      - "Basic violation merging"
+      - "Fixed business rules from thresholds"
+      - "Basic violation merging by type and severity"
     
   local_validation:
     run_commands:
       - "python -m pytest tests/test_aggregation.py -v"
       - "python scripts/test_aggregation.py"
     verify_endpoints:
-      - "Aggregator combines multiple results"
-      - "Scores calculated correctly"
-      - "Thresholds applied properly"
+      # CORRECTED: Match exact orchestrator interface
+      - "Aggregator.aggregate(agent_results, aggregation_rules, thresholds)"
+      - "Scores calculated with agent weights from scorecard"
+      - "Thresholds applied for pass/fail determination"
     check_functionality:
-      - "Weighted scores match expectations"
-      - "Violations deduplicated correctly"
-      - "Recommendations prioritized"
-      - "Categories scored independently"
-      - "Audit trail complete"
+      - "Weighted scores match scorecard configuration"
+      - "Violations deduplicated by type and severity"
+      - "Recommendations prioritized by impact"
+      - "Categories contain per-agent results"
+      - "Audit trail includes execution metadata"
+      # ADDED: Integration validation
+      - "AnalysisResult compatible with orchestrator return type"
+      - "Business rules applied correctly per scorecard thresholds"
     
   session_notes:
     context_critical:
-      - "Weights from scorecard configuration"
-      - "Thresholds determine pass/fail"
-      - "Confidence affects final score"
-      - "Audit trail for compliance"
+      # CORRECTED: Accurate data flow description
+      - "Agent results are dicts with agent_name, score, confidence, violations, recommendations"
+      - "Weights from scorecard.scorecardAgents[].weight (lines 138)"
+      - "Thresholds from scorecard.thresholds JSON field (line 119)"
+      - "Confidence affects final score calculation"
+      - "Audit trail required for compliance tracking"
     remember_for_later:
-      - "Aggregation rules are configurable"
-      - "Different scorecards = different logic"
-      - "Categories can have sub-scores"
-      - "Violations need evidence"
+      - "Aggregation rules are configurable per scorecard"
+      - "Different scorecards = different aggregation logic"
+      - "Categories contain agent-specific sub-scores"
+      - "Violations need evidence and location data"
 
   implementation_checklist:
-    - "Create ResultAggregator class"
-    - "Implement weighted scoring for real LLM results"
-    - "Build confidence calculation from agent outputs"
-    - "Add violation processing from real agent findings"
-    - "Create recommendation logic from LLM suggestions"
-    - "Implement category scoring"
-    - "Add threshold evaluation"
-    - "Generate audit trails"
-    - "Write comprehensive tests with real agent data"
-    - "Validate with actual ADK agent outputs"
+    - "Create ResultAggregator class with exact masterplan interface"
+    # CORRECTED: Process dict format from TahoeAgent
+    - "Implement weighted scoring for TahoeAgent dict results"
+    - "Build confidence calculation from agent dict outputs"
+    - "Add violation processing from TahoeAgent findings"
+    - "Create recommendation logic from TahoeAgent suggestions"
+    - "Implement category scoring per agent"
+    - "Add threshold evaluation from scorecard configuration"
+    - "Generate comprehensive audit trails"
+    - "Write tests with realistic TahoeAgent dict outputs"
+    # CORRECTED: Integration with actual systems
+    - "Validate with orchestrator's aggregate_results method signature"
+    - "Test business rules application with scorecard thresholds"
+
+  # CORRECTED: Use actual TahoeAgent dict format
+  agent_result_format:
+    tahoe_agent_dict: |
+      {
+        "agent_name": "compliance_specialist",
+        "agent_version": "1.0",
+        "result": "LLM analysis response text",
+        "events": [...],  # ADK events
+        "confidence": 0.85,
+        "execution_time": 2.3,
+        "model_used": "gemini-2.0-flash",
+        "trace_id": "uuid",
+        # ADDED: Fields extracted from LLM response
+        "score": 75.0,
+        "violations": [...],
+        "recommendations": [...],
+        "findings": [...]
+      }
 
   aggregation_logic:
     weighted_score: |
-      total_weight = sum(agent.weight for agent in agents)
+      # CORRECTED: Use scorecard agent weights
+      total_weight = sum(
+          scorecard_agent["weight"] 
+          for scorecard_agent in scorecard["scorecardAgents"]
+      )
       weighted_sum = sum(
-          result.score * agent.weight 
-          for agent, result in zip(agents, results)
+          result["score"] * scorecard_agent["weight"] 
+          for agent_name, result in agent_results.items()
+          for scorecard_agent in scorecard["scorecardAgents"]
+          if scorecard_agent["agent"]["name"] == agent_name
       )
       overall_score = weighted_sum / total_weight
     
     confidence_calculation: |
-      # Weighted confidence based on agent importance
-      confidence_scores = [r.confidence * a.weight 
-                          for r, a in zip(results, agents)]
-      overall_confidence = sum(confidence_scores) / total_weight
+      # CORRECTED: From TahoeAgent dict format
+      confidences = [
+          result["confidence"] 
+          for result in agent_results.values() 
+          if "error" not in result
+      ]
+      overall_confidence = statistics.mean(confidences) if confidences else 0.5
     
     violation_processing: |
-      # Deduplicate by violation type and location
-      violations = {}
-      for result in results:
-          for violation in result.violations:
-              key = (violation["type"], violation.get("location"))
-              if key not in violations:
-                  violations[key] = violation
-              else:
-                  # Keep higher severity
-                  if violation["severity"] > violations[key]["severity"]:
-                      violations[key] = violation
+      # Deduplicate by violation type and severity
+      all_violations = []
+      for result in agent_results.values():
+          all_violations.extend(result.get("violations", []))
+      
+      # Apply business rules for critical violations
+      critical_violations = [v for v in all_violations if v.get("severity") == "critical"]
+      if critical_violations:
+          # Cap score for critical violations
+          final_score = min(final_score, thresholds.get("max_score_with_critical", 50))
     
     recommendation_priority: |
-      # Sort by impact and feasibility
-      recommendations = []
-      for result in results:
-          recommendations.extend(result.recommendations)
+      # CORRECTED: From TahoeAgent dict format
+      all_recommendations = []
+      for result in agent_results.values():
+          all_recommendations.extend(result.get("recommendations", []))
       
-      # Deduplicate and sort
-      unique = {r["id"]: r for r in recommendations}
+      # Deduplicate and sort by priority
+      priority_order = {"critical": 0, "high": 1, "medium": 2, "low": 3}
       sorted_recs = sorted(
-          unique.values(),
-          key=lambda x: (x.get("impact", 0), x.get("feasibility", 0)),
-          reverse=True
+          all_recommendations,
+          key=lambda x: priority_order.get(x.get("priority", "low"), 3)
       )
 
   business_rules:
     pass_fail_logic: |
+      # CORRECTED: Use scorecard thresholds structure
       thresholds = scorecard["thresholds"]
       
       if overall_score >= thresholds["pass"]:
           status = "PASS"
       elif overall_score >= thresholds["review"]:
-          status = "REVIEW"
+          status = "REVIEW"  
       else:
           status = "FAIL"
     
     category_scoring: |
-      categories = {
-          "compliance": {
-              "score": compliance_score,
-              "weight": 0.4
-          },
-          "quality": {
-              "score": quality_score,
-              "weight": 0.3
-          },
-          "professionalism": {
-              "score": professional_score,
-              "weight": 0.3
-          }
-      }
+      # CORRECTED: Per-agent categorization
+      categories = {}
+      for agent_name, result in agent_results.items():
+          if "error" not in result:
+              categories[agent_name] = {
+                  "score": result["score"],
+                  "confidence": result["confidence"],
+                  "findings": result.get("findings", []),
+                  "agent_version": result["agent_version"]
+              }
 
   result_structure:
     AnalysisResult:
+      # CORRECTED: Match masterplan AnalysisResult dataclass (lines 2911-2920)
       - "analysis_id: str"
       - "overall_score: float (0-100)"
       - "confidence: float (0-1)"
-      - "status: str (PASS/FAIL/REVIEW)"
-      - "categories: Dict[str, CategoryScore]"
-      - "violations: List[Violation]"
-      - "recommendations: List[Recommendation]"
-      - "agent_results: Dict[str, AgentResult]"
-      - "audit_trail: AuditTrail"
+      - "categories: Dict[str, Any] (per-agent results)"
+      - "violations: List[Dict[str, Any]]"
+      - "recommendations: List[Dict[str, Any]]"
+      - "audit_trail: Dict[str, Any]"
       - "execution_time: float"
+      
+  # ADDED: Missing database integration requirements
+  database_integration:
+    scorecard_loading:
+      - "Load aggregationRules from scorecard.aggregationRules JSON field"
+      - "Load thresholds from scorecard.thresholds JSON field"
+      - "Access agent weights from scorecard.scorecardAgents[].weight"
+    
+    audit_requirements:
+      - "Track agents_executed, agents_successful, agents_failed"
+      - "Record aggregation_method and thresholds_applied"
+      - "Include execution timing and trace information"

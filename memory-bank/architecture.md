@@ -29,11 +29,15 @@
 - Redis for transient caching and sessions
 - All state externalized and recoverable
 
-#### Agent Framework
-- Google ADK as core agent framework
-- Database-driven agent instantiation
-- Standardized agent result format
-- Factory pattern for agent creation
+#### Agent Framework (Updated 2025-08-13 Evening)
+- Google ADK as core agent framework with LlmAgent class
+- AgentFactory pattern for dynamic agent instantiation from database templates
+- TahoeAgent wrapper providing standardized AgentResult format
+- Real-time template loading with Redis caching (5-minute TTL)
+- Multi-provider model support (Gemini, OpenAI, Anthropic)
+- Comprehensive error handling and fallback patterns
+- ResultAggregator with weighted scoring and business rules
+- Google Gemini API integrated and tested
 
 ### Technical Stack (Validated 2025-08-13 Evening)
 - **Language**: Python 3.11
@@ -99,12 +103,14 @@ analysis:session:{id}   # TTL: 30 minutes
 - **Docker Environment**: Connection via host.docker.internal
 - **Production**: Connection via internal network or managed services
 
-### Internal Components (agent-engine)
-- Orchestrator ↔ Agent Factory
-- Agent Factory ↔ Model Registry
-- Orchestrator ↔ Result Aggregator
+### Internal Components (agent-engine) (Updated 2025-08-13 Evening)
+- Orchestrator ↔ AgentFactory (real ADK integration)
+- AgentFactory ↔ ModelRegistry (static configuration)
+- AgentFactory ↔ ToolRegistry (placeholder tools)
+- TahoeAgent ↔ Google ADK LlmAgent (production ready)
+- Orchestrator ↔ Result Aggregator (AgentResult processing)
 - All components → Database via Prisma
-- All components → Cache via Redis
+- All components → Cache via Redis (5-minute template TTL)
 
 ## Security Patterns
 - Service token authentication
@@ -119,6 +125,13 @@ analysis:session:{id}   # TTL: 30 minutes
 - Session-sized tasks
 - Local-first development
 - Configuration over code
+
+## Configuration Management (Added 2025-08-13 Evening)
+- Centralized .env at monorepo root
+- Environment-specific overrides in /config/{env}.env
+- Service-specific prefixes for variables
+- dotenv loading before pydantic settings
+- Single source of truth for all services
 
 ## Scalability Considerations
 - Stateless service design
