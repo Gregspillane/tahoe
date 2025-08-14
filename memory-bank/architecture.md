@@ -38,21 +38,77 @@
 - Easy versioning and rollback
 - Clear separation of configuration and logic
 
-### 2. Universal Agent Factory
-**Pattern**: Single factory class creates all agent types from specifications
+### 2. Universal Agent Factory with Builder Pattern ✅ **ENHANCED**
+**Pattern**: Factory with registered builders for different agent types
 **Implementation**:
 ```python
 class UniversalAgentFactory:
-    def build_agent(spec: dict, context: dict) -> BaseAgent
+    def __init__(self):
+        self.builders: Dict[str, AgentBuilder] = {}
+        self._register_builders()
+    
+    def build_agent(spec: dict, context: dict) -> BaseAgent:
+        # Use builder if available, fallback to direct dispatch
+        if agent_type in self.builders:
+            return self.builders[agent_type].build(spec, context)
 ```
-**Supports**: LlmAgent, SequentialAgent, ParallelAgent, LoopAgent, Custom (BaseAgent)
+**Supports**: LlmAgent (via LlmAgentBuilder), SequentialAgent, ParallelAgent, LoopAgent, Custom (BaseAgent)
 **Features**:
-- Automatic name sanitization (hyphens to underscores)
-- Dynamic tool loading (registry, inline, import)
-- Context injection for template variables
-- Sub-agent composition with conditions
+- **Builder Registration**: Automatic discovery and registration of agent builders
+- **Flexible Architecture**: Builder pattern for complex agents, direct dispatch for simple ones
+- **Backward Compatibility**: Existing direct methods maintained for workflow agents
+- **Sub-Agent Factory**: Circular reference support for recursive agent building
 
-### 3. Centralized Configuration System
+### 3. LLM Agent Builder Pattern ✅ **NEW**
+**Pattern**: Specialized builder for LLM agents with advanced feature support
+**Implementation**:
+```python
+class LlmAgentBuilder(AgentBuilder):
+    def __init__(self, tool_registry=None):
+        self.tool_loader = ToolLoader(tool_registry)
+        self.sub_agent_factory = None  # Set by factory for recursion
+    
+    def build(self, spec: AgentSpec, context: AgentContext) -> LlmAgent:
+        # Advanced instruction processing with context variables
+        # Multi-source tool loading (registry, inline, import, builtin)
+        # Fallback model configuration
+        # Safe condition evaluation for sub-agents
+```
+**Key Features**:
+- **Multi-Source Tool Loading**: Registry, inline definitions, module imports, built-in ADK tools
+- **Context Variable Substitution**: Template processing with ${variable} syntax and fallback placeholders
+- **Fallback Model Support**: Primary/fallback model configuration with automatic parameter passing
+- **Secure Tool Execution**: Namespace isolation for inline tool definitions
+- **Safe Condition Evaluation**: No eval() usage, secure parsing for sub-agent conditions
+- **Comprehensive Validation**: Specification validation before agent creation
+
+### 4. Multi-Source Tool Loading Architecture ✅ **NEW**
+**Pattern**: Flexible tool loading from multiple sources with validation
+**Implementation**:
+```python
+class ToolLoader:
+    def load_tools(self, tool_specs: List[Dict]) -> List[Callable]:
+        # Support multiple sources: registry, inline, import, builtin
+        
+    def _load_single_tool(self, spec: Dict) -> Optional[Callable]:
+        source = spec.get('source', 'registry')
+        if source == 'registry': return self._load_from_registry(spec['name'])
+        elif source == 'builtin': return self._load_built_in(spec['name'])  
+        elif source == 'inline': return self._create_inline_tool(spec)
+        elif source == 'import': return self._import_tool(spec)
+```
+**Tool Sources**:
+- **Registry**: Pre-registered tools from tool registry
+- **Built-in**: Native ADK tools like google_search with proper error handling
+- **Inline**: Function definitions executed in isolated namespaces (secure)
+- **Import**: Dynamic module imports for external libraries
+**Benefits**:
+- **Maximum Flexibility**: Specifications can use any tool source
+- **Security**: Inline tools executed in isolated namespaces
+- **Validation**: Function signature validation and error reporting
+- **Performance**: Registry caching and built-in tool optimization
+
+### 5. Centralized Configuration System
 **Pattern**: Environment-aware configuration with deployment flexibility
 **Implementation**:
 - **Development**: Root `.env` file with Pydantic Settings
@@ -119,6 +175,41 @@ class UniversalAgentFactory:
 - Resource efficiency (shared infrastructure)
 - Clear service boundaries
 - Environment-specific deployment patterns
+
+### 8. Real ADK v1.10.0 Integration Patterns ✅ **NEW**
+**Pattern**: Production-validated patterns for real ADK integration
+**Implementation**:
+- **Model Parameters**: Use `google.genai.types.GenerateContentConfig` for LLM model configuration
+- **Fail-Fast Architecture**: Single primary model only, no fallback_models
+- **Workflow Agent Simplicity**: Basic constructor patterns (name, sub_agents, description)
+- **Parameter Validation**: Real ADK rejects extra parameters, strict validation required
+**Key Patterns**:
+```python
+# Correct LLM model parameter handling
+from google.genai import types
+config = types.GenerateContentConfig(
+    temperature=0.2,
+    max_output_tokens=8192
+)
+agent = LlmAgent(
+    name="agent_name",
+    model="gemini-2.5-flash-lite",
+    instruction="instruction",
+    generate_content_config=config
+)
+
+# Correct workflow agent creation
+workflow = SequentialAgent(
+    name="workflow_name",
+    sub_agents=[agent1, agent2],
+    description="description"
+)
+```
+**Benefits**:
+- Production compatibility with real ADK
+- Fail-fast error detection
+- Simplified parameter management
+- Future-proof for ADK updates
 
 ## ADK Integration Points
 
@@ -345,17 +436,19 @@ DevUILauncher
 
 ## Patterns to Avoid
 
-### Anti-Patterns Identified
+### Anti-Patterns Identified (Real ADK v1.10.0 Validated)
 1. **Don't use hyphens in agent names** (ADK validation error)
 2. **Don't call session_service as method** (it's a property)
 3. **Don't use `sub_agent` in LoopAgent** (use `sub_agents` list)
-4. **Don't set model parameters in agent creation** (use runtime config)
-5. **Don't reuse agent instances across workflows** (create separate instances)
-6. Don't implement custom runners (use InMemoryRunner)
-7. Don't manage sessions manually (use ADK services)
-8. Don't hardcode business logic (use specifications)
-9. Don't wrap simple functions (automatic wrapping preferred)
-10. Don't create custom retry logic (ADK provides)
+4. **Don't set model parameters directly in LlmAgent constructor** (use generate_content_config)
+5. **Don't use fallback_models parameter** (not supported by real ADK LlmAgent)
+6. **Don't pass custom parameters to workflow agents** (ParallelAgent, SequentialAgent, LoopAgent reject them)
+7. **Don't reuse agent instances across workflows** (create separate instances)
+8. Don't implement custom runners (use InMemoryRunner)
+9. Don't manage sessions manually (use ADK services)
+10. Don't hardcode business logic (use specifications)
+11. Don't wrap simple functions (automatic wrapping preferred)
+12. Don't create custom retry logic (ADK provides)
 
 ## Future Architecture Considerations
 

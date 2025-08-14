@@ -1,0 +1,81 @@
+apiVersion: "agent-engine/v1"
+kind: "AgentSpec"
+metadata:
+  name: "adaptive-orchestrator"
+  version: "1.0.0"
+  description: "Custom agent that adaptively orchestrates sub-agents based on state"
+  tags: ["custom", "orchestration", "adaptive"]
+  author: "tahoe-platform"
+  created_at: "2025-08-14T00:00:00Z"
+
+spec:
+  agent:
+    type: "custom"
+    custom_class: "AdaptiveOrchestrator"
+    parameters:
+      orchestration_pattern: "adaptive"
+      max_iterations: 5
+      description: "Intelligent orchestrator that selects next agent based on current state and execution history"
+  
+  sub_agents:
+    - spec_ref: "examples/analyzer"
+      condition: "true"
+    - spec_ref: "examples/simple_demo"
+      condition: "input.requires_demo"
+  
+  validation:
+    input_schema:
+      type: "object"
+      properties:
+        data:
+          type: "object"
+          description: "Input data to be processed by orchestrated agents"
+        requires_demo:
+          type: "boolean"
+          description: "Whether demo processing is required"
+          default: false
+        priority:
+          type: "integer"
+          description: "Processing priority (1-10)"
+          minimum: 1
+          maximum: 10
+          default: 5
+    
+    output_schema:
+      type: "object"
+      properties:
+        iterations:
+          type: "integer"
+          description: "Number of orchestration iterations completed"
+        orchestration_pattern:
+          type: "string"
+          description: "Pattern used for orchestration"
+        agents_executed:
+          type: "integer"
+          description: "Total number of agents executed"
+        last_result:
+          type: "object"
+          description: "Result from the last executed agent"
+
+examples:
+  - name: "Basic Adaptive Processing"
+    input:
+      data:
+        content: "Analyze this text for sentiment and key topics"
+        format: "text"
+      priority: 7
+    expected_output:
+      iterations: 2
+      orchestration_pattern: "adaptive"
+      agents_executed: 2
+  
+  - name: "Demo Processing Required"
+    input:
+      data:
+        content: "Show demo functionality"
+      requires_demo: true
+      priority: 3
+    expected_output:
+      iterations: 2
+      orchestration_pattern: "adaptive"
+      agents_executed: 2

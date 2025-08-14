@@ -1,5 +1,206 @@
 # Project Tahoe - Key Decisions Log
 
+## 2025-08-14: Critical Issues Resolution Session
+
+### Decision: Remove Fallback Model Pattern Entirely
+**Choice**: Eliminate fallback_models from all agent specifications and implement fail-fast approach
+**Problem Addressed**: 
+- Real ADK v1.10.0 LlmAgent constructor doesn't accept `fallback_models` parameter
+- 9/10 agents failing to create with "Extra inputs not permitted" validation errors
+- User requirement: "I don't want to be using fallback_models - we need to follow fail fast"
+
+**Alternatives Considered**:
+- Keep fallback models and find ADK-compatible way to pass them (rejected - no ADK support)
+- Implement custom fallback logic in builder (rejected - adds complexity, user wants fail-fast)
+- Mixed approach with some agents having fallbacks (rejected - inconsistent architecture)
+
+**Implementation**:
+- Updated all 6 affected specifications to use single primary model: `gemini-2.5-flash-lite`
+- Removed fallback model handling from LlmAgentBuilder entirely
+- Updated tests to reflect single-model architecture
+- All specifications now use consistent model configuration
+
+**Impact**: 
+- ✅ All 10 agents now create successfully with real ADK
+- ✅ Fail-fast architecture implemented per user requirements
+- ✅ Consistent model configuration across all agents
+- ✅ Simplified builder implementation with fewer failure points
+
+### Decision: Implement Real ADK Parameter Patterns
+**Choice**: Use `generate_content_config` with `google.genai.types.GenerateContentConfig` for model parameters
+**Problem Addressed**: 
+- Real ADK LlmAgent doesn't accept temperature, max_tokens as direct constructor parameters
+- Development used mock classes that had different parameter structure than real ADK
+- "Extra inputs not permitted" errors when passing model parameters directly
+
+**Alternatives Considered**:
+- Continue using mock patterns and ignore real ADK (rejected - production would fail)
+- Pass parameters as kwargs and hope ADK accepts them (rejected - already failing)
+- Remove model parameters entirely (rejected - reduces model control)
+
+**Implementation**:
+- Studied ADK documentation at https://google.github.io/adk-docs/agents/llm-agents/#fine-tuning-llm-generation-generate_content_config
+- Implemented proper `google.genai.types.GenerateContentConfig` creation in LlmAgentBuilder
+- Map specification parameters (temperature, max_tokens) to ADK format (temperature, max_output_tokens)
+- Graceful fallback when google.genai.types not available (with warnings)
+
+**Impact**:
+- ✅ Model parameters now work correctly with real ADK v1.10.0
+- ✅ Temperature, max_tokens, and other generation parameters functional
+- ✅ Proper ADK integration patterns established
+- ✅ Future-proof for additional model parameters
+
+### Decision: Remove Invalid Workflow Agent Parameters
+**Choice**: Remove custom parameters from workflow agent constructors (ParallelAgent, SequentialAgent, LoopAgent)
+**Problem Addressed**: 
+- Real ADK workflow agents don't accept custom parameters like `concurrency`, `max_iterations`
+- Specifications were trying to pass invalid parameters causing creation failures
+- Mock development allowed parameters that real ADK rejects
+
+**Alternatives Considered**:
+- Find ADK-compatible way to pass workflow parameters (rejected - no ADK support found)
+- Implement parameters as part of sub-agent configuration (rejected - complicates architecture)
+- Keep parameters but catch and ignore errors (rejected - masks real issues)
+
+**Implementation**:
+- Removed `concurrency` parameter from parallel_analysis.yaml specification
+- Updated ParallelAgentBuilder, SequentialAgentBuilder, LoopAgentBuilder to not pass custom parameters
+- Maintained max_iterations parsing but don't pass to constructor (for future ADK support)
+- All workflow builders now use basic ADK constructor pattern: name, sub_agents, description
+
+**Impact**:
+- ✅ All 3 workflow agent types now create successfully with real ADK
+- ✅ Clean constructor patterns following ADK documentation
+- ✅ Specifications simplified and focused on core workflow logic
+- ✅ Ready for future ADK workflow parameter support if added
+
+### Decision: Fix Docker File Ownership for Dev UI
+**Choice**: Ensure `/app` directory ownership in Docker container allows file creation
+**Problem Addressed**: 
+- Dev UI container restarting due to "Permission denied: 'agents.py'" errors
+- Container running as `app` user but couldn't write files to working directory
+- Volume mounts were read-only but working directory needed write access
+
+**Alternatives Considered**:
+- Run container as root (rejected - security best practice violation)
+- Change volume mount permissions (rejected - would affect host filesystem)
+- Disable agents.py file creation (rejected - breaks Dev UI functionality)
+
+**Implementation**:
+- Added `RUN chown app:app /app` to Dockerfile.dev-ui after WORKDIR creation
+- Ensured proper user ownership before switching to non-root user
+- Maintained read-only volume mounts for source code
+- Working directory remains writable for temporary file creation
+
+**Impact**:
+- ✅ Dev UI container runs successfully without permission errors
+- ✅ agents.py file created successfully for ADK Dev UI integration
+- ✅ Dev UI accessible at http://localhost:8002 with all agents functional
+- ✅ Security maintained with non-root user execution
+
+## 2025-08-14: R2-T02 LLM Agent Builder Implementation
+
+### Decision: Builder Pattern Integration with Factory
+**Choice**: Integrate LlmAgentBuilder into UniversalAgentFactory via builder registration rather than replacing direct dispatch entirely
+**Alternatives Considered**:
+- Complete replacement of direct dispatch (rejected - breaks backward compatibility)
+- Separate factory for builders (rejected - adds complexity)
+- Manual builder usage without factory integration (rejected - inconsistent API)
+
+**Rationale**:
+- Maintains backward compatibility for existing workflow agent creation
+- Provides clean upgrade path for other agent types to use builders
+- Allows gradual migration of complex agent types to builder pattern
+- Factory maintains single point of entry for all agent creation
+
+**Implementation**:
+- Added builders registry to UniversalAgentFactory
+- LlmAgentBuilder registered for both "llm" and "agent" types
+- Factory checks builders first, falls back to direct dispatch
+- Sub-agent factory back-reference enables recursive building
+
+**Impact**:
+- ✅ Seamless integration with existing codebase
+- ✅ Enhanced LLM agent capabilities without breaking changes
+- ✅ Clear pattern for future builder implementations
+- ✅ Maintained single factory API surface
+
+### Decision: Multi-Source Tool Loading Architecture
+**Choice**: Implement comprehensive tool loading supporting registry, inline, import, and built-in sources
+**Alternatives Considered**:
+- Registry-only tool loading (rejected - insufficient flexibility)
+- Inline-only with eval() (rejected - security risks)
+- External tools via configuration files (rejected - adds complexity)
+
+**Rationale**:
+- Specifications need maximum flexibility for tool definition
+- Inline tools enable self-contained agent specifications
+- Built-in ADK tools should be accessible without separate registration
+- Import tools allow integration with existing Python libraries
+- Security is critical for inline tool execution
+
+**Implementation**:
+- ToolLoader class with pluggable source handlers
+- Namespace isolation for inline tool execution (exec() with local namespace)
+- Error handling and validation for all tool sources
+- Function signature validation before tool registration
+
+**Impact**:
+- ✅ Maximum flexibility for agent specifications
+- ✅ Security through namespace isolation
+- ✅ Easy integration with existing tools and libraries
+- ✅ Clear error reporting for tool loading failures
+
+### Decision: Safe Condition Evaluation Without eval()
+**Choice**: Implement limited, safe condition evaluation instead of using eval() for sub-agent conditions
+**Alternatives Considered**:
+- Using eval() for full expression support (rejected - security risk)
+- No condition support (rejected - limits sub-agent functionality)
+- External expression engine (rejected - adds dependency)
+
+**Rationale**:
+- eval() poses significant security risks with user-provided specifications
+- Most use cases need only simple condition patterns
+- Clear error messages better than silent failures
+- Performance is better with simple parsing
+
+**Implementation**:
+- Support for "true", "false", simple variable access
+- Pattern matching for "input.property" style conditions
+- Logging warnings for unsupported complex conditions
+- Graceful fallback to False for invalid conditions
+
+**Impact**:
+- ✅ Security: No code injection vulnerabilities
+- ✅ Predictability: Clear supported patterns
+- ✅ Debugging: Warning logs for unsupported conditions
+- ✅ Extensibility: Easy to add more patterns later
+
+### Decision: Fallback Model Configuration Support
+**Choice**: Implement primary/fallback model configuration with automatic parameter passing to LlmAgent
+**Alternatives Considered**:
+- Primary model only (rejected - no resilience)
+- Manual fallback handling in specifications (rejected - complex for users)
+- External model management service (rejected - premature for current needs)
+
+**Rationale**:
+- Model availability can vary (rate limits, outages, API changes)
+- Specifications should be resilient by default
+- ADK likely supports fallback models as parameters
+- Builder should handle configuration complexity, not specifications
+
+**Implementation**:
+- Extract primary and fallbacks from model configuration
+- Pass fallback_models as parameter to LlmAgent constructor
+- Validate model configuration during specification validation
+- Clear error messages for missing or invalid model config
+
+**Impact**:
+- ✅ Resilient agent specifications by default
+- ✅ Simple configuration for specification authors
+- ✅ Future-proof for ADK fallback model support
+- ✅ Clear configuration validation and error reporting
+
 ## 2025-08-14: R2-T01 Integration Testing and Path Resolution Fix
 
 ### Decision: Specification Path Resolution for Dev UI Integration

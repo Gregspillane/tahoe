@@ -48,7 +48,7 @@ services:
       DATABASE_NAME: tahoe
       DATABASE_USER: tahoe
       DATABASE_PASSWORD: tahoe
-      DATABASE_URL: postgresql://tahoe:tahoe@postgres:5432/tahoe?schema=agent_engine
+      DATABASE_URL: postgresql://tahoe:tahoe@postgres:5432/tahoe?schema=agent_engine&connection_limit=20&pool_timeout=10
       REDIS_HOST: redis
       REDIS_PORT: 6379
       GEMINI_API_KEY: ${GEMINI_API_KEY}

@@ -1,0 +1,32 @@
+apiVersion: "agent-engine/v1"
+kind: "AgentSpec"
+metadata:
+  name: "parallel_analysis"
+  version: "1.0.0"
+  description: "Parallel analysis workflow that runs multiple analyzers concurrently"
+  tags: ["workflow", "parallel", "analysis"]
+
+spec:
+  agent:
+    type: "parallel"
+      
+  sub_agents:
+    - spec_ref: "examples/code_helper"
+      variables:
+        focus: "code_quality"
+    - spec_ref: "examples/research_assistant"
+      variables:
+        focus: "documentation"
+        
+  validation:
+    input_schema:
+      type: "object"
+      properties:
+        content: {"type": "string"}
+        analysis_type: {"type": "string"}
+    output_schema:
+      type: "object"
+      properties:
+        code_analysis: {"type": "object"}
+        research_analysis: {"type": "object"}
+        combined_insights: {"type": "array"}

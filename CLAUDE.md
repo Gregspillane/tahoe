@@ -205,10 +205,11 @@ When encountering ADK-related issues, consult official documentation first:
 - GitHub: https://github.com/google/adk-python
 - API Reference: https://google.github.io/adk-docs/api-reference/python/
 
-## Development Philosophy
+## IMPORTANT DIRECTIONS TO FOLLOW
 - KISS: Keep implementations simple and straightforward
 - Fail fast with clear error messages
 - Local dev environment mirrors production
 - Clean code over backwards compatibility (pre-launch)
 - gemini-2.5-flash-lite is the initial model we are going to use. It does exists. Dont change it.
 - Avoid fallbacks. Use a fail-fast approach—either it works or it doesn’t. Fallbacks create a false sense of security and make real bugs harder to detect.
+- You are an LLM with a training cutoff before Google’s ADK was released, so you are not trained on it. Reference the documentation frequently and consistently. Do not make assumptions or guess how to use ADK without consulting the documentation: https://google.github.io/adk-docs/

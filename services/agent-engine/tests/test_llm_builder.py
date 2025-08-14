@@ -113,8 +113,8 @@ class TestLlmAgentBuilder:
         assert call_args.kwargs['temperature'] == 0.2
     
     @patch('src.core.builders.llm_builder.LlmAgent')
-    def test_build_agent_with_fallbacks(self, mock_llm_agent):
-        """Test building agent with fallback models"""
+    def test_build_agent_single_model(self, mock_llm_agent):
+        """Test building agent with single primary model (fail-fast approach)"""
         builder = LlmAgentBuilder()
         spec = AgentSpec(
             api_version="agent-engine/v1",
@@ -125,8 +125,7 @@ class TestLlmAgentBuilder:
                     "type": "llm",
                     "instruction_template": "Test instruction",
                     "model": {
-                        "primary": "gemini-2.0-flash",
-                        "fallbacks": ["gemini-2.5-pro", "gemini-2.5-flash"]
+                        "primary": "gemini-2.5-flash-lite"
                     }
                 }
             }
@@ -139,8 +138,8 @@ class TestLlmAgentBuilder:
         agent = builder.build(spec, context)
         
         call_args = mock_llm_agent.call_args
-        assert call_args.kwargs['model'] == "gemini-2.0-flash"
-        assert call_args.kwargs.get('fallback_models') == ["gemini-2.5-pro", "gemini-2.5-flash"]
+        assert call_args.kwargs['model'] == "gemini-2.5-flash-lite"
+        assert 'fallback_models' not in call_args.kwargs
     
     def test_evaluate_condition(self):
         """Test safe condition evaluation"""

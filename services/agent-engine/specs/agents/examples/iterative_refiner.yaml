@@ -1,0 +1,32 @@
+apiVersion: "agent-engine/v1"
+kind: "AgentSpec"
+metadata:
+  name: "iterative_refiner"
+  version: "1.0.0"
+  description: "Loop workflow that iteratively refines content until quality threshold is met"
+  tags: ["workflow", "loop", "refinement"]
+
+spec:
+  agent:
+    type: "loop"
+    loop_config:
+      max_iterations: 5  # ADK-validated parameter to prevent infinite loops
+      
+  sub_agents:
+    - spec_ref: "examples/creative_writer"
+      variables:
+        role: "content_refiner"
+        task: "Iteratively improve content quality and clarity"
+        
+  validation:
+    input_schema:
+      type: "object"
+      properties:
+        content: {"type": "string"}
+        quality_threshold: {"type": "number", "minimum": 0, "maximum": 1}
+    output_schema:
+      type: "object"
+      properties:
+        refined_content: {"type": "string"}
+        iterations_used: {"type": "integer"}
+        final_quality_score: {"type": "number"}

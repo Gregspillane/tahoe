@@ -89,7 +89,7 @@ dev-ui:
 dev-ui-docker:
 	@echo "Launching ADK Dev UI in Docker..."
 	@echo "Building and starting Dev UI container..."
-	@docker-compose -f docker-compose.yml -f docker-compose.dev-ui.yml up -d dev-ui
+	@docker-compose --env-file ../../.env -f docker-compose.yml -f docker-compose.dev-ui.yml up -d dev-ui
 	@echo ""
 	@echo "Dev UI available at: http://localhost:8002"
 	@echo "Use 'make docker-logs' to view logs"

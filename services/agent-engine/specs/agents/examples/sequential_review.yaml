@@ -1,0 +1,38 @@
+apiVersion: "agent-engine/v1"
+kind: "AgentSpec"
+metadata:
+  name: "sequential_review"
+  version: "1.0.0"
+  description: "Sequential review workflow that processes content through multiple stages"
+  tags: ["workflow", "sequential", "review"]
+
+spec:
+  agent:
+    type: "sequential"
+    
+  sub_agents:
+    - spec_ref: "examples/chat_assistant"
+      variables:
+        role: "initial_reviewer"
+        task: "Provide first-pass review and feedback"
+    - spec_ref: "examples/creative_writer"
+      variables:
+        role: "content_enhancer"
+        task: "Enhance content based on initial review"
+    - spec_ref: "examples/analyzer"
+      variables:
+        role: "final_validator"
+        task: "Validate enhanced content quality"
+        
+  validation:
+    input_schema:
+      type: "object"
+      properties:
+        content: {"type": "string"}
+        review_criteria: {"type": "array"}
+    output_schema:
+      type: "object"
+      properties:
+        initial_review: {"type": "object"}
+        enhanced_content: {"type": "string"}
+        final_validation: {"type": "object"}

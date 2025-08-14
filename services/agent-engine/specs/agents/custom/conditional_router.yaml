@@ -1,0 +1,116 @@
+apiVersion: "agent-engine/v1"
+kind: "AgentSpec"
+metadata:
+  name: "conditional-router"
+  version: "1.0.0"
+  description: "Custom agent that routes to different sub-agents based on input conditions"
+  tags: ["custom", "routing", "conditional"]
+  author: "tahoe-platform"
+  created_at: "2025-08-14T00:00:00Z"
+
+spec:
+  agent:
+    type: "custom"
+    custom_class: "ConditionalRouter"
+    parameters:
+      routing_rules:
+        "input.type == 'analysis'": "analyzer"
+        "input.type == 'demo'": "simple_demo"
+        "input.priority > 8": "chat_assistant"
+        "input.requires_code": "code_helper"
+        "true": "simple_demo"  # Default fallback
+      description: "Intelligent router that directs input to appropriate processing agents"
+  
+  sub_agents:
+    - spec_ref: "examples/analyzer"
+      condition: "input.type == 'analysis'"
+    - spec_ref: "examples/simple_demo"
+      condition: "input.type == 'demo'"
+    - spec_ref: "examples/chat_assistant"
+      condition: "input.priority > 8"
+    - spec_ref: "examples/code_helper"
+      condition: "input.requires_code"
+  
+  validation:
+    input_schema:
+      type: "object"
+      properties:
+        type:
+          type: "string"
+          enum: ["analysis", "demo", "chat", "code", "general"]
+          description: "Type of processing required"
+          default: "general"
+        priority:
+          type: "integer"
+          description: "Processing priority (1-10)"
+          minimum: 1
+          maximum: 10
+          default: 5
+        requires_code:
+          type: "boolean"
+          description: "Whether code processing is required"
+          default: false
+        content:
+          type: "string"
+          description: "Content to be processed"
+      required: ["content"]
+    
+    output_schema:
+      type: "object"
+      properties:
+        executed_agents:
+          type: "array"
+          items:
+            type: "string"
+          description: "List of agents that were executed"
+        total_rules:
+          type: "integer"
+          description: "Total number of routing rules evaluated"
+        input_evaluated:
+          type: "boolean"
+          description: "Whether input was successfully evaluated"
+        routing_result:
+          type: "object"
+          description: "Result from the routed agent"
+
+examples:
+  - name: "Analysis Routing"
+    input:
+      type: "analysis"
+      content: "Analyze the sentiment of this customer feedback"
+      priority: 6
+    expected_output:
+      executed_agents: ["analyzer"]
+      total_rules: 5
+      input_evaluated: true
+  
+  - name: "High Priority Chat"
+    input:
+      type: "chat"
+      content: "Urgent: Need immediate assistance"
+      priority: 9
+    expected_output:
+      executed_agents: ["chat_assistant"]
+      total_rules: 5
+      input_evaluated: true
+  
+  - name: "Code Processing"
+    input:
+      type: "general"
+      content: "Help me debug this Python function"
+      requires_code: true
+      priority: 7
+    expected_output:
+      executed_agents: ["code_helper"]
+      total_rules: 5
+      input_evaluated: true
+  
+  - name: "Default Fallback"
+    input:
+      type: "general"
+      content: "Just a simple request"
+      priority: 3
+    expected_output:
+      executed_agents: ["simple_demo"]
+      total_rules: 5
+      input_evaluated: true
