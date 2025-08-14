@@ -49,6 +49,8 @@ class Settings(BaseSettings):
     # Environment
     environment: str = Field(default="development", env="ENVIRONMENT")
     
-    class Config:
-        env_file = ".env"
-        case_sensitive = False
+    model_config = {
+        "env_file": ".env",
+        "case_sensitive": False,
+        "extra": "ignore"  # Allow extra fields in .env without error
+    }

@@ -178,6 +178,56 @@ async def submit_transcription(
         raise HTTPException(status_code=500, detail="Failed to submit transcription job")
 
 
+# Test endpoint without authentication for MVP testing
+@app.post("/test/submit-job")
+async def test_submit_job(audio_file_url: str, client_id: str = "test", priority: int = 0):
+    """Test endpoint to submit jobs without authentication."""
+    try:
+        if not job_manager:
+            raise HTTPException(status_code=503, detail="Service not initialized")
+        
+        job_id = await job_manager.create_job(
+            audio_file_url=audio_file_url,
+            client_id=client_id,
+            priority=priority
+        )
+        
+        logger.info(f"TEST: Created job {job_id} for {audio_file_url}")
+        
+        return {
+            "job_id": job_id,
+            "status": "submitted",
+            "audio_file_url": audio_file_url,
+            "client_id": client_id,
+            "priority": priority
+        }
+        
+    except Exception as e:
+        logger.error(f"Test job submission failed: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.get("/test/job-status/{job_id}")
+async def test_get_job_status(job_id: str):
+    """Test endpoint to get job status without authentication."""
+    try:
+        if not job_manager:
+            raise HTTPException(status_code=503, detail="Service not initialized")
+        
+        status = await job_manager.get_job_status(job_id)
+        
+        if not status:
+            raise HTTPException(status_code=404, detail="Job not found")
+        
+        return status
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Test status check failed: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
 @app.get("/transcribe/status/{job_id}")
 async def get_job_status(job_id: str, current_user: dict = Depends(get_current_user)):
     """Get transcription job status."""
