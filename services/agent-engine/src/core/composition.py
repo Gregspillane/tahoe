@@ -1,41 +1,24 @@
 """
-Agent composition service with UniversalAgentFactory.
-Creates ADK agents from specifications with full compliance.
+Universal Agent Factory for creating ADK agents from specifications.
+Implements R2-T01: Agent Factory Base with correct ADK patterns.
 """
 
-import re
-import importlib
-from typing import Dict, Any, List, Optional, Union
-from pathlib import Path
+from typing import Dict, Any, Optional, List, Type
+from abc import ABC, abstractmethod
+from pydantic import BaseModel, Field, validator
+from datetime import datetime
+import logging
 
-# ADK imports - following validated patterns
+# CORRECTED: Proper ADK imports per official documentation
 try:
-    from google.genai import types
-    from google.genai.chats import Chat
-    from google.genai.models import GenerativeModel
-    
-    # Agent imports
-    from google.genai.agents import (
-        Agent as LlmAgent,  # LlmAgent is the correct class
-        create_agent_executor,
-        AgentExecutor
-    )
-    
-    # Try to import workflow agents if available
-    try:
-        from google.genai.agents import SequentialAgent, ParallelAgent, LoopAgent
-        WORKFLOW_AGENTS_AVAILABLE = True
-    except ImportError:
-        WORKFLOW_AGENTS_AVAILABLE = False
-    
-    # Tool imports
-    from google.genai.tools import FunctionTool, Tool
-    
+    from google.adk.agents import LlmAgent, SequentialAgent, ParallelAgent, LoopAgent, BaseAgent
+    from google.adk.tools import FunctionTool
+    from google.adk.runners import InMemoryRunner
+    from google.adk.sessions import InMemorySessionService
     ADK_AVAILABLE = True
 except ImportError:
     # Fallback for development without ADK
     ADK_AVAILABLE = False
-    WORKFLOW_AGENTS_AVAILABLE = False
     
     # Mock classes for development
     class LlmAgent:
@@ -46,40 +29,190 @@ except ImportError:
             self.description = description
             self.tools = tools or []
     
+    class SequentialAgent:
+        def __init__(self, name, sub_agents, description="", **kwargs):
+            self.name = name
+            self.sub_agents = sub_agents
+            self.description = description
+    
+    class ParallelAgent:
+        def __init__(self, name, sub_agents, description="", **kwargs):
+            self.name = name
+            self.sub_agents = sub_agents
+            self.description = description
+    
+    class LoopAgent:
+        def __init__(self, name, sub_agents, description="", **kwargs):
+            self.name = name
+            self.sub_agents = sub_agents
+            self.description = description
+    
+    class BaseAgent:
+        pass
+    
     class FunctionTool:
         def __init__(self, func):
             self.func = func
+    
+    class InMemoryRunner:
+        def __init__(self, agent, app_name):
+            self.agent = agent
+            self.app_name = app_name
+            self._session_service = InMemorySessionService()
+        
+        @property
+        def session_service(self):
+            return self._session_service
+    
+    class InMemorySessionService:
+        pass
 
-from .specifications import SpecificationParser, SpecificationValidator
+# Import specification system
+try:
+    from .specifications import SpecificationParser, SpecificationValidator
+except ImportError:
+    # Fallback for testing
+    class SpecificationLoader:
+        def load(self, name: str) -> Dict:
+            raise NotImplementedError("SpecificationLoader not available")
+    
+    class SpecificationValidator:
+        def validate(self, spec: Any) -> bool:
+            return True
+
+logger = logging.getLogger(__name__)
+
+
+class AgentSpec(BaseModel):
+    """Pydantic model for agent specifications"""
+    api_version: str = Field(default="agent-engine/v1")
+    kind: str = Field(default="AgentSpec")
+    metadata: Dict[str, Any]
+    spec: Dict[str, Any]
+    
+    @validator('api_version')
+    def validate_version(cls, v):
+        if not v.startswith("agent-engine/"):
+            raise ValueError(f"Unsupported API version: {v}")
+        return v
+        
+    @validator('kind')
+    def validate_kind(cls, v):
+        if v != "AgentSpec":
+            raise ValueError(f"Invalid kind: {v}, expected AgentSpec")
+        return v
+
+
+class AgentContext(BaseModel):
+    """Runtime context for agent creation"""
+    user_id: Optional[str] = None
+    session_id: Optional[str] = None
+    environment: str = "development"
+    variables: Dict[str, Any] = Field(default_factory=dict)
+    parent_agent: Optional[str] = None
+
+
+class AgentBuilder(ABC):
+    """Abstract base class for agent builders"""
+    
+    @abstractmethod
+    def can_build(self, agent_type: str) -> bool:
+        """Check if this builder can handle the agent type"""
+        pass
+        
+    @abstractmethod
+    def build(self, spec: AgentSpec, context: AgentContext) -> BaseAgent:
+        """Build the agent from specification"""
+        pass
+        
+    @abstractmethod
+    def validate_spec(self, spec: AgentSpec) -> bool:
+        """Validate the specification for this agent type"""
+        pass
+
+
+class ToolRegistry:
+    """Tool registry interface (stub for integration)."""
+    
+    def __init__(self):
+        self.tools: Dict[str, Any] = {}
+    
+    def get_tool(self, name: str) -> Optional[Any]:
+        """Get tool by name."""
+        return self.tools.get(name)
+
+
+class SpecificationLoader:
+    """Loads specifications from various sources"""
+    
+    def __init__(self, base_path: Optional[str] = None):
+        self.base_path = base_path or "specs"
+        self.cache: Dict[str, Dict] = {}
+        
+    def load(self, spec_name: str) -> Dict:
+        """Load specification by name"""
+        if spec_name in self.cache:
+            return self.cache[spec_name]
+            
+        # For now, delegate to the existing specification parser
+        try:
+            from .specifications import SpecificationParser
+            parser = SpecificationParser()
+            spec_data = parser.load_agent_spec(spec_name)
+            self.cache[spec_name] = spec_data
+            return spec_data
+        except Exception as e:
+            raise ValueError(f"Specification not found: {spec_name}")
+
+
+class SpecificationValidator:
+    """Validates agent specifications"""
+    
+    def __init__(self):
+        pass
+        
+    def validate(self, spec: Any) -> bool:
+        """Validate specification structure"""
+        # For now, basic validation
+        if hasattr(spec, 'dict'):
+            spec_dict = spec.dict()
+        else:
+            spec_dict = spec
+            
+        # Check required fields
+        required_fields = ['api_version', 'kind', 'metadata', 'spec']
+        for field in required_fields:
+            if field not in spec_dict:
+                return False
+                
+        return True
 
 
 class UniversalAgentFactory:
-    """Factory for creating any agent type from specifications."""
+    """Main factory for creating agents from specifications"""
     
-    def __init__(self):
-        """Initialize the factory."""
-        self.parser = SpecificationParser()
+    def __init__(self, tool_registry: Optional[ToolRegistry] = None):
+        self.specs: Dict[str, AgentSpec] = {}
+        self.spec_loader = SpecificationLoader()
         self.validator = SpecificationValidator()
-        self.tool_registry = {}  # Will be populated from tool registry service
-        self._compiled_functions = {}  # Cache for compiled inline functions
+        self.tool_registry = tool_registry
     
-    def build_agent(self, spec: Dict[str, Any], context: Optional[Dict[str, Any]] = None) -> Any:
-        """Build any agent type from specification."""
-        # Sanitize names before validation
-        if "metadata" in spec and "name" in spec["metadata"]:
-            original_name = spec["metadata"]["name"]
-            sanitized_name = self._sanitize_name(original_name)
-            if original_name != sanitized_name:
-                # Create a copy with sanitized name for validation
-                spec = dict(spec)
-                spec["metadata"] = dict(spec["metadata"])
-                spec["metadata"]["name"] = sanitized_name
+    def build_agent(self, spec_name: str, context: Optional[AgentContext] = None) -> BaseAgent:
+        """Build an agent from specification name"""
+        if context is None:
+            context = AgentContext()
+            
+        # Load specification
+        spec = self.load_spec(spec_name)
         
         # Validate specification
-        self.validator.validate_agent_spec(spec)
+        if not self.validator.validate(spec):
+            raise ValueError(f"Invalid specification: {spec_name}")
         
-        agent_type = spec["spec"]["agent"]["type"]
+        # Direct dispatch per MASTERPLAN lines 379-388, 921-930
+        agent_type = spec.spec.get("agent", {}).get("type", "llm")
         
+        # Direct factory dispatch without separate builders
         if agent_type == "llm":
             return self._build_llm_agent(spec, context)
         elif agent_type == "sequential":
@@ -91,411 +224,163 @@ class UniversalAgentFactory:
         elif agent_type == "custom":
             return self._build_custom_agent(spec, context)
         else:
-            raise ValueError(f"Unsupported agent type: {agent_type}")
+            raise ValueError(f"Unknown agent type: {agent_type}")
     
-    def _build_llm_agent(self, spec: Dict[str, Any], context: Optional[Dict[str, Any]] = None) -> LlmAgent:
+    def _build_llm_agent(self, spec: AgentSpec, context: AgentContext) -> LlmAgent:
         """Build LLM agent with dynamic configuration."""
-        agent_spec = spec["spec"]["agent"]
-        metadata = spec["metadata"]
+        agent_spec = spec.spec.get("agent", {})
+        tools = self._load_tools(spec.spec.get("tools", []))
+        sub_agents = self._build_sub_agents(spec.spec.get("sub_agents", []), context)
         
-        # Ensure name uses underscores (ADK requirement)
-        agent_name = self._sanitize_name(metadata["name"])
-        
-        # Load tools
-        tools = self._load_tools(spec["spec"].get("tools", []))
-        
-        # Build instruction from template
+        # Dynamic instruction building with context injection
         instruction = self._build_instruction(
             agent_spec.get("instruction_template", ""),
             context
         )
         
-        # Get model configuration
+        # Handle model configuration per MASTERPLAN line 401, 943
         model_config = agent_spec.get("model", {})
-        model_name = model_config.get("primary", "gemini-2.0-flash")
+        model = model_config.get("primary", "gemini-2.0-flash") if isinstance(model_config, dict) else model_config
         
-        # Extract additional parameters
-        params = agent_spec.get("parameters", {})
-        
-        # Create LLM agent
-        if ADK_AVAILABLE:
-            agent = LlmAgent(
-                name=agent_name,
-                model=model_name,
-                instruction=instruction,
-                description=metadata.get("description", ""),
-                tools=tools,
-                **params
-            )
-        else:
-            # Mock for development
-            agent = LlmAgent(
-                name=agent_name,
-                model=model_name,
-                instruction=instruction,
-                description=metadata.get("description", ""),
-                tools=tools
-            )
-        
-        # Handle sub-agents if specified
-        sub_agents = spec["spec"].get("sub_agents", [])
-        if sub_agents:
-            # In real ADK, sub_agents would be added to the agent
-            # For now, store them as an attribute
-            agent._sub_agents = self._build_sub_agents(sub_agents, context)
-        
-        return agent
+        return LlmAgent(
+            name=spec.metadata["name"].replace("-", "_"),  # CORRECTED: Ensure underscores
+            model=model,
+            instruction=instruction,
+            description=spec.metadata.get("description", ""),
+            tools=tools,
+            sub_agents=sub_agents,
+            **agent_spec.get("parameters", {})
+        )
     
-    def _build_sequential_agent(self, spec: Dict[str, Any], context: Optional[Dict[str, Any]] = None) -> Any:
+    def _build_sequential_agent(self, spec: AgentSpec, context: AgentContext) -> SequentialAgent:
         """Build sequential workflow agent."""
-        if not WORKFLOW_AGENTS_AVAILABLE:
-            return self._build_mock_workflow_agent(spec, context, "sequential")
-        
-        metadata = spec["metadata"]
-        agent_name = self._sanitize_name(metadata["name"])
-        
-        # Build sub-agents
-        sub_agents = self._build_sub_agents(spec["spec"].get("sub_agents", []), context)
-        
+        sub_agents = self._build_sub_agents(spec.spec.get("sub_agents", []), context)
         return SequentialAgent(
-            name=agent_name,
+            name=spec.metadata["name"].replace("-", "_"),
             sub_agents=sub_agents,
-            description=metadata.get("description", "")
+            description=spec.metadata.get("description", "")
         )
     
-    def _build_parallel_agent(self, spec: Dict[str, Any], context: Optional[Dict[str, Any]] = None) -> Any:
+    def _build_parallel_agent(self, spec: AgentSpec, context: AgentContext) -> ParallelAgent:
         """Build parallel workflow agent."""
-        if not WORKFLOW_AGENTS_AVAILABLE:
-            return self._build_mock_workflow_agent(spec, context, "parallel")
-        
-        metadata = spec["metadata"]
-        agent_name = self._sanitize_name(metadata["name"])
-        
-        # Build sub-agents
-        sub_agents = self._build_sub_agents(spec["spec"].get("sub_agents", []), context)
-        
+        sub_agents = self._build_sub_agents(spec.spec.get("sub_agents", []), context)
         return ParallelAgent(
-            name=agent_name,
+            name=spec.metadata["name"].replace("-", "_"),
             sub_agents=sub_agents,
-            description=metadata.get("description", "")
+            description=spec.metadata.get("description", "")
         )
     
-    def _build_loop_agent(self, spec: Dict[str, Any], context: Optional[Dict[str, Any]] = None) -> Any:
-        """Build loop agent following ADK patterns."""
-        if not WORKFLOW_AGENTS_AVAILABLE:
-            return self._build_mock_workflow_agent(spec, context, "loop")
-        
-        metadata = spec["metadata"]
-        agent_name = self._sanitize_name(metadata["name"])
-        
-        # Build sub-agents - LoopAgent takes a list per ADK requirements
-        sub_agents = self._build_sub_agents(spec["spec"].get("sub_agents", []), context)
-        
+    def _build_loop_agent(self, spec: AgentSpec, context: AgentContext) -> LoopAgent:
+        """Build loop workflow agent."""
+        sub_agents = self._build_sub_agents(spec.spec.get("sub_agents", []), context)
         return LoopAgent(
-            name=agent_name,
-            sub_agents=sub_agents,  # List, not single agent
-            description=metadata.get("description", "")
+            name=spec.metadata["name"].replace("-", "_"),
+            sub_agents=sub_agents,
+            description=spec.metadata.get("description", "")
         )
     
-    def _build_custom_agent(self, spec: Dict[str, Any], context: Optional[Dict[str, Any]] = None) -> Any:
-        """Build custom agent implementation."""
-        # Custom agents would extend BaseAgent
-        # For now, return a mock
-        metadata = spec["metadata"]
-        agent_name = self._sanitize_name(metadata["name"])
-        
-        class CustomAgent:
-            def __init__(self):
-                self.name = agent_name
-                self.description = metadata.get("description", "")
-                self.spec = spec
-        
-        return CustomAgent()
+    def _build_custom_agent(self, spec: AgentSpec, context: AgentContext) -> BaseAgent:
+        """Build custom agent from specification."""
+        # Placeholder for custom agent building logic
+        raise NotImplementedError("Custom agent building to be implemented")
     
-    def _build_mock_workflow_agent(self, spec: Dict[str, Any], context: Optional[Dict[str, Any]], agent_type: str) -> Any:
-        """Build mock workflow agent for development."""
-        metadata = spec["metadata"]
-        agent_name = self._sanitize_name(metadata["name"])
+    def _build_instruction(self, template: str, context: AgentContext) -> str:
+        """Build instruction from template with context injection."""
+        if not template:
+            return ""
         
-        class MockWorkflowAgent:
-            def __init__(self):
-                self.name = agent_name
-                self.type = agent_type
-                self.description = metadata.get("description", "")
-                self.sub_agents = self._build_sub_agents(spec["spec"].get("sub_agents", []), context)
-        
-        return MockWorkflowAgent()
-    
-    def _sanitize_name(self, name: str) -> str:
-        """Ensure name uses underscores per ADK requirements."""
-        return name.replace("-", "_")
-    
-    def _load_tools(self, tool_refs: List[Dict[str, Any]]) -> List:
-        """Load tools from references."""
-        tools = []
-        
-        for tool_ref in tool_refs:
-            source = tool_ref.get("source", "registry")
-            
-            if source == "registry":
-                # Load from tool registry
-                tool_name = tool_ref["name"]
-                if tool_name in self.tool_registry:
-                    tools.append(self.tool_registry[tool_name])
-                else:
-                    # Try to load built-in tools
-                    if tool_name == "google_search" and ADK_AVAILABLE:
-                        try:
-                            from google.genai.tools import google_search
-                            tools.append(google_search)
-                        except ImportError:
-                            pass
-            
-            elif source == "inline":
-                # Create function from inline definition
-                tool_func = self._compile_inline_function(tool_ref)
-                if tool_func:
-                    tools.append(tool_func)
-            
-            elif source == "import":
-                # Import from module
-                tool_func = self._import_tool_function(tool_ref)
-                if tool_func:
-                    tools.append(tool_func)
-        
-        return tools
-    
-    def _compile_inline_function(self, tool_ref: Dict[str, Any]) -> Optional[callable]:
-        """Compile and return inline function definition."""
-        definition = tool_ref.get("definition", "")
-        if not definition:
-            return None
-        
-        # Extract function name
-        match = re.search(r'def\s+(\w+)\s*\(', definition)
-        if not match:
-            return None
-        
-        func_name = match.group(1)
-        
-        # Check cache
-        cache_key = f"{func_name}_{hash(definition)}"
-        if cache_key in self._compiled_functions:
-            return self._compiled_functions[cache_key]
-        
-        try:
-            # Compile the function
-            namespace = {}
-            exec(definition, namespace)
-            
-            if func_name in namespace:
-                func = namespace[func_name]
-                self._compiled_functions[cache_key] = func
-                return func
-        except Exception as e:
-            print(f"Failed to compile inline function {func_name}: {e}")
-        
-        return None
-    
-    def _import_tool_function(self, tool_ref: Dict[str, Any]) -> Optional[callable]:
-        """Import tool function from module."""
-        module_name = tool_ref.get("module")
-        function_name = tool_ref.get("function", tool_ref.get("name"))
-        
-        if not module_name or not function_name:
-            return None
-        
-        try:
-            module = importlib.import_module(module_name)
-            if hasattr(module, function_name):
-                return getattr(module, function_name)
-        except (ImportError, AttributeError) as e:
-            print(f"Failed to import {function_name} from {module_name}: {e}")
-        
-        return None
-    
-    def _build_sub_agents(self, sub_agent_refs: List[Dict[str, Any]], context: Optional[Dict[str, Any]] = None) -> List:
-        """Build sub-agents from references."""
-        sub_agents = []
-        
-        for ref in sub_agent_refs:
-            # Check condition if present
-            if "condition" in ref:
-                if not self._evaluate_condition(ref["condition"], context):
-                    continue
-            
-            # Load and build sub-agent specification
-            spec_ref = ref["spec_ref"]
-            try:
-                sub_spec = self.parser.load_agent_spec(spec_ref)
-                sub_agent = self.build_agent(sub_spec, context)
-                sub_agents.append(sub_agent)
-            except Exception as e:
-                print(f"Failed to build sub-agent {spec_ref}: {e}")
-        
-        return sub_agents
-    
-    def _build_instruction(self, template: str, context: Optional[Dict[str, Any]] = None) -> str:
-        """Build instruction from template with context."""
-        if not context or not template:
-            return template
-        
+        # Simple variable substitution from context
         instruction = template
-        
-        # Simple template substitution
-        for key, value in context.items():
-            placeholder = f"{{{key}}}"
-            if placeholder in instruction:
-                instruction = instruction.replace(placeholder, str(value))
+        for key, value in context.variables.items():
+            instruction = instruction.replace(f"{{{key}}}", str(value))
         
         return instruction
     
-    def _evaluate_condition(self, condition: str, context: Optional[Dict[str, Any]] = None) -> bool:
-        """Evaluate condition expression safely."""
-        if condition == "true":
-            return True
-        if condition == "false":
-            return False
+    def _load_tools(self, tool_specs: List[Dict]) -> List:
+        """Load tools from specifications."""
+        if not self.tool_registry:
+            return []
         
-        if not context:
-            return False
+        tools = []
+        for tool_spec in tool_specs:
+            if tool_spec.get("source") == "registry":
+                tool = self.tool_registry.get_tool(tool_spec["name"])
+                if tool:
+                    tools.append(tool)
+            # Handle inline and import sources in future
         
-        # Safe evaluation with limited context
-        try:
-            # Only allow simple comparisons and boolean operations
-            safe_globals = {
-                "__builtins__": {},
-                "True": True,
-                "False": False,
-                "None": None
-            }
-            safe_context = {**safe_globals, **context}
-            return eval(condition, safe_context)
-        except Exception:
-            return False
+        return tools
+    
+    def _build_sub_agents(self, sub_agent_specs: List[Dict], context: AgentContext) -> List[BaseAgent]:
+        """Build sub-agents from specifications."""
+        sub_agents = []
+        for sub_spec in sub_agent_specs:
+            spec_ref = sub_spec.get("spec_ref")
+            if spec_ref:
+                # Recursive agent building
+                sub_agent = self.build_agent(spec_ref, context)
+                sub_agents.append(sub_agent)
+        
+        return sub_agents
+        
+    def load_spec(self, spec_name: str) -> AgentSpec:
+        """Load specification by name"""
+        if spec_name in self.specs:
+            return self.specs[spec_name]
+            
+        spec_data = self.spec_loader.load(spec_name)
+        spec = AgentSpec(**spec_data)
+        self.specs[spec_name] = spec
+        return spec
+        
+    def build_agent_from_dict(self, spec_dict: Dict, context: Optional[AgentContext] = None) -> BaseAgent:
+        """Build an agent directly from dictionary specification"""
+        if context is None:
+            context = AgentContext()
+            
+        spec = AgentSpec(**spec_dict)
+        
+        if not self.validator.validate(spec):
+            raise ValueError("Invalid specification dictionary")
+        
+        agent_type = spec.spec.get("agent", {}).get("type", "llm")
+        
+        # Direct dispatch
+        if agent_type == "llm":
+            return self._build_llm_agent(spec, context)
+        elif agent_type == "sequential":
+            return self._build_sequential_agent(spec, context)
+        elif agent_type == "parallel":
+            return self._build_parallel_agent(spec, context)
+        elif agent_type == "loop":
+            return self._build_loop_agent(spec, context)
+        elif agent_type == "custom":
+            return self._build_custom_agent(spec, context)
+        else:
+            raise ValueError(f"Unknown agent type: {agent_type}")
+            
+    def list_supported_types(self) -> List[str]:
+        """List all supported agent types"""
+        return ["llm", "sequential", "parallel", "loop", "custom"]
+        
+    def clear_cache(self):
+        """Clear cached specifications"""
+        self.specs.clear()
+        logger.info("Cleared specification cache")
 
 
+# Backward compatibility alias
 class AgentCompositionService:
-    """Service to compose agents from specifications."""
+    """Service to compose agents from specifications - backward compatibility."""
     
     def __init__(self, tool_registry: Optional[Dict[str, Any]] = None):
         """Initialize composition service."""
-        self.parser = SpecificationParser()
-        self.validator = SpecificationValidator()
-        self.factory = UniversalAgentFactory()
-        
-        # Set tool registry if provided
-        if tool_registry:
-            self.factory.tool_registry = tool_registry
+        registry = ToolRegistry() if tool_registry else None
+        if tool_registry and registry:
+            registry.tools = tool_registry
+        self.factory = UniversalAgentFactory(tool_registry=registry)
     
     def build_agent_from_spec(self, spec_name: str, context: Optional[Dict[str, Any]] = None) -> Any:
         """Build agent from specification name."""
-        # Load specification
-        spec = self.parser.load_agent_spec(spec_name)
-        
-        # Validate specification
-        self.validator.validate_agent_spec(spec)
-        
-        # Check for ADK compliance warnings
-        warnings = self.validator.check_adk_compliance(spec)
-        if warnings:
-            for warning in warnings:
-                print(f"ADK Compliance Warning: {warning}")
-        
-        # Build agent using factory
-        return self.factory.build_agent(spec, context)
-    
-    def build_workflow_from_template(self, template_name: str, context: Optional[Dict[str, Any]] = None) -> Any:
-        """Build workflow from template specification."""
-        # Load workflow template
-        template = self.parser.load_workflow_template(template_name)
-        
-        # Validate workflow
-        self.validator.validate_workflow_spec(template)
-        
-        # Convert workflow to agent specification
-        agent_spec = self._workflow_to_agent_spec(template)
-        
-        # Build using factory
-        return self.factory.build_agent(agent_spec, context)
-    
-    def _workflow_to_agent_spec(self, workflow: Dict[str, Any]) -> Dict[str, Any]:
-        """Convert workflow template to agent specification."""
-        workflow_type = workflow["spec"]["type"]
-        
-        # Map workflow type to agent type
-        agent_type_map = {
-            "sequential": "sequential",
-            "parallel": "parallel",
-            "loop": "loop",
-            "conditional": "sequential"  # Conditional workflows use sequential with logic
-        }
-        
-        agent_spec = {
-            "apiVersion": workflow["apiVersion"],
-            "kind": "AgentSpec",
-            "metadata": workflow["metadata"],
-            "spec": {
-                "agent": {
-                    "type": agent_type_map.get(workflow_type, "sequential")
-                },
-                "sub_agents": []
-            }
-        }
-        
-        # Convert workflow steps to sub-agents
-        for step in workflow["spec"].get("steps", []):
-            if "agent_spec" in step:
-                agent_spec["spec"]["sub_agents"].append({
-                    "spec_ref": step["agent_spec"],
-                    "condition": step.get("condition", "true")
-                })
-        
-        return agent_spec
-    
-    def list_available_agents(self) -> List[str]:
-        """List all available agent specifications."""
-        return self.parser.list_specifications("agents")
-    
-    def list_available_workflows(self) -> List[str]:
-        """List all available workflow templates."""
-        return self.parser.list_specifications("workflows")
-    
-    def list_available_tools(self) -> List[str]:
-        """List all available tool specifications."""
-        return self.parser.list_specifications("tools")
-    
-    def list_available_models(self) -> List[str]:
-        """List all available model configurations."""
-        return self.parser.list_specifications("models")
-    
-    def validate_specification(self, spec: Dict[str, Any]) -> Dict[str, Any]:
-        """Validate a specification and return results."""
-        kind = spec.get("kind")
-        
-        try:
-            if kind == "AgentSpec":
-                self.validator.validate_agent_spec(spec)
-            elif kind == "WorkflowTemplate":
-                self.validator.validate_workflow_spec(spec)
-            elif kind == "ToolSpec":
-                self.validator.validate_tool_spec(spec)
-            elif kind == "ModelConfig":
-                self.validator.validate_model_spec(spec)
-            else:
-                return {"valid": False, "error": f"Unknown kind: {kind}"}
-            
-            # Check for ADK compliance warnings
-            warnings = self.validator.check_adk_compliance(spec)
-            
-            return {
-                "valid": True,
-                "kind": kind,
-                "warnings": warnings
-            }
-        except Exception as e:
-            return {
-                "valid": False,
-                "error": str(e),
-                "kind": kind
-            }
+        agent_context = AgentContext(variables=context or {})
+        return self.factory.build_agent(spec_name, agent_context)

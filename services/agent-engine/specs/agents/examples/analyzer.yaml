@@ -41,9 +41,10 @@ spec:
             modifier = data.get('modifier', 1.0)
             return min(1.0, base_score * modifier)
   
-  sub_agents:
-    - spec_ref: detail_extractor
-      condition: "input.get('detailed', False)"
+  # Sub-agents commented out until detail_extractor is implemented
+  # sub_agents:
+  #   - spec_ref: detail_extractor
+  #     condition: "input.get('detailed', False)"
   
   validation:
     input_schema:
