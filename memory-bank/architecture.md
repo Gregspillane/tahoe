@@ -460,7 +460,71 @@ DevUILauncher
 - Advanced monitoring dashboard
 
 ### Extension Points
-- Custom agent types via BaseAgent
+- Custom agent types via BaseAgent inheritance (R2-T04 ✅)
 - Tool marketplace integration
 - Workflow template library
 - Model provider plugins
+
+## R2-T04: Custom Agents Architecture Patterns ✅
+
+### Custom Agent Implementation Pattern
+```python
+class CustomAgent(BaseAgent):
+    def __init__(self, name: str, custom_param: str = "default", **kwargs):
+        # Initialize with only ADK BaseAgent fields
+        super().__init__(
+            name=name,
+            **{k: v for k, v in kwargs.items() if k in ['parent_agent', 'before_agent_callback', 'after_agent_callback']}
+        )
+        
+        # Store custom fields as instance attributes (not Pydantic fields)
+        object.__setattr__(self, 'custom_param', custom_param)
+    
+    async def _run_async_impl(self, ctx: InvocationContext) -> AsyncGenerator[Event, None]:
+        # Custom implementation logic
+        yield Event(type="result", data=self.custom_param)
+```
+
+### Key Architectural Decisions
+
+1. **Pydantic BaseAgent Constraint Handling**
+   - Real ADK BaseAgent is a Pydantic model with restricted field addition
+   - Solution: Use `object.__setattr__` to bypass Pydantic validation for custom fields
+   - Pattern ensures compatibility with ADK validation while enabling extension
+
+2. **Custom Agent Registry System**
+   - `UniversalAgentFactory.custom_registry` for dynamic class registration
+   - Validation ensures inheritance from BaseAgent and `_run_async_impl` override
+   - Supports both built-in Python classes and dynamic YAML-defined classes
+
+3. **Specification-Driven Custom Agents**
+   - Built-in agents: Direct Python class registration via `register_built_in_agents()`
+   - Dynamic agents: YAML specifications with embedded `class_definition` sections
+   - Seamless integration via `_build_custom_agent()` factory method
+
+4. **Test Architecture for Real ADK**
+   - No Mock objects for BaseAgent - real inheritance required
+   - Test custom agents inherit from BaseAgent and implement `_run_async_impl`
+   - MockSubAgent pattern for sub-agent testing with proper BaseAgent compliance
+
+### Custom Agent Capabilities
+
+1. **AdaptiveOrchestrator** - Dynamic orchestration patterns
+   - Supports adaptive and sequential execution patterns
+   - State-based agent selection logic
+   - Configurable max iterations for execution control
+
+2. **ConditionalRouter** - Condition-based routing
+   - Safe condition evaluation with limited namespace
+   - Supports basic property checks and complex expressions
+   - Execution of first matching condition with fallback support
+
+3. **StatefulWorkflow** - State management across executions
+   - Persistent workflow state via session storage
+   - Step-by-step execution with restart capabilities
+   - Failure tracking and recovery mechanisms
+
+4. **SimpleCounter** - Dynamic specification-based agent
+   - Demonstrates YAML-embedded class definitions
+   - Runtime class creation and registration
+   - Example of fully specification-driven custom agents

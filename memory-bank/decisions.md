@@ -802,6 +802,32 @@
 - Eliminates confusion about where commands should be run
 **Impact**: Clear service boundaries, consistent architecture, easier service deployment
 
+## 2025-08-14: Dev UI Integration Session - Critical Issues Identified
+
+### Decision: Acknowledge Fundamental ADK Integration Problems
+**Problem Identified**: ADK Dev UI showing directories instead of agents in dropdown selection
+**Root Issues**:
+- Misunderstanding of ADK agent discovery and registration mechanisms
+- Over-complex custom agent composition system interfering with ADK native patterns
+- Multiple layers of incorrect integration approaches creating technical debt
+
+**Impact Assessment**:
+- Visual development interface completely non-functional
+- Agent testing workflow broken
+- Development productivity severely impacted
+- Technical debt accumulated requiring significant refactoring
+
+**Action Required**:
+- Complete redesign of ADK integration approach needed
+- Research proper ADK agent registration patterns from official documentation
+- Simplify integration by removing custom composition complexity for Dev UI
+- Start with minimal working ADK example before adding Tahoe-specific features
+
+**Timeline Impact**:
+- Additional 2-3 hours required to properly fix ADK integration
+- Potential delay to R2-T06 Composition Tests until Dev UI is functional
+- Priority shift to fixing fundamental development tools before proceeding
+
 ## Future Decisions Needed
 
 ### Pending: CI/CD Pipeline

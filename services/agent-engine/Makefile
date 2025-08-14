@@ -14,10 +14,11 @@ help:
 	@echo "  make clean    - Clean cache files"
 	@echo ""
 	@echo "ADK Dev UI (Visual Agent Development):"
-	@echo "  make dev-ui          - Launch ADK Dev UI (port 8002)"
-	@echo "  make dev-ui-setup    - Install ADK and validate setup"
-	@echo "  make dev-ui-validate - Validate Dev UI setup"
-	@echo "  make dev-ui-docker   - Launch Dev UI in Docker"
+	@echo "  make dev-ui            - Launch ADK Dev UI (port 8002)"
+	@echo "  make dev-ui-setup      - Install ADK and generate agent modules"
+	@echo "  make dev-ui-validate   - Validate Dev UI setup"
+	@echo "  make dev-ui-regenerate - Regenerate agent modules from YAML specs"
+	@echo "  make dev-ui-docker     - Launch Dev UI in Docker"
 	@echo "  NOTE: Run from agent-engine service directory: cd services/agent-engine"
 	@echo ""
 	@echo "Docker Development (includes Redis & PostgreSQL):"
@@ -67,24 +68,30 @@ docker-logs:
 clean:
 	docker-compose --env-file ../../.env down -v
 
-# ADK Dev UI targets
+# ADK Dev UI targets  
 dev-ui-setup:
 	@echo "Setting up ADK Dev UI..."
 	@echo "Checking if google-adk is installed..."
 	@pip show google-adk > /dev/null 2>&1 || (echo "Installing google-adk..." && pip install google-adk)
+	@echo "Generating agent modules..."
+	@python3 scripts/generate_adk_agents.py
 	@echo "Validating setup..."
-	@python3 scripts/launch_dev_ui.py --validate
+	@python3 scripts/launch_dev_ui_simple.py --validate
 
 dev-ui-validate:
 	@echo "Validating ADK Dev UI setup..."
-	@python3 scripts/launch_dev_ui.py --validate
+	@python3 scripts/launch_dev_ui_simple.py --validate
 
 dev-ui:
-	@echo "Launching Tahoe ADK Dev UI..."
+	@echo "Launching Tahoe ADK Dev UI (Simplified)..."
 	@echo "This will open a browser interface for visual agent development"
 	@echo "Available at: http://localhost:8002"
 	@echo ""
-	@python3 scripts/launch_dev_ui.py
+	@python3 scripts/launch_dev_ui_simple.py
+
+dev-ui-regenerate:
+	@echo "Regenerating agent modules from specifications..."
+	@python3 scripts/generate_adk_agents.py
 
 dev-ui-docker:
 	@echo "Launching ADK Dev UI in Docker..."

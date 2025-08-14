@@ -188,58 +188,93 @@ class DevUILauncher:
 
         print(f"Successfully created {len(self.agents)} agents for Dev UI")
 
-    def create_agents_file(self) -> Path:
-        """Create agents.py file in current directory for ADK Dev UI."""
-        agents_file = Path("agents.py")
-
-        # Generate Python code for agents from our composition system
-        agent_code = self._generate_agents_code()
-
-        with open(agents_file, "w") as f:
+    def create_config_structure(self) -> Path:
+        """Create proper ADK config directory structure for Dev UI."""
+        config_dir = Path("config")
+        
+        # Create config directory
+        config_dir.mkdir(exist_ok=True)
+        
+        # Create __init__.py that imports agent module
+        init_file = config_dir / "__init__.py"
+        with open(init_file, "w") as f:
+            f.write("from . import agent\n")
+        
+        # Create agent.py with root_agent definition
+        agent_file = config_dir / "agent.py"
+        agent_code = self._generate_root_agent_code()
+        
+        with open(agent_file, "w") as f:
             f.write(agent_code)
+        
+        print(f"Created ADK config structure: {config_dir.absolute()}")
+        return config_dir
 
-        print(f"Created agents file: {agents_file.absolute()}")
-        return agents_file
-
-    def _generate_agents_code(self) -> str:
-        """Generate Python code for real agents from specifications."""
+    def _generate_root_agent_code(self) -> str:
+        """Generate ADK-compliant agent.py with root_agent definition."""
+        # Get the first available agent spec to use as the root agent
+        specs = self.discovery.discover_agent_specs()
+        if not specs:
+            # Fallback to a simple agent if no specs found
+            return self._generate_fallback_agent_code()
+        
+        # Use the first spec as our root agent
+        first_spec = specs[0]
+        spec_name = first_spec.get("_spec_path", first_spec["metadata"]["name"])
+        agent_name = first_spec["metadata"]["name"]
+        description = first_spec["metadata"].get("description", "A helpful assistant")
+        
+        # Get model from spec or use default
+        model = "gemini-2.5-flash-lite"
+        if "spec" in first_spec and "agent" in first_spec["spec"]:
+            model = first_spec["spec"]["agent"].get("model", model)
+            if isinstance(model, dict):
+                model = model.get("primary", "gemini-2.5-flash-lite")
+        
+        # Get instruction from spec or use default
+        instruction = "Answer user questions to the best of your knowledge"
+        if "spec" in first_spec and "agent" in first_spec["spec"]:
+            instruction_template = first_spec["spec"]["agent"].get("instruction_template", instruction)
+            # Simple variable substitution for basic cases
+            instruction = instruction_template.replace("{role}", "assistant")
+            instruction = instruction.replace("{domain}", "general")
+            instruction = instruction.replace("{task}", "help users")
+        
         code_lines = [
-            "# Generated agents for Tahoe Dev UI",
-            "# Created from agent specifications via composition system",
+            "# Generated ADK root agent for Tahoe Dev UI",
+            "# Uses first agent specification as the root agent",
             "",
-            "import os",
-            "import sys",
-            "from pathlib import Path",
+            "from google.adk.agents.llm_agent import Agent",
             "",
-            "# Add src to path for imports",
-            "current_dir = Path(__file__).parent",
-            "sys.path.insert(0, str(current_dir / 'src'))",
-            "",
-            "from google.adk.agents import LlmAgent",
-            "from core.composition import AgentCompositionService",
-            "",
-            "# Initialize composition service",
-            "composition_service = AgentCompositionService()",
-            "",
-            "# Agent specifications to load",
-            f"agent_specs = {[spec['metadata']['name'] for spec in self.discovery.discover_agent_specs()]}",
-            "",
-            "# Create agents from specifications",
-            "agents = []",
-            "context = {'role': 'assistant', 'domain': 'general', 'objective': 'help users test agent capabilities'}",
-            "",
-            "for spec_name in agent_specs:",
-            "    try:",
-            "        agent = composition_service.build_agent_from_spec(spec_name, context)",
-            "        if agent:",
-            "            agents.append(agent)",
-            "            print(f'Loaded agent: {agent.name}')",
-            "    except Exception as e:",
-            "        print(f'Failed to load agent {spec_name}: {e}')",
-            "",
-            "print(f'Total agents loaded: {len(agents)}')",
+            f"# Root agent based on specification: {spec_name}",
+            "root_agent = Agent(",
+            f"    model='{model}',",
+            f"    name='{agent_name}',", 
+            f"    description='{description}',",
+            f"    instruction='''{instruction}''',",
+            ")",
+            ""
         ]
-
+        
+        return "\n".join(code_lines)
+    
+    def _generate_fallback_agent_code(self) -> str:
+        """Generate fallback agent code when no specs are available."""
+        code_lines = [
+            "# Fallback ADK root agent for Tahoe Dev UI",
+            "# No agent specifications found, using basic agent",
+            "",
+            "from google.adk.agents.llm_agent import Agent",
+            "",
+            "root_agent = Agent(",
+            "    model='gemini-2.5-flash-lite',",
+            "    name='tahoe_assistant',",
+            "    description='A helpful assistant for testing Tahoe platform',",
+            "    instruction='You are a helpful assistant for testing the Tahoe AI platform. Answer user questions to the best of your knowledge.',",
+            ")",
+            ""
+        ]
+        
         return "\n".join(code_lines)
 
     def launch(self) -> None:
@@ -253,8 +288,8 @@ class DevUILauncher:
             # Discover agents - this will fail fast if no specs found
             self.discover_agents()
 
-            # Create agents.py file for ADK Dev UI
-            self.create_agents_file()
+            # Create proper ADK config structure for Dev UI
+            self.create_config_structure()
 
             print(
                 f"Launching ADK Dev UI on http://{self.config.host}:{self.config.port}"
@@ -283,11 +318,26 @@ class DevUILauncher:
 
     def cleanup(self) -> None:
         """Clean up generated files."""
+        # Clean up config directory
+        config_dir = Path("config")
+        if config_dir.exists():
+            try:
+                # Remove files in config directory
+                for file in config_dir.iterdir():
+                    if file.is_file():
+                        file.unlink()
+                # Remove the directory itself
+                config_dir.rmdir()
+                print(f"Cleaned up generated config directory: {config_dir}")
+            except Exception as e:
+                print(f"Warning: Failed to clean up {config_dir}: {e}")
+                
+        # Also clean up legacy agents.py if it exists
         agents_file = Path("agents.py")
         if agents_file.exists():
             try:
                 agents_file.unlink()
-                print(f"Cleaned up generated file: {agents_file}")
+                print(f"Cleaned up legacy agents file: {agents_file}")
             except Exception as e:
                 print(f"Warning: Failed to clean up {agents_file}: {e}")
 

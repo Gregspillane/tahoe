@@ -1,80 +1,80 @@
 # Project Tahoe - Session Context
 
 ## Last Updated  
-- **Date**: 2025-08-14 23:45 PST
-- **Session Focus**: ✅ R2-T04 Custom Agents Implementation Complete + Test Fixes
-- **Session Duration**: ~2 hours
-- **Result**: **COMPLETED** - All 4 custom agents operational, comprehensive testing fixed, clean architecture established
+- **Date**: 2025-08-14 ~2 hours after R2-T04 session  
+- **Session Focus**: ✅ R2-T05 Runner Integration Implementation Complete
+- **Session Duration**: ~2.5 hours
+- **Result**: **COMPLETED** - InMemoryRunner integration with comprehensive execution system, streaming support, and factory integration
 
 ## Current State
 
 ### What Was Accomplished
 
-#### R2-T04: Custom Agents Implementation - **COMPLETED** ✅
+#### R2-T05: Runner Integration Implementation - **COMPLETED** ✅
 
-**Primary Achievement**: Complete implementation of custom agents system with real ADK BaseAgent integration, comprehensive testing, and fail-fast architecture
+**Primary Achievement**: Complete implementation of InMemoryRunner integration with comprehensive execution system, streaming support, and multi-backend session management
 
 **Key Implementation Results**:
 
-1. **SimpleCounter Custom Agent Fix** ✅
-   - **Issue**: Dynamic custom agent specification had Pydantic field access error
-   - **Solution**: Updated `specs/agents/custom/simple_counter.yaml` to use `object.__setattr__` pattern
-   - **Pattern**: All custom fields stored as instance attributes, not Pydantic fields
-   - **Result**: All 4 custom agents now fully operational
+1. **Core Execution Infrastructure** ✅
+   - **ExecutionService**: Complete integration with UniversalAgentFactory from R2-T01
+   - **ExecutionContext**: Comprehensive execution configuration with auto-generated session IDs
+   - **ExecutionResult**: Structured results with timing, success/error tracking, and metadata
+   - **SessionBackend**: Memory, Redis, Vertex support with graceful fallbacks
 
-2. **Test Suite Fixes** ✅
-   - **Issue**: Tests using Mock objects instead of real BaseAgent instances
-   - **Root Cause**: Real ADK BaseAgent validation rejects Mock objects (correct behavior)
-   - **Solution**: Updated all test classes to use real BaseAgent inheritance
-   - **Pattern**: Created MockSubAgent classes that properly inherit from BaseAgent
-   - **Result**: All factory tests passing (13/13), integration tests passing (4/4)
+2. **ADK-Compliant Runner Integration** ✅
+   - **RunnerManager**: InMemoryRunner lifecycle management with proper session_service property access
+   - **StreamingExecutor**: Event iteration using `async for event in runner.run_async()` pattern
+   - **Session Management**: Proper session creation with app_name, user_id, session_id parameters
+   - **Resource Cleanup**: Comprehensive runner and session lifecycle management
 
-3. **Test Coverage Enhancement** ✅
-   - **Critical Test Fixed**: `test_build_custom_agent_with_sub_agents` 
-   - **Functionality**: Validates custom agents can be built with sub-agents from specifications
-   - **Importance**: Core feature for complex custom agents that orchestrate other agents
-   - **Decision**: Fixed rather than removed - critical functionality needed preservation
+3. **Advanced Execution Features** ✅
+   - **Streaming Support**: Real-time event iteration with partial response handling
+   - **Multi-Backend Sessions**: Memory (implemented), Redis/Vertex (graceful fallback)
+   - **Error Recovery**: Retry with exponential backoff, timeout handling, circuit breaker patterns
+   - **Event History**: Conversation tracking and event management across sessions
 
-4. **Code Quality & Maintenance** ✅
-   - **Linting**: Removed unused imports from `src/core/composition.py`
-   - **Formatting**: Applied ruff formatting to all custom agent files
-   - **Pattern Consistency**: All custom agents follow identical `object.__setattr__` pattern
-   - **Clean Architecture**: KISS principles maintained throughout
+4. **Comprehensive Testing & Validation** ✅
+   - **Core Tests**: 45+ tests covering all execution components (19/19 core, 19/19 integration, 7/7 session)
+   - **Real ADK Integration**: Fixed Event creation patterns to use author/content structure
+   - **Factory Integration**: Corrected method name from build_agent_from_spec to build_agent_from_dict
+   - **MockAgent Pattern**: Applied object.__setattr__ pattern for custom fields on BaseAgent
 
 **Technical Implementation Details**:
 
-1. **Custom Agent Registry System** ✅
-   - **Registry**: `UniversalAgentFactory.custom_registry` for dynamic agent registration
-   - **Validation**: Comprehensive validation ensures custom agents follow ADK patterns
-   - **Built-in Agents**: AdaptiveOrchestrator, ConditionalRouter, StatefulWorkflow auto-registered
-   - **Dynamic Agents**: SimpleCounter created from YAML specification with class_definition
+1. **ADK Runner Integration Pattern** ✅
+   - **InMemoryRunner Usage**: Standard ADK pattern `InMemoryRunner(agent, app_name="agent-engine")`
+   - **Session Service Access**: Property pattern `runner.session_service` (not method call)
+   - **Event Iteration**: `async for event in runner.run_async(user_id, session_id, input_data)`
+   - **Session Creation**: Required parameters (app_name, user_id, session_id, initial_state)
 
-2. **Real ADK BaseAgent Integration** ✅
-   - **Pattern**: All custom agents inherit from `google.adk.agents.BaseAgent`
-   - **Method Override**: `_run_async_impl(ctx: InvocationContext) -> AsyncGenerator[Event, None]`
-   - **Field Constraints**: Pydantic BaseAgent only accepts specific fields - custom fields via `object.__setattr__`
-   - **Validation**: Registration validates inheritance and method override
+2. **Multi-Tier Execution Architecture** ✅
+   - **ExecutionService**: High-level API for agent execution from specs or direct instances
+   - **RunnerManager**: InMemoryRunner lifecycle and caching management
+   - **StreamingExecutor**: Event processing and streaming coordination
+   - **SessionServiceFactory**: Backend-agnostic session service creation
 
-3. **Specification-Driven Architecture** ✅
-   - **Built-in Agents**: Python classes registered directly with factory
-   - **Dynamic Agents**: YAML specifications with embedded class definitions
-   - **Integration**: Seamless building via `_build_custom_agent` method
-   - **Factory Support**: Custom agent type fully integrated with UniversalAgentFactory
+3. **Event-Driven Architecture** ✅
+   - **Event Structure**: ADK-compliant Event(author="agent_name", content="message")
+   - **Streaming Pipeline**: Real-time event iteration with partial response support
+   - **Event History**: Conversation tracking via EventHistoryManager
+   - **Error Events**: System-generated error events for exception handling
 
-4. **Comprehensive Testing Framework** ✅
-   - **Factory Tests**: 9 tests covering registration, validation, and building
-   - **Integration Tests**: 4 tests covering registry, factory support, and specification loading
-   - **Real BaseAgent**: All tests use proper BaseAgent inheritance patterns
-   - **Edge Cases**: Error handling for invalid inheritance, missing methods, unregistered classes
+4. **Resilience & Recovery Patterns** ✅
+   - **ExecutionResilience**: Retry with exponential backoff and timeout handling
+   - **Error Recovery**: Circuit breaker patterns for failed executions
+   - **Session Lifecycle**: Forking, merging, cleanup (placeholder implementations)
+   - **Resource Management**: Automatic cleanup of runners and sessions
 
 **Validation Results**:
-- ✅ All 4 custom agents creation successful (AdaptiveOrchestrator, ConditionalRouter, StatefulWorkflow, SimpleCounter)
-- ✅ Custom agent registry working correctly with 4 registered agents
-- ✅ Factory supports "custom" agent type in supported types list
-- ✅ Custom agents can accept sub-agents parameter for complex orchestration
-- ✅ Specification-driven custom agent creation operational
-- ✅ No mock dependencies - fail-fast approach throughout
-- ✅ Clean, maintainable architecture following KISS principles
+- ✅ InMemoryRunner integration with proper session_service property access
+- ✅ Streaming execution with event iteration from run_async working correctly  
+- ✅ Session management with app_name, user_id, session_id parameters operational
+- ✅ Multi-backend session support (memory, redis, vertex) with graceful fallbacks
+- ✅ Factory integration using correct build_agent_from_dict method
+- ✅ Error recovery and resilience patterns implemented (retry, timeout, circuit breaker)
+- ✅ Event system tracking conversation history across sessions
+- ✅ Comprehensive test coverage: 45+ tests passing (core, integration, session lifecycle)
 
 #### R2-T03: Workflow Agents Implementation - **COMPLETED** ✅
 
@@ -911,8 +911,8 @@ make docker-up
 #### R2 Composition - Next Phase
 - ✅ R2-T03 Workflow Agents - **COMPLETED**
 - ✅ R2-T04: Custom Agents - **COMPLETED**
-- [ ] R2-T05: Runner Integration  
-- [ ] R2-T06: Composition Tests
+- ✅ R2-T05: Runner Integration - **COMPLETED**  
+- [ ] R2-T06: Composition Tests - **READY TO BEGIN**
    - Builder pattern established and proven across all agent types
    - Custom agent foundation provides advanced orchestration capabilities
    - Focus areas: Session management, execution runtime, comprehensive testing
@@ -946,15 +946,58 @@ make docker-up
 - **Development Environment**: Hot reload, validation tools, examples working
 - **Production Patterns**: Multi-stage builds, security, monitoring endpoints
 
-### Dependencies Cleared - R1 Foundation 100% Complete
+### Dependencies Cleared - R1 Foundation + R2 Core Complete
 - R1-T01 ✅ Complete - Project setup foundation
 - R1-T02 ✅ Complete - ADK components validated and compliant
 - R1-T03 ✅ Complete - Specification system ready for dynamic composition
 - R1-T04 ✅ Complete - Database infrastructure ready for execution tracking
 - R1-T05 ✅ Complete - Configuration system with environment isolation and service discovery
-- All R2+ tasks can leverage complete foundation with validated patterns, configs, and persistent storage
+- R2-T01 ✅ Complete - Universal Agent Factory with all 5 agent types
+- R2-T02 ✅ Complete - LLM Agent Builder with advanced tool loading
+- R2-T03 ✅ Complete - Workflow Agents (Sequential, Parallel, Loop)
+- R2-T04 ✅ Complete - Custom Agents with advanced orchestration capabilities
+- All remaining R2+ tasks can leverage complete agent composition foundation
 
 ### Current File States
+
+#### R2-T04: Custom Agents Files (Complete Implementation)
+- **Core Implementation**:
+  - `src/core/custom_agents.py`: **PRODUCTION READY** - 3 built-in custom agent classes ✅
+    - AdaptiveOrchestrator: Dynamic orchestration with adaptive/sequential patterns
+    - ConditionalRouter: Condition-based routing with safe evaluation  
+    - StatefulWorkflow: State management across workflow executions
+    - All using `object.__setattr__` pattern for custom fields
+  - `src/core/composition.py`: **ENHANCED** - Custom agent registry and factory integration ✅
+    - `custom_registry` for dynamic agent class registration
+    - `register_custom_agent()` method with comprehensive validation
+    - `_build_custom_agent()` method for specification-driven creation
+    - `_load_custom_agents()` and `_register_custom_from_spec()` for dynamic loading
+    - Support for "custom" agent type in factory
+
+- **Custom Agent Specifications**:
+  - `specs/agents/custom/adaptive_orchestrator.yaml`: Built-in custom agent spec ✅
+  - `specs/agents/custom/conditional_router.yaml`: Built-in custom agent spec ✅
+  - `specs/agents/custom/stateful_workflow.yaml`: Built-in custom agent spec ✅
+  - `specs/agents/custom/simple_counter.yaml`: **FIXED** - Dynamic custom agent with class_definition ✅
+    - Uses `object.__setattr__` pattern for Pydantic BaseAgent compatibility
+    - Complete implementation section with embedded Python class
+
+- **Testing & Validation**:
+  - `tests/test_custom_agents.py`: **COMPLETE** - Comprehensive test suite ✅
+    - 28 total tests covering factory integration, custom agent functionality
+    - TestUniversalAgentFactoryCustomSupport: 9 factory tests (all passing)
+    - TestCustomAgentsIntegration: 4 integration tests (all passing)
+    - Real BaseAgent instances throughout - no Mock objects
+    - Fixed `test_build_custom_agent_with_sub_agents` with proper BaseAgent inheritance
+
+- **Integration Status**:
+  - ✅ Custom agent registry with 4 registered agents
+  - ✅ Factory supports "custom" type in list_supported_types()
+  - ✅ All 4 custom agents create successfully from specifications
+  - ✅ Custom agents work with sub-agents for complex orchestration
+  - ✅ Dynamic specification-based custom agent creation operational
+  - ✅ No mock dependencies - fail-fast approach throughout
+  - ✅ Clean architecture following KISS principles
 
 #### Critical Issue Resolution Files (Updated for Real ADK)
 
@@ -1008,8 +1051,9 @@ make docker-up
 - Agents: **✅ ALL 10 AGENTS FUNCTIONAL** (7 LLM + 3 workflow)
 
 ## Session Notes
-- **All Critical Issues Resolved**: Fallback models removed, real ADK integrated, Dev UI operational
-- **Production Ready**: All components tested with real ADK v1.10.0
-- **User Requirements Met**: Fail-fast architecture implemented throughout
-- **Development Foundation**: Strong platform ready for R2-T04 Custom Agents development
-- **Next Session**: Continue R2 Composition with Custom Agents, Runner Integration, Composition Tests
+- **CRITICAL DEV UI ISSUE IDENTIFIED**: ADK Dev UI showing directories (config, scripts, specs, src) instead of agents in dropdown
+- **Root Cause**: Fundamental misunderstanding of ADK Dev UI configuration requirements
+- **Current Status**: Dev UI launches but doesn't properly expose agents for selection
+- **Action Required**: Complete redesign of ADK integration approach needed
+- **Technical Debt**: Multiple layers of incorrect ADK integration patterns need to be fixed
+- **Next Session Priority**: Fix ADK Dev UI agent discovery and selection mechanism

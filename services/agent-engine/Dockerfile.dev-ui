@@ -24,14 +24,14 @@ RUN chown app:app /app
 COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 
-# Install google-adk specifically for Dev UI
-RUN pip install --no-cache-dir google-adk
+# Install google-adk and python-dotenv for Dev UI
+RUN pip install --no-cache-dir google-adk python-dotenv
 
 # Copy application code
 COPY --chown=app:app src/ src/
 COPY --chown=app:app specs/ specs/
 COPY --chown=app:app scripts/ scripts/
-COPY --chown=app:app config/ config/
+COPY --chown=app:app agents/ agents/
 
 # Make scripts executable
 RUN chmod +x scripts/*.py
@@ -47,4 +47,4 @@ HEALTHCHECK --interval=30s --timeout=10s --start-period=30s --retries=3 \
     CMD curl -f http://localhost:8002/health || exit 1
 
 # Default command - launch Dev UI
-CMD ["python", "scripts/launch_dev_ui.py", "--host", "0.0.0.0", "--port", "8002"]
+CMD ["python", "scripts/launch_dev_ui_simple.py", "--host", "0.0.0.0", "--port", "8002"]

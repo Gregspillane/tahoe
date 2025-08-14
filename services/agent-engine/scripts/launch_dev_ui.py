@@ -9,13 +9,41 @@ import sys
 import argparse
 from pathlib import Path
 
+# Load environment variables from .env file
+from dotenv import load_dotenv
+
+# Load .env from project root (two levels up from this script)  
+# Script is at: services/agent-engine/scripts/launch_dev_ui.py
+# Project root is: ../../ from agent-engine directory
+script_dir = Path(__file__).parent
+agent_engine_dir = script_dir.parent  
+services_dir = agent_engine_dir.parent
+project_root = services_dir.parent
+env_file = project_root / ".env"
+
+if env_file.exists():
+    load_dotenv(env_file)
+    print(f"✅ Loaded environment from {env_file}")
+else:
+    print(f"⚠️  No .env file found at {env_file}")
+    print(f"   Script: {Path(__file__)}")
+    print(f"   Expected: {env_file}")
+    print(f"   Looking for: {project_root}/")
+
 # Add src to Python path so we can import our modules
-project_root = Path(__file__).parent.parent
-sys.path.insert(0, str(project_root))
+agent_engine_root = Path(__file__).parent.parent
+sys.path.insert(0, str(agent_engine_root))
 
 try:
     from src.core.dev_ui import create_dev_ui_launcher, DevUIConfiguration
-    from config.settings import TahoeConfig
+    # Try to import config settings, but don't fail if not available
+    try:
+        sys.path.insert(0, str(project_root / "config"))
+        from settings import TahoeConfig
+        SETTINGS_AVAILABLE = True
+    except ImportError:
+        SETTINGS_AVAILABLE = False
+        print("Warning: Could not import Tahoe settings, using environment variables only")
 except ImportError as e:
     print(f"Failed to import Tahoe modules: {e}")
     print("Make sure you're running from the agent-engine directory")
@@ -26,29 +54,30 @@ def setup_environment():
     """Set up environment for Dev UI launch."""
     print("Setting up environment for Tahoe Dev UI...")
     
-    # Load configuration from our settings
-    try:
-        settings = TahoeConfig()
-        
-        # Set GEMINI_API_KEY if available from settings
-        if hasattr(settings, 'adk') and hasattr(settings.adk, 'api_key'):
-            if settings.adk.api_key and settings.adk.api_key != "CHANGE_THIS_your_gemini_api_key":
-                os.environ["GEMINI_API_KEY"] = settings.adk.api_key
-                print("✅ GEMINI_API_KEY loaded from configuration")
-            else:
-                print("⚠️  GEMINI_API_KEY not configured in settings")
-        
-        # Check if key is set in environment
-        if not os.getenv("GEMINI_API_KEY"):
-            print("⚠️  GEMINI_API_KEY not found in environment")
-            print("   Set it with: export GEMINI_API_KEY=your_key_here")
-            print("   Or add it to your .env file")
-        else:
-            print("✅ GEMINI_API_KEY found in environment")
+    # Load configuration from our settings if available
+    if SETTINGS_AVAILABLE:
+        try:
+            settings = TahoeConfig()
             
-    except Exception as e:
-        print(f"Warning: Could not load settings: {e}")
-        print("Continuing with environment variables only...")
+            # Set GEMINI_API_KEY if available from settings
+            if hasattr(settings, 'adk') and hasattr(settings.adk, 'api_key'):
+                if settings.adk.api_key and settings.adk.api_key != "CHANGE_THIS_your_gemini_api_key":
+                    os.environ["GEMINI_API_KEY"] = settings.adk.api_key
+                    print("✅ GEMINI_API_KEY loaded from configuration")
+                else:
+                    print("⚠️  GEMINI_API_KEY not configured in settings")
+                    
+        except Exception as e:
+            print(f"Warning: Could not load settings: {e}")
+            print("Continuing with environment variables only...")
+    
+    # Check if key is set in environment
+    if not os.getenv("GEMINI_API_KEY"):
+        print("⚠️  GEMINI_API_KEY not found in environment")
+        print("   Set it with: export GEMINI_API_KEY=your_key_here")
+        print("   Or add it to your .env file")
+    else:
+        print("✅ GEMINI_API_KEY found in environment")
 
 
 def validate_prerequisites():
