@@ -1,0 +1,257 @@
+// Prisma schema for Transcription Service
+
+generator client {
+  provider = "prisma-client-py"
+  output   = "../generated"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// Job tracking and status
+model TranscriptionJob {
+  id                String    @id @default(cuid())
+  
+  // File information
+  audioFileUrl      String
+  audioFileName     String
+  audioFileSize     Int?
+  clientId          String?
+  
+  // Processing status
+  status            JobStatus @default(PENDING)
+  priority          Int       @default(0)
+  
+  // Timestamps
+  createdAt         DateTime  @default(now())
+  startedAt         DateTime?
+  completedAt       DateTime?
+  updatedAt         DateTime  @updatedAt
+  
+  // Processing metadata
+  workerInstance    String?
+  retryCount        Int       @default(0)
+  errorMessage      String?
+  
+  // Results
+  assemblyaiJobId   String?
+  openaiJobId       String?
+  finalTranscriptUrl String?
+  
+  // Confidence scores
+  assemblyaiConfidence Float?
+  openaiConfidence     Float?
+  finalConfidence      Float?
+  
+  // Processing times (in seconds)
+  assemblyaiDuration   Int?
+  openaiDuration       Int?
+  reconciliationDuration Int?
+  totalDuration        Int?
+  
+  // Relationships
+  metrics              TranscriptionMetrics[]
+  discrepancies        DiscrepancyLog[]
+  webhookDeliveries    WebhookDelivery[]
+  fileProcessingLogs   FileProcessingLog[]
+  
+  @@map("transcription_jobs")
+  @@index([status])
+  @@index([clientId])
+  @@index([createdAt])
+}
+
+// Provider performance metrics
+model TranscriptionMetrics {
+  id                String           @id @default(cuid())
+  
+  // Job reference
+  jobId             String
+  job               TranscriptionJob @relation(fields: [jobId], references: [id], onDelete: Cascade)
+  
+  // Provider information
+  provider          TranscriptionProvider
+  
+  // Performance metrics
+  processingTime    Int              // seconds
+  confidenceScore   Float
+  wordCount         Int?
+  characterCount    Int?
+  
+  // Cost tracking
+  costInCents       Int?
+  
+  // Quality metrics
+  wordErrorRate     Float?
+  
+  // Timestamps
+  createdAt         DateTime         @default(now())
+  
+  @@map("transcription_metrics")
+  @@index([provider])
+  @@index([jobId])
+}
+
+// Reconciliation decisions
+model DiscrepancyLog {
+  id                String           @id @default(cuid())
+  
+  // Job reference
+  jobId             String
+  job               TranscriptionJob @relation(fields: [jobId], references: [id], onDelete: Cascade)
+  
+  // Discrepancy information
+  segmentNumber     Int
+  startTime         Float
+  endTime           Float
+  
+  // Provider outputs
+  assemblyaiText    String
+  openaiText        String
+  
+  // Reconciliation result
+  finalText         String
+  resolutionMethod  ResolutionMethod
+  confidenceDelta   Float
+  
+  // Review flags
+  requiresReview    Boolean          @default(false)
+  reviewNotes       String?
+  
+  // Timestamps
+  createdAt         DateTime         @default(now())
+  
+  @@map("discrepancy_logs")
+  @@index([jobId])
+  @@index([requiresReview])
+}
+
+// Webhook endpoint management
+model Webhook {
+  id                String            @id @default(cuid())
+  
+  // Webhook configuration
+  url               String
+  events            String[]          // JSON array of event types
+  isActive          Boolean           @default(true)
+  
+  // Authentication
+  secretToken       String?
+  
+  // Metadata
+  name              String?
+  description       String?
+  
+  // Timestamps
+  createdAt         DateTime          @default(now())
+  updatedAt         DateTime          @updatedAt
+  
+  // Relationships
+  deliveries        WebhookDelivery[]
+  
+  @@map("webhooks")
+  @@index([isActive])
+}
+
+// Webhook delivery tracking
+model WebhookDelivery {
+  id                String           @id @default(cuid())
+  
+  // References
+  webhookId         String
+  webhook           Webhook          @relation(fields: [webhookId], references: [id], onDelete: Cascade)
+  jobId             String?
+  job               TranscriptionJob? @relation(fields: [jobId], references: [id], onDelete: SetNull)
+  
+  // Event information
+  eventType         String
+  payload           String           // JSON payload
+  
+  // Delivery status
+  status            DeliveryStatus   @default(PENDING)
+  responseCode      Int?
+  responseBody      String?
+  
+  // Retry information
+  attemptCount      Int              @default(0)
+  nextRetryAt       DateTime?
+  
+  // Timestamps
+  createdAt         DateTime         @default(now())
+  deliveredAt       DateTime?
+  
+  @@map("webhook_deliveries")
+  @@index([webhookId])
+  @@index([status])
+  @@index([nextRetryAt])
+}
+
+// File discovery audit
+model FileProcessingLog {
+  id                String           @id @default(cuid())
+  
+  // File information
+  filePath          String
+  fileName          String
+  fileSize          Int?
+  lastModified      DateTime?
+  
+  // Processing status
+  status            ProcessingStatus @default(DISCOVERED)
+  
+  // Job reference (if created)
+  jobId             String?
+  job               TranscriptionJob? @relation(fields: [jobId], references: [id], onDelete: SetNull)
+  
+  // Error information
+  errorMessage      String?
+  
+  // Timestamps
+  discoveredAt      DateTime         @default(now())
+  processedAt       DateTime?
+  
+  @@map("file_processing_logs")
+  @@index([status])
+  @@index([filePath])
+  @@index([discoveredAt])
+}
+
+// Enums
+enum JobStatus {
+  PENDING
+  PROCESSING
+  COMPLETED
+  FAILED
+  CANCELLED
+}
+
+enum TranscriptionProvider {
+  ASSEMBLYAI
+  OPENAI
+}
+
+enum ResolutionMethod {
+  ASSEMBLYAI_PREFERRED
+  OPENAI_PREFERRED
+  GPT5_RECONCILED
+  CONFIDENCE_WEIGHTED
+  MANUAL_REVIEW
+}
+
+enum DeliveryStatus {
+  PENDING
+  DELIVERED
+  FAILED
+  CANCELLED
+}
+
+enum ProcessingStatus {
+  DISCOVERED
+  QUEUED
+  PROCESSING
+  COMPLETED
+  FAILED
+  SKIPPED
+}

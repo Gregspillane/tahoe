@@ -1,0 +1,1 @@
+Stage all changes, create an appropriate commit message, and commit.
