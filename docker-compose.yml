@@ -1,0 +1,46 @@
+version: '3.8'
+
+services:
+  tahoe:
+    build: .
+    ports:
+      - "9000:9000"  # Tahoe API server
+    volumes:
+      - ./src:/app/src
+      - ./config:/app/config
+      - ./examples:/app/examples
+      - ./adk_docs_markdown:/app/adk_docs_markdown
+    environment:
+      - GOOGLE_GENAI_USE_VERTEXAI=FALSE
+      - GOOGLE_API_KEY=AIzaSyCTJE686uNxe-ndlGpiW79ThvlFqPF1l4Q
+      - TAHOE_SERVICE_TOKEN=development_token_change_in_production
+      - ADK_LOG_LEVEL=INFO
+      - CORS_ORIGINS=*
+      - PYTHONPATH=/app
+    env_file:
+      - .env
+    command: uvicorn src.tahoe.api.main:app --host 0.0.0.0 --port 9000 --reload
+    stdin_open: true
+    tty: true
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:9000/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 30s
+
+  # Development tools container (optional)
+  tahoe-tools:
+    build: .
+    volumes:
+      - ./:/app
+    environment:
+      - GOOGLE_GENAI_USE_VERTEXAI=FALSE
+      - GOOGLE_API_KEY=AIzaSyCTJE686uNxe-ndlGpiW79ThvlFqPF1l4Q
+      - TAHOE_SERVICE_TOKEN=development_token_change_in_production
+      - PYTHONPATH=/app
+    env_file:
+      - .env
+    command: sleep infinity
+    profiles:
+      - tools

@@ -1,0 +1,16 @@
+# Google ADK - Agent Development Kit
+google-adk
+
+# FastAPI for REST API
+fastapi
+uvicorn[standard]
+
+# Configuration and validation
+pydantic[email]
+pydantic-settings
+pyyaml
+jsonschema
+
+# Development dependencies
+python-dotenv
+httpx  # for testing API calls
