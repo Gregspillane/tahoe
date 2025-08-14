@@ -99,10 +99,22 @@ async def verify_adk() -> Dict[str, Any]:
     try:
         if 'runner' in locals():
             session_service = runner.session_service
-            session = session_service.create_session(
-                app_name="verify",
-                user_id="test-user"
-            )
+            # Check if create_session is async
+            import inspect
+            
+            if inspect.iscoroutinefunction(session_service.create_session):
+                # Handle async session creation - use await since we're in async context
+                session = await session_service.create_session(
+                    app_name="verify",
+                    user_id="test-user"
+                )
+            else:
+                # Handle sync session creation
+                session = session_service.create_session(
+                    app_name="verify",
+                    user_id="test-user"
+                )
+            
             results["components"]["session"] = "success"
             results["components"]["session_info"] = {
                 "session_id": str(session.id),

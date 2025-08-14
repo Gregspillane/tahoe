@@ -2,6 +2,31 @@
 
 ## Core Architecture Patterns
 
+### 0. Self-Contained Service Architecture (Microservice Independence)
+**Pattern**: Each service owns its complete infrastructure stack including data persistence
+**Decision Rationale**: 
+- Eliminates cross-service startup dependencies
+- Follows microservice best practice of service autonomy
+- Prevents dependency inversion anti-patterns
+- Simplifies development and deployment workflows
+
+**Implementation**:
+- Agent-engine includes PostgreSQL + Redis in its docker-compose.yml
+- No separate infrastructure service dependencies
+- Single command startup per service: `cd services/agent-engine && make docker-up`
+- Future auth/billing services will follow same self-contained pattern
+
+**Benefits**:
+- Eliminates startup crashes from cross-service dependencies
+- Simplifies development workflow to single command
+- Each service can be developed, tested, and deployed independently
+- No shared infrastructure complexity until actually needed (YAGNI principle)
+
+**Lessons Learned**:
+- Dependency inversion (core service depending on infrastructure service) creates fragile systems
+- Premature optimization for shared infrastructure adds complexity without benefit
+- Microservice "independence" means owning your data, not just your code
+
 ### 1. Specification-Driven Design
 **Pattern**: All agents, workflows, and tools defined via YAML/JSON specifications
 **Implementation**: 
@@ -66,18 +91,22 @@ class UniversalAgentFactory:
 - Service isolation via database schemas and Redis namespaces
 - Sensitive value masking for security
 
-### 6. ADK Dev UI Integration Pattern ✅ **NEW**
-**Pattern**: Visual development interface for agent testing and debugging
+### 6. ADK Dev UI Integration Pattern ✅ **UPDATED**
+**Pattern**: Visual development interface for agent testing and debugging with specification path resolution
 **Implementation**:
 - DevUILauncher service with automatic agent discovery
-- AgentDiscovery utility with YAML specification parsing
+- AgentDiscovery utility with correct YAML specification path resolution
+- Relative path calculation from agents directory (not specs directory)
 - Environment-aware configuration (port 8002, avoiding conflicts)
 - One-command setup via Makefile targets
+- Full integration with UniversalAgentFactory
 **Benefits**:
 - Real-time visual agent testing and debugging
+- End-to-end agent creation from specifications
 - Interactive development workflow with immediate feedback
 - Browser-based interface with Events tab for trace inspection
-- Foundation for R2 Composition visual validation
+- Production-ready visual validation for R2 Composition development
+**Key Pattern**: Specification paths must be relative to agents directory for factory compatibility
 
 ### 7. Service Isolation Architecture ✅ **NEW**
 **Pattern**: Multi-service sharing with logical isolation

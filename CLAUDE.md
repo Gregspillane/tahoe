@@ -7,11 +7,10 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 **Tahoe** - SaaS platform for the banking and financial industry, supporting multiple compliance use cases. Built as a monorepo with multiple services.
 
 ### Key Services
-- **agent-engine**: The "brains" of the platform - Universal agent orchestration using Google ADK for dynamic agent composition with specification-driven architecture
-- **billing**: Usage tracking and subscription management (planned)
-- **auth**: Authentication and authorization service (planned)  
+- **agent-engine**: The "brains" of the platform - Universal agent orchestration using Google ADK for dynamic agent composition with specification-driven architecture. Self-contained with its own PostgreSQL and Redis.
+- **billing**: Usage tracking and subscription management (planned - will have its own infrastructure)
+- **auth**: Authentication and authorization service (planned - will have its own infrastructure)  
 - **frontend**: Dashboard and user interface (planned)
-- **infrastructure**: Shared resources (PostgreSQL, Redis, Nginx)
 
 ## Development Commands
 
@@ -39,30 +38,24 @@ ruff format src/
 
 ### Docker Development
 ```bash
-# Start infrastructure services (PostgreSQL, Redis)
-cd services/infrastructure
-make up
-
-# Start agent-engine service
+# Start complete agent-engine environment (PostgreSQL, Redis, Agent-Engine)
 cd services/agent-engine
 make docker-up
 
 # View logs
-cd services/infrastructure && make logs  # Infrastructure logs
-cd services/agent-engine && make docker-logs  # Agent-engine logs
+make docker-logs  # All service logs
 
 # Stop services
-cd services/agent-engine && make docker-down
-cd services/infrastructure && make down
+make docker-down
 
 # Clean up (remove volumes)
-cd services/infrastructure && make clean
+make clean
 ```
 
 ### Database Management
 ```bash
 # Run Prisma migrations
-cd services/infrastructure
+cd services/agent-engine
 npx prisma migrate dev  # Development
 npx prisma migrate deploy  # Production
 
@@ -173,19 +166,18 @@ workflow = SequentialAgent(
 ```
 tahoe/                       # Tahoe platform monorepo
 ├── services/
-│   ├── agent-engine/        # Core AI orchestration service (port 8001)
+│   ├── agent-engine/        # Self-contained AI orchestration service (port 8001)
 │   │   ├── src/
 │   │   │   ├── core/       # Agent factory, workflow engine, sessions
 │   │   │   ├── api/        # FastAPI endpoints
 │   │   │   └── services/   # Business logic
 │   │   ├── specs/          # Agent/workflow/tool specifications
-│   │   └── config/         # Service-specific settings
-│   ├── auth/              # Authentication service (port 8002, planned)
-│   ├── billing/           # Billing service (port 8003, planned)
-│   ├── frontend/          # Dashboard UI (port 3000, planned)
-│   └── infrastructure/    # Shared platform resources
-│       ├── prisma/        # Database schemas
-│       └── nginx/         # API gateway configuration
+│   │   ├── config/         # Service-specific settings
+│   │   ├── prisma/         # Database schemas and migrations
+│   │   └── docker-compose.yml  # PostgreSQL, Redis, Agent-Engine
+│   ├── auth/              # Authentication service (planned - self-contained)
+│   ├── billing/           # Billing service (planned - self-contained)
+│   └── frontend/          # Dashboard UI (planned)
 ├── helm/                 # Kubernetes deployment (staging/prod)
 │   ├── charts/           # Helm charts for each service
 │   │   ├── agent-engine/
@@ -196,7 +188,6 @@ tahoe/                       # Tahoe platform monorepo
 │       └── production.yaml
 ├── memory-bank/          # Platform-wide documentation
 ├── tasks/                # Development tasks (R1-R7 releases)
-├── docker-compose.yml    # Local development infrastructure
 └── .env                  # Centralized secrets/config (development only)
 ```
 
@@ -220,3 +211,4 @@ When encountering ADK-related issues, consult official documentation first:
 - Local dev environment mirrors production
 - Clean code over backwards compatibility (pre-launch)
 - gemini-2.5-flash-lite is the initial model we are going to use. It does exists. Dont change it.
+- Avoid fallbacks. Use a fail-fast approach—either it works or it doesn’t. Fallbacks create a false sense of security and make real bugs harder to detect.

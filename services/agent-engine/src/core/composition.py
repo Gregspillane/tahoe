@@ -196,6 +196,20 @@ class UniversalAgentFactory:
         self.spec_loader = SpecificationLoader()
         self.validator = SpecificationValidator()
         self.tool_registry = tool_registry
+        self.builders: Dict[str, AgentBuilder] = {}
+        self._register_builders()
+    
+    def _register_builders(self):
+        """Register agent builders for different types"""
+        try:
+            from .builders import LlmAgentBuilder
+            llm_builder = LlmAgentBuilder(self.tool_registry)
+            llm_builder.sub_agent_factory = self  # Set back-reference for sub-agents
+            self.builders["llm"] = llm_builder
+            self.builders["agent"] = llm_builder  # LlmAgent is aliased as Agent
+        except ImportError:
+            # LlmAgentBuilder not available yet, use fallback
+            pass
     
     def build_agent(self, spec_name: str, context: Optional[AgentContext] = None) -> BaseAgent:
         """Build an agent from specification name"""
@@ -209,22 +223,24 @@ class UniversalAgentFactory:
         if not self.validator.validate(spec):
             raise ValueError(f"Invalid specification: {spec_name}")
         
-        # Direct dispatch per MASTERPLAN lines 379-388, 921-930
         agent_type = spec.spec.get("agent", {}).get("type", "llm")
         
-        # Direct factory dispatch without separate builders
-        if agent_type == "llm":
-            return self._build_llm_agent(spec, context)
-        elif agent_type == "sequential":
-            return self._build_sequential_agent(spec, context)
-        elif agent_type == "parallel":
-            return self._build_parallel_agent(spec, context)
-        elif agent_type == "loop":
-            return self._build_loop_agent(spec, context)
-        elif agent_type == "custom":
-            return self._build_custom_agent(spec, context)
+        # Use builder if available, otherwise fallback to direct dispatch
+        if agent_type in self.builders:
+            builder = self.builders[agent_type]
+            return builder.build(spec, context)
         else:
-            raise ValueError(f"Unknown agent type: {agent_type}")
+            # Fallback to direct dispatch for types without builders
+            if agent_type == "sequential":
+                return self._build_sequential_agent(spec, context)
+            elif agent_type == "parallel":
+                return self._build_parallel_agent(spec, context)
+            elif agent_type == "loop":
+                return self._build_loop_agent(spec, context)
+            elif agent_type == "custom":
+                return self._build_custom_agent(spec, context)
+            else:
+                raise ValueError(f"Unknown agent type: {agent_type}")
     
     def _build_llm_agent(self, spec: AgentSpec, context: AgentContext) -> LlmAgent:
         """Build LLM agent with dynamic configuration."""
@@ -345,19 +361,22 @@ class UniversalAgentFactory:
         
         agent_type = spec.spec.get("agent", {}).get("type", "llm")
         
-        # Direct dispatch
-        if agent_type == "llm":
-            return self._build_llm_agent(spec, context)
-        elif agent_type == "sequential":
-            return self._build_sequential_agent(spec, context)
-        elif agent_type == "parallel":
-            return self._build_parallel_agent(spec, context)
-        elif agent_type == "loop":
-            return self._build_loop_agent(spec, context)
-        elif agent_type == "custom":
-            return self._build_custom_agent(spec, context)
+        # Use builder if available, otherwise fallback to direct dispatch
+        if agent_type in self.builders:
+            builder = self.builders[agent_type]
+            return builder.build(spec, context)
         else:
-            raise ValueError(f"Unknown agent type: {agent_type}")
+            # Fallback to direct dispatch for types without builders
+            if agent_type == "sequential":
+                return self._build_sequential_agent(spec, context)
+            elif agent_type == "parallel":
+                return self._build_parallel_agent(spec, context)
+            elif agent_type == "loop":
+                return self._build_loop_agent(spec, context)
+            elif agent_type == "custom":
+                return self._build_custom_agent(spec, context)
+            else:
+                raise ValueError(f"Unknown agent type: {agent_type}")
             
     def list_supported_types(self) -> List[str]:
         """List all supported agent types"""

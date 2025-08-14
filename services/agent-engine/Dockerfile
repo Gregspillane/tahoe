@@ -45,14 +45,21 @@ COPY --chown=appuser:appuser scripts/ ./scripts/
 COPY --chown=appuser:appuser examples/ ./examples/
 COPY --chown=appuser:appuser specs/ ./specs/
 
-# Copy Prisma schema (copied from infrastructure service)
+# Copy Prisma schema 
 COPY --chown=appuser:appuser prisma/ ./prisma/
+
+# Generate Prisma client during build
+# Set up environment and generate client in the correct location
+ENV PATH="/home/appuser/.local/bin:$PATH"
+ENV PYTHONPATH="/home/appuser/.local/lib/python3.12/site-packages"
+RUN cd prisma && \
+    python -m pip install --user prisma && \
+    python -c "import prisma; print('Prisma installed')" && \
+    prisma generate && \
+    chown -R appuser:appuser /home/appuser/.local
 
 # Create runtime directories that need write access (do this before switching users)
 RUN mkdir -p versions && chown -R appuser:appuser versions
-
-# Generate Prisma client (as root, then fix permissions)
-RUN cd prisma && /home/appuser/.local/bin/prisma generate && chown -R appuser:appuser /root/.local
 
 # Note: .env file will be mounted in development
 # In production, environment variables come from Helm/Vault

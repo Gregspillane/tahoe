@@ -1,0 +1,129 @@
+apiVersion: "agent-engine/v1"
+kind: "AgentSpec"
+metadata:
+  name: "enhanced_analyst"
+  version: "1.0.0"
+  description: "Enhanced analyst agent demonstrating LLM builder features with multiple tool types and fallback models"
+  tags: ["analysis", "research", "enhanced"]
+  author: "tahoe-platform"
+  created_at: "2025-08-14T00:00:00Z"
+
+spec:
+  agent:
+    type: "llm"
+    model:
+      primary: "gemini-2.0-flash"
+      fallbacks: ["gemini-2.5-pro", "gemini-2.5-flash"]
+      parameters:
+        temperature: 0.2
+        max_tokens: 8192
+        timeout: 300
+    instruction_template: |
+      You are a ${role} with expertise in ${domain}.
+      Your primary task is to ${task}.
+      
+      Guidelines:
+      - Analyze data thoroughly before drawing conclusions
+      - Use available tools to gather additional information when needed
+      - Provide evidence-based recommendations
+      - Cite sources when using external research
+      
+      Context: You are working on ${context_description}
+    
+    parameters:
+      temperature: 0.2
+      max_tokens: 4096
+
+  tools:
+    - name: "google_search"
+      source: "builtin"
+      description: "Search the web for current information"
+    
+    - name: "analyze_sentiment"
+      source: "inline"
+      description: "Analyze sentiment of text content"
+      definition: |
+        def analyze_sentiment(text: str) -> dict:
+            """Simple sentiment analysis tool"""
+            positive_words = ['good', 'great', 'excellent', 'positive', 'amazing', 'wonderful']
+            negative_words = ['bad', 'terrible', 'awful', 'negative', 'horrible', 'poor']
+            
+            text_lower = text.lower()
+            pos_count = sum(1 for word in positive_words if word in text_lower)
+            neg_count = sum(1 for word in negative_words if word in text_lower)
+            
+            if pos_count > neg_count:
+                sentiment = "positive"
+                confidence = min(0.9, 0.5 + (pos_count - neg_count) * 0.1)
+            elif neg_count > pos_count:
+                sentiment = "negative" 
+                confidence = min(0.9, 0.5 + (neg_count - pos_count) * 0.1)
+            else:
+                sentiment = "neutral"
+                confidence = 0.5
+            
+            return {
+                "sentiment": sentiment,
+                "confidence": round(confidence, 2),
+                "positive_indicators": pos_count,
+                "negative_indicators": neg_count
+            }
+    
+    - name: "word_counter"
+      source: "inline"
+      description: "Count words and characters in text"
+      definition: |
+        def word_counter(text: str) -> dict:
+            """Count words, characters, and basic statistics"""
+            import re
+            
+            # Clean and split text
+            words = re.findall(r'\b\w+\b', text.lower())
+            sentences = re.split(r'[.!?]+', text)
+            
+            return {
+                "word_count": len(words),
+                "character_count": len(text),
+                "character_count_no_spaces": len(text.replace(' ', '')),
+                "sentence_count": len([s for s in sentences if s.strip()]),
+                "average_words_per_sentence": round(len(words) / max(1, len([s for s in sentences if s.strip()])), 2),
+                "unique_words": len(set(words))
+            }
+
+  validation:
+    input_schema:
+      type: "object"
+      properties:
+        content:
+          type: "string"
+          description: "Content to analyze"
+        analysis_type:
+          type: "string"
+          enum: ["sentiment", "research", "general"]
+          description: "Type of analysis to perform"
+        context:
+          type: "object"
+          description: "Additional context for analysis"
+      required: ["content", "analysis_type"]
+    
+    output_schema:
+      type: "object"
+      properties:
+        analysis_result:
+          type: "string"
+          description: "Detailed analysis result"
+        confidence:
+          type: "number"
+          minimum: 0
+          maximum: 1
+          description: "Confidence in the analysis"
+        tools_used:
+          type: "array"
+          items:
+            type: "string"
+          description: "List of tools used in analysis"
+        recommendations:
+          type: "array"
+          items:
+            type: "string"
+          description: "Actionable recommendations"

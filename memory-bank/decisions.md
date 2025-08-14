@@ -1,5 +1,171 @@
 # Project Tahoe - Key Decisions Log
 
+## 2025-08-14: R2-T01 Integration Testing and Path Resolution Fix
+
+### Decision: Specification Path Resolution for Dev UI Integration
+**Choice**: Fix Dev UI agent discovery to use relative paths from agents directory instead of full specs path
+**Problem Addressed**: 
+- Dev UI was generating incorrect paths like `agents/examples/chat_assistant`
+- UniversalAgentFactory expected paths like `examples/chat_assistant`
+- Integration was failing because of path mismatch
+
+**Alternatives Considered**:
+- Modify factory to accept full paths (rejected - would break existing parser integration)
+- Change specification parser to handle both formats (rejected - adds complexity)
+- Update all specifications to use different naming (rejected - breaks existing specs)
+
+**Implementation**:
+- Updated `AgentDiscovery.discover_agent_specs()` to calculate relative path from agents directory
+- Changed from `yaml_file.relative_to(specs_dir)` to `yaml_file.relative_to(agents_dir)`
+- Added `_spec_path` metadata to store correct path for factory
+- Updated `create_dev_ui_agents()` to use stored path instead of metadata name
+
+**Impact**: 
+- ✅ Dev UI successfully integrates with UniversalAgentFactory
+- ✅ 5/6 agents create successfully (one spec has dependency issue)
+- ✅ End-to-end agent discovery and creation pipeline functional
+- ✅ Visual development interface ready for R2-T02 testing
+
+### Decision: Production Readiness Validation Approach
+**Choice**: Complete all R2-T01 validation commands before proceeding to R2-T02
+**Alternatives Considered**:
+- Skip validation and proceed directly to R2-T02 (rejected - could miss integration issues)
+- Partial validation only (rejected - incomplete confidence in system)
+- Unit tests only without integration testing (rejected - doesn't test full pipeline)
+
+**Rationale**:
+- Integration testing reveals real-world usage issues not caught by unit tests
+- Validation commands from task specification ensure adherence to requirements
+- End-to-end testing confirms production readiness before building on foundation
+- Visual confirmation via Dev UI provides immediate feedback for development
+
+**Implementation**:
+- Ran all R2-T01 validation commands from task specification
+- Tested factory initialization, imports, agent creation, and ADK compliance
+- Verified integration with existing specification system
+- Confirmed Dev UI functionality with real agent creation
+
+**Impact**:
+- ✅ High confidence in R2-T01 implementation quality
+- ✅ Strong foundation established for R2-T02 development
+- ✅ Visual validation capability ready for iterative development
+- ✅ Production deployment patterns validated
+
+## 2025-08-14: R2-T01 Universal Agent Factory Implementation
+
+### Decision: ADK Documentation Validation Process
+**Choice**: Validate all ADK patterns against official documentation at https://google.github.io/adk-docs/
+**Problem Addressed**: 
+- Conflicting import patterns in codebase (google.genai vs google.adk)
+- Uncertainty about correct ADK usage patterns
+- Need for authoritative source of truth
+
+**Alternatives Considered**:
+- Continue with existing google.genai imports (rejected - incorrect according to docs)
+- Use mixed import patterns (rejected - inconsistent and confusing)
+- Implement without validating against docs (rejected - high risk of errors)
+
+**Rationale**:
+- Official documentation is the authoritative source for correct patterns
+- Consistent import patterns across entire codebase
+- Reduces risk of ADK-related bugs in production
+- Establishes validation process for future ADK development
+
+**Implementation**:
+- Used WebFetch to validate import patterns against official docs
+- Confirmed correct imports: `from google.adk.agents import LlmAgent, SequentialAgent, ParallelAgent, LoopAgent, BaseAgent`
+- Updated all ADK imports throughout codebase
+- Established process for future ADK pattern validation
+
+**Impact**: 
+- ✅ Correct ADK import patterns throughout codebase
+- ✅ Reduced risk of production ADK integration issues
+- ✅ Clear process for validating ADK patterns in future development
+- ✅ Foundation for reliable agent composition system
+
+### Decision: Complete R2-T01 Specification Adherence
+**Choice**: Implement R2-T01 specification exactly as written, replacing existing composition system
+**Alternatives Considered**:
+- Incrementally modify existing system (rejected - too many fundamental differences)
+- Cherry-pick components from specification (rejected - would miss integration benefits)
+- Implement alongside existing system (rejected - would create confusion and duplication)
+
+**Rationale**:
+- R2-T01 specification was comprehensive and well-designed
+- Clean implementation easier to maintain than hybrid approach
+- Ensures all required components work together properly
+- Provides solid foundation for subsequent R2 tasks
+
+**Implementation**:
+- Completely rewrote src/core/composition.py
+- Implemented all required Pydantic models (AgentSpec, AgentContext)
+- Created UniversalAgentFactory with direct dispatch pattern
+- Added all 5 agent type builders following ADK patterns
+- Maintained backward compatibility via AgentCompositionService wrapper
+
+**Impact**:
+- ✅ Complete, specification-compliant agent composition system
+- ✅ Strong foundation for R2-T02 and subsequent development
+- ✅ Backward compatibility maintained for existing integrations
+- ✅ Clear, maintainable codebase following established patterns
+
+### Decision: Fail-Fast Philosophy for Dev UI
+**Choice**: Remove all fallback/example agents from Dev UI, implement fail-fast error handling
+**Alternatives Considered**:
+- Keep fallback agents for development convenience (rejected - masks real issues)
+- Implement warnings alongside fallbacks (rejected - users might ignore warnings)
+- Gradual transition with toggles (rejected - adds complexity)
+
+**Rationale**:
+- Fallbacks create false sense of security
+- Real issues need to be detected and fixed immediately
+- Clear error messages better than working-but-wrong behavior
+- Aligns with development best practices
+
+**Implementation**:
+- Removed all temporary/example agent generation code
+- Added clear error messages when composition system not ready
+- Updated Dev UI to fail fast when no real agents available
+- Maintained clean error reporting for debugging
+
+**Impact**:
+- ✅ Clear detection of composition system issues
+- ✅ No false positives masking real problems
+- ✅ Better debugging experience with clear error messages
+- ✅ Production-ready Dev UI integration
+
+## 2025-08-13: Architectural Realignment - Infrastructure Consolidation
+
+### Decision: Self-Contained Service Architecture
+**Choice**: Consolidate infrastructure (PostgreSQL, Redis) into agent-engine service, eliminate separate infrastructure service
+**Alternatives Considered**:
+- Keep separate infrastructure service (rejected - creates dependency inversion)
+- Shared infrastructure service for multiple services (rejected - premature optimization/YAGNI violation)
+- External managed services (deferred - adds complexity without current benefit)
+
+**Problem Addressed**: 
+- Agent-engine was crashing on startup due to Prisma client generation issues
+- Cross-service dependencies created fragile startup sequences
+- Dependency inversion anti-pattern (core service depending on infrastructure)
+
+**Rationale**:
+- **Microservice Best Practice**: Each service should own its data persistence layer
+- **YAGNI Principle**: Only agent-engine exists currently, don't build for future services that don't exist
+- **Single Responsibility**: Each service manages its complete stack independently
+- **Development Simplicity**: One command startup vs complex orchestration
+
+**Implementation**:
+- Moved PostgreSQL and Redis into `services/agent-engine/docker-compose.yml`
+- Removed `services/infrastructure/` directory entirely
+- Updated Makefile to use centralized `.env` with `--env-file ../../.env`
+- Fixed Prisma client generation in Dockerfile build process
+
+**Impact**: 
+- ✅ Eliminated startup crashes and Prisma client issues
+- ✅ Simplified development workflow to single command: `make docker-up`
+- ✅ Established pattern for future auth/billing services (each self-contained)
+- ✅ Maintained centralized configuration while achieving service independence
+
 ## 2025-08-13: Task Structure Design
 
 ### Decision: Comprehensive YAML Task Files

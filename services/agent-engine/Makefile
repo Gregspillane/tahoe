@@ -43,26 +43,29 @@ test:
 validate:
 	python scripts/validate_adk_patterns.py
 
-clean:
+clean-python:
 	find . -type d -name __pycache__ -exec rm -rf {} +
 	find . -type f -name "*.pyc" -delete
 
 # Docker commands - includes all services for development
 docker-up:
-	docker-compose up -d
+	docker-compose --env-file ../../.env up -d
 	@echo "Services starting..."
 	@sleep 3
-	@docker-compose ps
+	@docker-compose --env-file ../../.env ps
 	@echo ""
 	@echo "Agent Engine: http://localhost:8001"
 	@echo "PostgreSQL:   localhost:5432"
 	@echo "Redis:        localhost:6379"
 
 docker-down:
-	docker-compose down
+	docker-compose --env-file ../../.env down
 
 docker-logs:
-	docker-compose logs -f
+	docker-compose --env-file ../../.env logs -f
+
+clean:
+	docker-compose --env-file ../../.env down -v
 
 # ADK Dev UI targets
 dev-ui-setup:

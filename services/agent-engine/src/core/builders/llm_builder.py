@@ -8,7 +8,7 @@ import logging
 from datetime import datetime
 
 from ..composition import AgentBuilder, AgentSpec, AgentContext
-from ..specification import SpecificationError
+# Using ValueError for specification errors instead of custom exception
 
 logger = logging.getLogger(__name__)
 
@@ -161,7 +161,7 @@ class LlmAgentBuilder(AgentBuilder):
     def build(self, spec: AgentSpec, context: AgentContext) -> LlmAgent:
         """Build LLM agent from specification"""
         if not self.validate_spec(spec):
-            raise SpecificationError(f"Invalid LLM agent specification: {spec.metadata.get('name')}")
+            raise ValueError(f"Invalid LLM agent specification: {spec.metadata.get('name')}")
         
         agent_spec = spec.spec.get("agent", {})
         metadata = spec.metadata
@@ -212,7 +212,7 @@ class LlmAgentBuilder(AgentBuilder):
             return agent
             
         except Exception as e:
-            raise SpecificationError(f"Error creating LLM agent: {e}")
+            raise ValueError(f"Error creating LLM agent: {e}")
     
     def _build_instruction(self, template: str, context: AgentContext) -> str:
         """Build instruction from template with context variables"""
@@ -236,7 +236,7 @@ class LlmAgentBuilder(AgentBuilder):
             instruction = Template(template).safe_substitute(**substitutions)
             return instruction.strip()
         except Exception as e:
-            raise SpecificationError(f"Error building instruction: {e}")
+            raise ValueError(f"Error building instruction: {e}")
     
     def _extract_variables(self, template: str) -> List[str]:
         """Extract variable names from template"""

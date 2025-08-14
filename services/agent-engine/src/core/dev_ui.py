@@ -24,7 +24,7 @@ except ImportError:
 
 # Import ADK components for agent creation
 try:
-    from google.adk.agents import Agent as LlmAgent
+    from google.adk.agents import LlmAgent
     import subprocess
     
     # Also check if adk command is available
@@ -50,7 +50,6 @@ class DevUIConfiguration:
     auto_reload: bool = True
     agent_specs_path: Optional[Path] = None
     examples_path: Optional[Path] = None
-    temp_dir: Optional[Path] = None
     gemini_api_key: Optional[str] = None
     debug: bool = False
     
@@ -88,13 +87,16 @@ class AgentDiscovery:
         # Find all YAML files recursively
         for yaml_file in agents_dir.rglob("*.yaml"):
             try:
-                # Get relative path from specs directory to avoid double specs/ prefix
-                # Find the service directory to make proper relative path
-                service_dir = Path(__file__).parent.parent.parent
-                specs_dir = service_dir / "specs"
-                relative_path = yaml_file.relative_to(specs_dir)
-                spec = self.parser.load_spec(str(relative_path))
+                # Get relative path from agents directory, not specs directory
+                # This gives us just "examples/chat_assistant.yaml" instead of "agents/examples/chat_assistant.yaml"
+                relative_path = yaml_file.relative_to(agents_dir)
+                spec_path_without_extension = str(relative_path).replace('.yaml', '').replace('.yml', '')
+                
+                # Load the spec using the parser's load_agent_spec method
+                spec = self.parser.load_agent_spec(spec_path_without_extension)
                 if spec.get("kind") == "AgentSpec":
+                    # Store the specification path for the factory
+                    spec['_spec_path'] = spec_path_without_extension
                     agent_specs.append(spec)
                     print(f"Discovered agent spec: {spec['metadata']['name']}")
             except Exception as e:
@@ -115,9 +117,12 @@ class AgentDiscovery:
                     "objective": "help users test and understand agent capabilities"
                 }
                 
+                # Use the full specification path stored during discovery
+                spec_path = spec.get('_spec_path', spec['metadata']['name'])
+                
                 # Build agent using our composition service
                 agent = self.composition_service.build_agent_from_spec(
-                    spec['metadata']['name'], 
+                    spec_path, 
                     context
                 )
                 
@@ -130,45 +135,6 @@ class AgentDiscovery:
         
         return agents
     
-    def create_example_agents(self) -> List[LlmAgent]:
-        """Create simple example agents for Dev UI testing."""
-        agents = []
-        
-        # Create a simple content analyzer agent
-        try:
-            if ADK_AVAILABLE:
-                content_analyzer = LlmAgent(
-                    name="content_analyzer",
-                    model="gemini-2.0-flash",
-                    instruction="You are a helpful content analyzer. Analyze the provided content and provide insights about its structure, sentiment, and key themes.",
-                    description="Analyzes content and provides structured insights"
-                )
-                agents.append(content_analyzer)
-            
-                # Create a simple chat assistant
-                chat_assistant = LlmAgent(
-                    name="chat_assistant", 
-                    model="gemini-2.0-flash",
-                    instruction="You are a friendly and helpful assistant. Provide clear, concise, and useful responses to user questions.",
-                    description="General purpose chat assistant"
-                )
-                agents.append(chat_assistant)
-                
-                # Create a code helper agent
-                code_helper = LlmAgent(
-                    name="code_helper",
-                    model="gemini-2.0-flash", 
-                    instruction="You are a coding assistant. Help users with programming questions, code review, and debugging. Provide clear explanations and examples.",
-                    description="Programming and code assistance"
-                )
-                agents.append(code_helper)
-                
-                print(f"Created {len(agents)} example agents for Dev UI")
-            
-        except Exception as e:
-            print(f"Warning: Failed to create example agents: {e}")
-        
-        return agents
 
 
 class DevUILauncher:
@@ -178,7 +144,6 @@ class DevUILauncher:
         """Initialize Dev UI launcher with configuration."""
         self.config = config or DevUIConfiguration()
         self.discovery = AgentDiscovery(self.config.agent_specs_path)
-        self.temp_dir = None
         self.agents = []
     
     def setup_environment(self) -> None:
@@ -197,139 +162,119 @@ class DevUILauncher:
         """Discover and load agents for Dev UI."""
         print("Discovering agents for Dev UI...")
         
-        # Try to load agents from specifications
+        # Load agents from specifications - fail fast if none found
         specs = self.discovery.discover_agent_specs()
-        if specs:
-            print(f"Found {len(specs)} agent specifications")
-            self.agents.extend(self.discovery.create_dev_ui_agents(specs))
+        if not specs:
+            raise RuntimeError("No agent specifications found. Cannot launch Dev UI without agents.")
         
-        # Add example agents if no specs found or as fallback
+        print(f"Found {len(specs)} agent specifications")
+        self.agents.extend(self.discovery.create_dev_ui_agents(specs))
+        
         if not self.agents:
-            print("No agents from specs, creating example agents...")
-            self.agents.extend(self.discovery.create_example_agents())
+            raise RuntimeError("Failed to create any agents from specifications. Check agent composition system.")
         
-        print(f"Total agents available for Dev UI: {len(self.agents)}")
+        print(f"Successfully created {len(self.agents)} agents for Dev UI")
     
-    def create_temporary_agents_file(self) -> Path:
-        """Create a temporary file with agents for ADK Dev UI."""
-        if not self.temp_dir:
-            self.temp_dir = Path(tempfile.mkdtemp(prefix="tahoe_dev_ui_"))
+    def create_agents_file(self) -> Path:
+        """Create agents.py file in current directory for ADK Dev UI."""
+        agents_file = Path("agents.py")
         
-        agents_file = self.temp_dir / "agents.py"
-        
-        # Generate Python code for agents
+        # Generate Python code for agents from our composition system
         agent_code = self._generate_agents_code()
         
         with open(agents_file, "w") as f:
             f.write(agent_code)
         
-        print(f"Created temporary agents file: {agents_file}")
+        print(f"Created agents file: {agents_file.absolute()}")
         return agents_file
     
     def _generate_agents_code(self) -> str:
-        """Generate Python code for agents to be used by ADK Dev UI."""
+        """Generate Python code for real agents from specifications."""
         code_lines = [
-            "# Auto-generated agents for Tahoe Dev UI",
-            "# This file is temporary and will be cleaned up",
+            "# Generated agents for Tahoe Dev UI",
+            "# Created from agent specifications via composition system",
             "",
             "import os",
-            "from google.genai.agents import Agent as LlmAgent",
+            "import sys",
+            "from pathlib import Path",
             "",
-            "# Set up environment",
-            "if not os.getenv('GEMINI_API_KEY'):",
-            "    print('Warning: GEMINI_API_KEY not set')",
+            "# Add src to path for imports",
+            "current_dir = Path(__file__).parent",
+            "sys.path.insert(0, str(current_dir / 'src'))",
             "",
-            "# Define agents for Dev UI",
+            "from google.adk.agents import LlmAgent",
+            "from core.composition import AgentCompositionService",
+            "",
+            "# Initialize composition service",
+            "composition_service = AgentCompositionService()",
+            "",
+            "# Agent specifications to load",
+            f"agent_specs = {[spec['metadata']['name'] for spec in self.discovery.discover_agent_specs()]}",
+            "",
+            "# Create agents from specifications",
+            "agents = []",
+            "context = {'role': 'assistant', 'domain': 'general', 'objective': 'help users test agent capabilities'}",
+            "",
+            "for spec_name in agent_specs:",
+            "    try:",
+            "        agent = composition_service.build_agent_from_spec(spec_name, context)",
+            "        if agent:",
+            "            agents.append(agent)",
+            "            print(f'Loaded agent: {agent.name}')",
+            "    except Exception as e:",
+            "        print(f'Failed to load agent {spec_name}: {e}')",
+            "",
+            "print(f'Total agents loaded: {len(agents)}')",
         ]
-        
-        # Add each agent as a variable
-        for i, agent in enumerate(self.agents):
-            agent_var = f"agent_{i}_{agent.name}"
-            code_lines.extend([
-                f"",
-                f"{agent_var} = LlmAgent(",
-                f"    name='{agent.name}',",
-                f"    model='{getattr(agent, 'model', 'gemini-2.0-flash')}',",
-                f"    instruction='''{getattr(agent, 'instruction', 'You are a helpful assistant.')}''',",
-                f"    description='{getattr(agent, 'description', '')}'",
-                f")"
-            ])
-        
-        # Add agent list for easy access
-        agent_vars = [f"agent_{i}_{agent.name}" for i, agent in enumerate(self.agents)]
-        code_lines.extend([
-            "",
-            "# List of all agents",
-            f"agents = [{', '.join(agent_vars)}]",
-            "",
-            "# Export for ADK Dev UI",
-            "if __name__ == '__main__':",
-            "    print(f'Loaded {len(agents)} agents for Dev UI')",
-            "    for agent in agents:",
-            "        print(f'  - {agent.name}: {agent.description}')"
-        ])
         
         return "\n".join(code_lines)
     
     def launch(self) -> None:
-        """Launch ADK Dev UI with discovered agents."""
+        """Launch ADK Dev UI with agents from specifications."""
         try:
             print("Setting up Tahoe Dev UI...")
             
             # Setup environment
             self.setup_environment()
             
-            # Discover agents
+            # Discover agents - this will fail fast if no specs found
             self.discover_agents()
             
-            if not self.agents:
-                print("Warning: No agents available for Dev UI")
-                return
+            # Create agents.py file for ADK Dev UI
+            agents_file = self.create_agents_file()
             
-            # Create temporary agents file
-            agents_file = self.create_temporary_agents_file()
+            print(f"Launching ADK Dev UI on http://{self.config.host}:{self.config.port}")
+            print("Press Ctrl+C to stop the Dev UI")
             
-            # Change to the directory containing the agents file
-            original_cwd = os.getcwd()
-            os.chdir(agents_file.parent)
+            # Launch adk web command
+            cmd = ["adk", "web", "--port", str(self.config.port)]
+            if self.config.host != "localhost":
+                cmd.extend(["--host", self.config.host])
             
-            try:
-                print(f"Launching ADK Dev UI on http://{self.config.host}:{self.config.port}")
-                print(f"Available agents: {[agent.name for agent in self.agents]}")
-                print("Press Ctrl+C to stop the Dev UI")
-                
-                # Launch adk web command
-                cmd = ["adk", "web", "--port", str(self.config.port)]
-                if self.config.host != "localhost":
-                    cmd.extend(["--host", self.config.host])
-                
-                # Run the command
-                subprocess.run(cmd, check=True)
-                
-            except subprocess.CalledProcessError as e:
-                print(f"Failed to launch ADK Dev UI: {e}")
-                print("Make sure 'adk' command is available in your PATH")
-                print("Install with: pip install google-adk")
-            except KeyboardInterrupt:
-                print("\nStopping Dev UI...")
-            finally:
-                # Restore original directory
-                os.chdir(original_cwd)
-                
+            # Run the command
+            subprocess.run(cmd, check=True)
+            
+        except subprocess.CalledProcessError as e:
+            print(f"Failed to launch ADK Dev UI: {e}")
+            print("Make sure 'adk' command is available in your PATH")
+            print("Install with: pip install google-adk")
+        except KeyboardInterrupt:
+            print("\nStopping Dev UI...")
         except Exception as e:
             print(f"Error launching Dev UI: {e}")
+            raise  # Re-raise to fail fast
         finally:
             self.cleanup()
     
     def cleanup(self) -> None:
-        """Clean up temporary files."""
-        if self.temp_dir and self.temp_dir.exists():
-            import shutil
+        """Clean up generated files."""
+        agents_file = Path("agents.py")
+        if agents_file.exists():
             try:
-                shutil.rmtree(self.temp_dir)
-                print(f"Cleaned up temporary directory: {self.temp_dir}")
+                agents_file.unlink()
+                print(f"Cleaned up generated file: {agents_file}")
             except Exception as e:
-                print(f"Warning: Failed to clean up {self.temp_dir}: {e}")
+                print(f"Warning: Failed to clean up {agents_file}: {e}")
     
     def validate_setup(self) -> Dict[str, Any]:
         """Validate Dev UI setup and return status."""

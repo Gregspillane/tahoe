@@ -1,19 +1,58 @@
 services:
+  # PostgreSQL Database
+  postgres:
+    image: postgres:15-alpine
+    container_name: tahoe-postgres
+    environment:
+      POSTGRES_USER: tahoe
+      POSTGRES_PASSWORD: tahoe
+      POSTGRES_DB: tahoe
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U tahoe -d tahoe"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - tahoe-network
+
+  # Redis Cache
+  redis:
+    image: redis:7-alpine
+    container_name: tahoe-redis
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis_data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    command: redis-server --appendonly yes
+    networks:
+      - tahoe-network
+
+  # Agent Engine Service
   agent-engine:
     build: .
     container_name: tahoe-agent-engine
     ports:
       - "8001:8001"
     environment:
-      DATABASE_HOST: ${DATABASE_HOST:-localhost}
-      DATABASE_PORT: ${DATABASE_PORT:-5432}
-      DATABASE_NAME: ${DATABASE_NAME:-tahoe}
-      DATABASE_USER: ${DATABASE_USER:-tahoe_user}
-      DATABASE_PASSWORD: ${DATABASE_PASSWORD:-changeme}
-      REDIS_HOST: ${REDIS_HOST:-localhost}
-      REDIS_PORT: ${REDIS_PORT:-6379}
+      DATABASE_HOST: postgres
+      DATABASE_PORT: 5432
+      DATABASE_NAME: tahoe
+      DATABASE_USER: tahoe
+      DATABASE_PASSWORD: tahoe
+      DATABASE_URL: postgresql://tahoe:tahoe@postgres:5432/tahoe?schema=agent_engine
+      REDIS_HOST: redis
+      REDIS_PORT: 6379
       GEMINI_API_KEY: ${GEMINI_API_KEY}
-      ADK_DEFAULT_MODEL: ${ADK_DEFAULT_MODEL:-gemini-2.0-flash}
+      ADK_DEFAULT_MODEL: ${ADK_DEFAULT_MODEL:-gemini-2.5-flash-lite}
       ENVIRONMENT: ${ENVIRONMENT:-development}
       AGENT_ENGINE_PORT: 8001
       AGENT_ENGINE_LOG_LEVEL: ${AGENT_ENGINE_LOG_LEVEL:-INFO}
@@ -25,14 +64,23 @@ services:
       - ./config:/app/config:ro
       - ./specs:/app/specs:ro
     restart: unless-stopped
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:8001/health"]
       interval: 30s
       timeout: 10s
       retries: 3
     networks:
-      - infrastructure_tahoe-network
+      - tahoe-network
+
+volumes:
+  postgres_data:
+  redis_data:
 
 networks:
-  infrastructure_tahoe-network:
-    external: true
+  tahoe-network:
+    driver: bridge
