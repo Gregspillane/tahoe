@@ -44,6 +44,11 @@ class Settings(BaseSettings):
     google_speech_model: str = Field(default="chirp_2", env="GOOGLE_SPEECH_MODEL")
     google_language_code: str = Field(default="en-US", env="GOOGLE_LANGUAGE_CODE")
     
+    # Google Gemini API Configuration for Reconciliation
+    gemini_model: str = Field(default="gemini-2.5-pro", env="GEMINI_MODEL")
+    gemini_max_tokens: int = Field(default=8192, env="GEMINI_MAX_TOKENS")
+    gemini_temperature: float = Field(default=0.1, env="GEMINI_TEMPERATURE")  # Low for consistent reconciliation
+    
     # Service Configuration
     log_level: str = Field(default="INFO", env="LOG_LEVEL")
     debug: bool = Field(default=False, env="DEBUG")

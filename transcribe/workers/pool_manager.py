@@ -12,6 +12,7 @@ from datetime import datetime
 from transcription.assemblyai_client import AssemblyAIClient, AssemblyAIError
 from transcription.google_client import GoogleSpeechClient, GoogleSpeechError
 from storage.s3_manager import S3Manager, S3ManagerError
+from reconciliation.reconciler import TranscriptionReconciler
 
 logger = logging.getLogger(__name__)
 
@@ -31,6 +32,9 @@ class WorkerPoolManager:
         aws_access_key_id: str,
         aws_secret_access_key: str,
         aws_region: str,
+        gemini_model: str = "gemini-2.5-pro",
+        gemini_max_tokens: int = 8192,
+        gemini_temperature: float = 0.1,
         worker_count: int = 4
     ):
         self.job_manager = job_manager
@@ -54,6 +58,14 @@ class WorkerPoolManager:
             aws_access_key_id=aws_access_key_id,
             aws_secret_access_key=aws_secret_access_key,
             aws_region=aws_region
+        )
+        
+        # Initialize reconciliation service
+        self.reconciler = TranscriptionReconciler(
+            gemini_api_key=google_api_key,  # Using same Google API key for Gemini
+            gemini_model=gemini_model,
+            max_tokens=gemini_max_tokens,
+            temperature=gemini_temperature
         )
         
         # Worker settings
@@ -153,13 +165,16 @@ class WorkerPoolManager:
         
         try:
             # Process with both providers in parallel (AssemblyAI + Google)
-            transcript_result = await self._transcribe_with_both_providers(job_id, audio_file_url)
+            provider_results = await self._transcribe_with_both_providers(job_id, audio_file_url)
             
-            # Mark job as completed with both transcription results
+            # Perform Gemini reconciliation on the provider results
+            reconciled_result = await self.reconciler.reconcile_provider_results(job_id, provider_results)
+            
+            # Mark job as completed with reconciled transcription result
             await self.job_manager.complete_job(
                 job_id, 
-                transcript_url=transcript_result.get("s3_url"),
-                result_data=transcript_result
+                transcript_url=reconciled_result.get("s3_url", f"s3://transcripts/{job_id}/reconciled.json"),
+                result_data=reconciled_result
             )
             
             # Update stats

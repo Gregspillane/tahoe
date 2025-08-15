@@ -62,6 +62,9 @@ async def lifespan(app: FastAPI):
             aws_access_key_id=settings.aws_access_key_id,
             aws_secret_access_key=settings.aws_secret_access_key,
             aws_region=settings.aws_region,
+            gemini_model=settings.gemini_model,
+            gemini_max_tokens=settings.gemini_max_tokens,
+            gemini_temperature=settings.gemini_temperature,
             worker_count=settings.worker_count
         )
         await worker_pool.start()
