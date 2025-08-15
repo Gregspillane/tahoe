@@ -136,7 +136,7 @@ class JobManager:
             logger.error(f"Failed to claim job: {e}")
             return None
     
-    async def complete_job(self, job_id: str, transcript_url: str = None, error_message: str = None):
+    async def complete_job(self, job_id: str, transcript_url: str = None, error_message: str = None, result_data: Dict = None):
         """Mark a job as completed or failed."""
         try:
             if error_message:
@@ -150,6 +150,10 @@ class JobManager:
                     "transcript_url": transcript_url or "",
                     "worker_id": ""
                 }
+                
+                # Store result data if provided
+                if result_data:
+                    update_data["result_data"] = json.dumps(result_data)
                 
                 async with self.redis_client.pipeline() as pipe:
                     await pipe.hset(f"{self.job_prefix}{job_id}", mapping=update_data)
@@ -225,7 +229,7 @@ class JobManager:
         if not job_status:
             return None
         
-        return {
+        result = {
             "job_id": job_id,
             "status": job_status.get("status", "pending"),
             "transcript_url": job_status.get("transcript_url") if job_status.get("status") == "completed" else None,
@@ -233,6 +237,15 @@ class JobManager:
             "created_at": job_status.get("created_at"),
             "completed_at": job_status.get("completed_at")
         }
+        
+        # Include result data if available
+        if job_status.get("result_data"):
+            try:
+                result["result_data"] = json.loads(job_status["result_data"])
+            except json.JSONDecodeError:
+                logger.warning(f"Failed to parse result_data for job {job_id}")
+        
+        return result
     
     async def get_bulk_status(self, job_ids: List[str]) -> List[Dict]:
         """Get status for multiple jobs."""

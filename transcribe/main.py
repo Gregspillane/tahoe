@@ -53,6 +53,9 @@ async def lifespan(app: FastAPI):
         # Initialize worker pool
         worker_pool = WorkerPoolManager(
             job_manager=job_manager,
+            assemblyai_api_key=settings.assemblyai_api_key,
+            openai_api_key=settings.openai_api_key,
+            openai_model=settings.openai_model_transcribe,
             worker_count=settings.worker_count
         )
         await worker_pool.start()

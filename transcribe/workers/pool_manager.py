@@ -9,18 +9,25 @@ import uuid
 from typing import Dict, Optional
 from datetime import datetime
 
+from transcription.assemblyai_client import AssemblyAIClient, AssemblyAIError
+from transcription.openai_client import OpenAIClient, OpenAIError
+
 logger = logging.getLogger(__name__)
 
 
 class WorkerPoolManager:
     """Manages a pool of transcription workers with job claiming and processing."""
     
-    def __init__(self, job_manager, worker_count: int = 4):
+    def __init__(self, job_manager, assemblyai_api_key: str, openai_api_key: str, openai_model: str, worker_count: int = 4):
         self.job_manager = job_manager
         self.worker_count = worker_count
         self.workers = []
         self.running = False
         self.worker_stats = {}
+        
+        # Initialize transcription clients
+        self.assemblyai_client = AssemblyAIClient(assemblyai_api_key)
+        self.openai_client = OpenAIClient(openai_api_key, openai_model)
         
         # Worker settings
         self.poll_interval = 5  # seconds between job polling
@@ -118,13 +125,15 @@ class WorkerPoolManager:
         self.worker_stats[worker_id]["last_job_at"] = datetime.now().isoformat()
         
         try:
-            # Simulate transcription processing for now
-            # In Phase 3, this will call the actual transcription services
-            await self._simulate_transcription_work(job_id, audio_file_url)
+            # Process with both providers in parallel (Phase 3.2 implementation)
+            transcript_result = await self._transcribe_with_both_providers(job_id, audio_file_url)
             
-            # Mark job as completed
-            transcript_url = f"s3://transcripts/{job_id}/final.md"
-            await self.job_manager.complete_job(job_id, transcript_url=transcript_url)
+            # Mark job as completed with both transcription results
+            await self.job_manager.complete_job(
+                job_id, 
+                transcript_url=transcript_result.get("s3_url"),
+                result_data=transcript_result
+            )
             
             # Update stats
             self.worker_stats[worker_id]["jobs_processed"] += 1
@@ -143,20 +152,111 @@ class WorkerPoolManager:
             # Reset worker status
             self.worker_stats[worker_id]["status"] = "idle"
     
-    async def _simulate_transcription_work(self, job_id: str, audio_file_url: str):
-        """Simulate transcription work for MVP testing."""
-        # Simulate variable processing time (2-10 seconds)
-        import random
-        processing_time = random.uniform(2, 10)
+    async def _transcribe_with_both_providers(self, job_id: str, audio_file_url: str) -> Dict:
+        """Transcribe audio using both AssemblyAI and OpenAI in parallel."""
+        logger.info(f"Starting parallel transcription for job {job_id}: {audio_file_url}")
         
-        logger.info(f"Simulating transcription for job {job_id} (taking {processing_time:.1f}s)")
-        await asyncio.sleep(processing_time)
+        # Run both transcriptions in parallel
+        try:
+            assemblyai_task = asyncio.create_task(
+                self._transcribe_with_assemblyai(job_id, audio_file_url)
+            )
+            openai_task = asyncio.create_task(
+                self._transcribe_with_openai(job_id, audio_file_url)
+            )
+            
+            # Wait for both to complete
+            assemblyai_result, openai_result = await asyncio.gather(
+                assemblyai_task, openai_task, return_exceptions=True
+            )
+            
+            # Handle partial failures
+            results = {
+                "job_id": job_id,
+                "audio_file_url": audio_file_url,
+                "processing_status": "completed",
+                "providers": {}
+            }
+            
+            # Process AssemblyAI result
+            if isinstance(assemblyai_result, Exception):
+                logger.error(f"AssemblyAI failed for job {job_id}: {assemblyai_result}")
+                results["providers"]["assemblyai"] = {
+                    "status": "failed",
+                    "error": str(assemblyai_result)
+                }
+            else:
+                results["providers"]["assemblyai"] = {
+                    "status": "completed",
+                    "result": assemblyai_result
+                }
+            
+            # Process OpenAI result
+            if isinstance(openai_result, Exception):
+                logger.error(f"OpenAI failed for job {job_id}: {openai_result}")
+                results["providers"]["openai"] = {
+                    "status": "failed",
+                    "error": str(openai_result)
+                }
+            else:
+                results["providers"]["openai"] = {
+                    "status": "completed",
+                    "result": openai_result
+                }
+            
+            # Check if at least one provider succeeded
+            successful_providers = [
+                provider for provider, data in results["providers"].items() 
+                if data["status"] == "completed"
+            ]
+            
+            if not successful_providers:
+                # Both providers failed
+                raise Exception("Both AssemblyAI and OpenAI transcription failed")
+            
+            # Generate S3 URL for combined results
+            results["s3_url"] = f"s3://transcripts/{job_id}/combined.json"
+            
+            logger.info(f"Parallel transcription completed for job {job_id}. Successful providers: {successful_providers}")
+            return results
+            
+        except Exception as e:
+            logger.error(f"Parallel transcription failed for job {job_id}: {e}")
+            raise Exception(f"Parallel transcription failed: {str(e)}")
+    
+    async def _transcribe_with_assemblyai(self, job_id: str, audio_file_url: str) -> Dict:
+        """Transcribe audio using AssemblyAI service."""
+        logger.debug(f"Starting AssemblyAI transcription for job {job_id}")
         
-        # Simulate occasional failures for testing retry logic
-        if random.random() < 0.1:  # 10% failure rate
-            raise Exception("Simulated transcription failure")
+        try:
+            # Call AssemblyAI transcription
+            transcript_result = await self.assemblyai_client.transcribe_audio(audio_file_url, job_id)
+            logger.debug(f"AssemblyAI transcription completed for job {job_id}")
+            return transcript_result
+            
+        except AssemblyAIError as e:
+            logger.error(f"AssemblyAI transcription failed for job {job_id}: {e}")
+            raise Exception(f"AssemblyAI transcription failed: {str(e)}")
+        except Exception as e:
+            logger.error(f"Unexpected error in AssemblyAI transcription for job {job_id}: {e}")
+            raise Exception(f"AssemblyAI transcription failed: {str(e)}")
+    
+    async def _transcribe_with_openai(self, job_id: str, audio_file_url: str) -> Dict:
+        """Transcribe audio using OpenAI service."""
+        logger.debug(f"Starting OpenAI transcription for job {job_id}")
         
-        logger.info(f"Simulated transcription completed for job {job_id}")
+        try:
+            # Call OpenAI transcription
+            transcript_result = await self.openai_client.transcribe_audio(audio_file_url, job_id)
+            logger.debug(f"OpenAI transcription completed for job {job_id}")
+            return transcript_result
+            
+        except OpenAIError as e:
+            logger.error(f"OpenAI transcription failed for job {job_id}: {e}")
+            raise Exception(f"OpenAI transcription failed: {str(e)}")
+        except Exception as e:
+            logger.error(f"Unexpected error in OpenAI transcription for job {job_id}: {e}")
+            raise Exception(f"OpenAI transcription failed: {str(e)}")
     
     async def _stale_job_cleanup_loop(self):
         """Periodic cleanup of stale jobs."""
