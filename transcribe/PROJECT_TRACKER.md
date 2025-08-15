@@ -3,14 +3,14 @@
 **Version**: 1.0 MVP  
 **Status**: Active Development  
 **Reference**: `/memory-bank/archive/masterplan.md`  
-**Last Updated**: August 15, 2025 - 7:45 PM
+**Last Updated**: August 15, 2025 - 12:15 AM
 
 ---
 
 ## MVP Scope
 
 Building a functional transcription service with production architecture but MVP hardening:
-- Full multi-provider transcription (AssemblyAI + Google Cloud Speech Chirp 2)
+- Full multi-provider transcription (AssemblyAI + OpenAI gpt-4o-transcribe)
 - Google Gemini 2.5 Pro reconciliation for accuracy
 - Proper queue-based processing with Redis/Bull
 - PostgreSQL with Prisma for data management
@@ -29,7 +29,8 @@ Building a functional transcription service with production architecture but MVP
 | **Phase 2**: Queue System | ✅ Complete | 1 | Critical |
 | **Phase 3**: Transcription Core | ✅ Complete | 3 | Critical |
 | **Phase 4**: Reconciliation | ✅ Complete | 1 | Critical |
-| **Phase 5**: API & Integration | ⬜ Not Started | 2 | Critical |
+| **Phase 5**: API & Integration | ✅ Complete | 1 | Critical |
+| **Phase 6**: Service Integration | ⬜ Not Started | TBD | High |
 
 **Legend**: ✅ Complete | 🟡 In Progress | ⬜ Not Started
 

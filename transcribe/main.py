@@ -54,11 +54,9 @@ async def lifespan(app: FastAPI):
         worker_pool = WorkerPoolManager(
             job_manager=job_manager,
             assemblyai_api_key=settings.assemblyai_api_key,
-            google_project_id=settings.google_project_id,
-            google_credentials_path=settings.google_application_credentials,
+            openai_api_key=settings.openai_api_key,
+            openai_model=settings.openai_model,
             google_api_key=settings.google_api_key,
-            google_model=settings.google_speech_model,
-            google_language_code=settings.google_language_code,
             aws_access_key_id=settings.aws_access_key_id,
             aws_secret_access_key=settings.aws_secret_access_key,
             aws_region=settings.aws_region,

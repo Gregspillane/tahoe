@@ -10,7 +10,7 @@ from datetime import datetime
 import httpx
 import os
 from pathlib import Path
-from storage.s3_helper import S3Helper
+from storage.s3_manager import S3Manager, S3ManagerError
 
 logger = logging.getLogger(__name__)
 
@@ -37,35 +37,33 @@ class OpenAIClient:
             "Authorization": f"Bearer {self.api_key}",
         }
         
-    async def transcribe_audio(self, audio_url: str, job_id: str) -> Dict[str, Any]:
+    async def transcribe_audio(self, audio_url: str, job_id: str, s3_manager: S3Manager) -> Dict[str, Any]:
         """
         Complete transcription workflow using OpenAI gpt-4o-transcribe.
         
         Args:
-            audio_url: S3 URL or local file path to audio
+            audio_url: S3 URL to audio file
             job_id: Unique job identifier for tracking
+            s3_manager: S3Manager instance for file operations
             
         Returns:
             Dict containing transcription results and metadata
         """
         logger.info(f"Starting OpenAI transcription for job {job_id}")
         
+        temp_file_path = None
         try:
-            # Step 1: Download audio file if it's an S3 URL
-            local_file_path = await self._prepare_audio_file(audio_url, job_id)
+            # Step 1: Download audio file from S3
+            temp_file_path = await s3_manager.download_to_temp(audio_url, job_id)
             
             # Step 2: Validate file size and format
-            await self._validate_audio_file(local_file_path)
+            await self._validate_audio_file(temp_file_path)
             
             # Step 3: Submit transcription request
-            transcript_data = await self._transcribe_file(local_file_path, job_id)
+            transcript_data = await self._transcribe_file(temp_file_path, job_id)
             
             # Step 4: Format results
-            result = self._format_transcript_result(transcript_data, job_id)
-            
-            # Step 5: Cleanup temporary file if we downloaded it
-            if audio_url.startswith(('s3://', 'http')):
-                await self._cleanup_temp_file(local_file_path)
+            result = self._format_transcript_result(transcript_data, job_id, audio_url)
             
             logger.info(f"OpenAI transcription completed for job {job_id}")
             return result
@@ -73,60 +71,12 @@ class OpenAIClient:
         except Exception as e:
             logger.error(f"OpenAI transcription failed for job {job_id}: {e}")
             raise OpenAIError(f"Transcription failed: {str(e)}") from e
+        
+        finally:
+            # Cleanup temporary file
+            if temp_file_path:
+                await s3_manager.cleanup_temp_file(temp_file_path)
     
-    async def _prepare_audio_file(self, audio_url: str, job_id: str) -> str:
-        """Download audio file if needed and return local path."""
-        
-        # If it's already a local file, return as-is
-        if not audio_url.startswith(('s3://', 'http')):
-            if os.path.exists(audio_url):
-                return audio_url
-            else:
-                raise OpenAIError(f"Local file not found: {audio_url}")
-        
-        # For S3 or HTTP URLs, we need to download
-        logger.info(f"Downloading audio file for job {job_id}: {audio_url}")
-        
-        try:
-            # Create temp directory if it doesn't exist
-            temp_dir = Path("/tmp/transcription")
-            temp_dir.mkdir(exist_ok=True)
-            
-            # Generate temp file name
-            file_extension = self._get_file_extension(audio_url)
-            temp_file_path = temp_dir / f"{job_id}{file_extension}"
-            
-            # Download file
-            async with httpx.AsyncClient(timeout=self.timeout) as client:
-                response = await client.get(audio_url)
-                response.raise_for_status()
-                
-                # Write to temp file
-                with open(temp_file_path, 'wb') as f:
-                    f.write(response.content)
-                
-                logger.info(f"Audio file downloaded: {temp_file_path}")
-                return str(temp_file_path)
-                
-        except Exception as e:
-            logger.error(f"Failed to download audio file: {e}")
-            raise OpenAIError(f"Audio download failed: {str(e)}")
-    
-    def _get_file_extension(self, url: str) -> str:
-        """Extract file extension from URL or default to .mp3."""
-        try:
-            path = Path(url)
-            extension = path.suffix.lower()
-            
-            # Supported formats by OpenAI
-            supported = ['.mp3', '.mp4', '.mpeg', '.mpga', '.m4a', '.wav', '.webm']
-            if extension in supported:
-                return extension
-            else:
-                # Default to .mp3 if we can't determine
-                return '.mp3'
-        except:
-            return '.mp3'
     
     async def _validate_audio_file(self, file_path: str) -> None:
         """Validate audio file size and format."""
@@ -189,16 +139,8 @@ class OpenAIClient:
             logger.error(f"Transcription error: {e}")
             raise OpenAIError(f"Transcription failed: {str(e)}")
     
-    async def _cleanup_temp_file(self, file_path: str) -> None:
-        """Remove temporary downloaded file."""
-        try:
-            if os.path.exists(file_path) and "/tmp/transcription" in file_path:
-                os.unlink(file_path)
-                logger.debug(f"Cleaned up temp file: {file_path}")
-        except Exception as e:
-            logger.warning(f"Failed to cleanup temp file {file_path}: {e}")
     
-    def _format_transcript_result(self, transcript_data: Dict[str, Any], job_id: str) -> Dict[str, Any]:
+    def _format_transcript_result(self, transcript_data: Dict[str, Any], job_id: str, audio_url: str) -> Dict[str, Any]:
         """Format OpenAI response into standardized result structure."""
         
         # Extract core transcript
@@ -246,27 +188,27 @@ class OpenAIClient:
         if segments_data:
             duration = max(seg.get("end", 0) for seg in segments_data)
         
-        # Format result to match AssemblyAI structure
+        # Format result to match the expected provider structure
         result = {
-            "provider": "openai",
             "job_id": job_id,
-            "transcript_id": f"openai_{job_id}",  # Generate ID since OpenAI doesn't provide one
-            "transcript_text": transcript_text,
+            "audio_url": audio_url,
+            "provider": "openai",
+            "model": self.model,
+            "language": transcript_data.get("language", "en"),
+            "status": "completed",
+            "transcript": transcript_text,
             "confidence": confidence,
-            "duration": duration,
-            "segments": segments,  # OpenAI provides segments instead of speakers
             "words": words,
-            "chapters": [],  # OpenAI doesn't provide chapters
-            "sentiment_analysis": [],  # OpenAI doesn't provide sentiment
-            "entities": [],  # OpenAI doesn't provide entities
-            "processing_time": duration,  # Placeholder
+            "segments": segments,
+            "word_count": len(transcript_text.split()) if transcript_text else 0,
+            "duration": duration,
             "metadata": {
+                "processing_time": datetime.utcnow().isoformat(),
+                "model_version": self.model,
+                "api_version": "v1",
                 "language": transcript_data.get("language"),
-                "model": self.model,
-                "task": transcript_data.get("task", "transcribe"),
-                "timestamp_granularities": ["word", "segment"]
-            },
-            "raw_response": transcript_data  # Keep full response for debugging
+                "task": transcript_data.get("task", "transcribe")
+            }
         }
         
         logger.info(f"Formatted OpenAI result for job {job_id}: {len(transcript_text)} chars, {confidence:.2f} confidence")

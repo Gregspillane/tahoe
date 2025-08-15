@@ -10,7 +10,7 @@ from typing import Dict, Optional
 from datetime import datetime
 
 from transcription.assemblyai_client import AssemblyAIClient, AssemblyAIError
-from transcription.google_client import GoogleSpeechClient, GoogleSpeechError
+from transcription.openai_client import OpenAIClient, OpenAIError
 from storage.s3_manager import S3Manager, S3ManagerError
 from reconciliation.reconciler import TranscriptionReconciler
 from formatting.transcript_formatters import create_transcript_formatter
@@ -24,12 +24,10 @@ class WorkerPoolManager:
     def __init__(
         self, 
         job_manager, 
-        assemblyai_api_key: str, 
-        google_project_id: str,
-        google_credentials_path: Optional[str],
-        google_api_key: Optional[str],
-        google_model: str,
-        google_language_code: str,
+        assemblyai_api_key: str,
+        openai_api_key: str,
+        openai_model: str,
+        google_api_key: str,
         aws_access_key_id: str,
         aws_secret_access_key: str,
         aws_region: str,
@@ -50,12 +48,9 @@ class WorkerPoolManager:
         
         # Initialize transcription clients
         self.assemblyai_client = AssemblyAIClient(assemblyai_api_key)
-        self.google_client = GoogleSpeechClient(
-            project_id=google_project_id,
-            credentials_path=google_credentials_path,
-            api_key=google_api_key,
-            model=google_model,
-            language_code=google_language_code
+        self.openai_client = OpenAIClient(
+            api_key=openai_api_key,
+            model=openai_model
         )
         
         # Initialize S3 manager
@@ -243,7 +238,7 @@ class WorkerPoolManager:
             self.worker_stats[worker_id]["status"] = "idle"
     
     async def _transcribe_with_both_providers(self, job_id: str, audio_file_url: str) -> Dict:
-        """Transcribe audio using both AssemblyAI and Google Speech in parallel."""
+        """Transcribe audio using both AssemblyAI and OpenAI in parallel."""
         logger.info(f"Starting parallel transcription for job {job_id}: {audio_file_url}")
         
         # Run both transcriptions in parallel
@@ -251,13 +246,13 @@ class WorkerPoolManager:
             assemblyai_task = asyncio.create_task(
                 self._transcribe_with_assemblyai(job_id, audio_file_url)
             )
-            google_task = asyncio.create_task(
-                self._transcribe_with_google(job_id, audio_file_url)
+            openai_task = asyncio.create_task(
+                self._transcribe_with_openai(job_id, audio_file_url)
             )
             
             # Wait for both to complete
-            assemblyai_result, google_result = await asyncio.gather(
-                assemblyai_task, google_task, return_exceptions=True
+            assemblyai_result, openai_result = await asyncio.gather(
+                assemblyai_task, openai_task, return_exceptions=True
             )
             
             # Handle partial failures
@@ -281,17 +276,17 @@ class WorkerPoolManager:
                     "result": assemblyai_result
                 }
             
-            # Process Google result
-            if isinstance(google_result, Exception):
-                logger.error(f"Google Speech failed for job {job_id}: {google_result}")
-                results["providers"]["google_speech"] = {
+            # Process OpenAI result
+            if isinstance(openai_result, Exception):
+                logger.error(f"OpenAI failed for job {job_id}: {openai_result}")
+                results["providers"]["openai"] = {
                     "status": "failed",
-                    "error": str(google_result)
+                    "error": str(openai_result)
                 }
             else:
-                results["providers"]["google_speech"] = {
+                results["providers"]["openai"] = {
                     "status": "completed",
-                    "result": google_result
+                    "result": openai_result
                 }
             
             # Check if at least one provider succeeded
@@ -334,22 +329,22 @@ class WorkerPoolManager:
             logger.error(f"Unexpected error in AssemblyAI transcription for job {job_id}: {e}")
             raise Exception(f"AssemblyAI transcription failed: {str(e)}")
     
-    async def _transcribe_with_google(self, job_id: str, audio_file_url: str) -> Dict:
-        """Transcribe audio using Google Speech service."""
-        logger.debug(f"Starting Google Speech transcription for job {job_id}")
+    async def _transcribe_with_openai(self, job_id: str, audio_file_url: str) -> Dict:
+        """Transcribe audio using OpenAI gpt-4o-transcribe service."""
+        logger.debug(f"Starting OpenAI transcription for job {job_id}")
         
         try:
-            # Call Google Speech transcription (downloads from S3 internally)
-            transcript_result = await self.google_client.transcribe_audio(audio_file_url, job_id, self.s3_manager)
-            logger.debug(f"Google Speech transcription completed for job {job_id}")
+            # Call OpenAI transcription (downloads from S3 internally)
+            transcript_result = await self.openai_client.transcribe_audio(audio_file_url, job_id, self.s3_manager)
+            logger.debug(f"OpenAI transcription completed for job {job_id}")
             return transcript_result
             
-        except (GoogleSpeechError, S3ManagerError) as e:
-            logger.error(f"Google Speech transcription failed for job {job_id}: {e}")
-            raise Exception(f"Google Speech transcription failed: {str(e)}")
+        except (OpenAIError, S3ManagerError) as e:
+            logger.error(f"OpenAI transcription failed for job {job_id}: {e}")
+            raise Exception(f"OpenAI transcription failed: {str(e)}")
         except Exception as e:
-            logger.error(f"Unexpected error in Google Speech transcription for job {job_id}: {e}")
-            raise Exception(f"Google Speech transcription failed: {str(e)}")
+            logger.error(f"Unexpected error in OpenAI transcription for job {job_id}: {e}")
+            raise Exception(f"OpenAI transcription failed: {str(e)}")
     
     async def _stale_job_cleanup_loop(self):
         """Periodic cleanup of stale jobs."""

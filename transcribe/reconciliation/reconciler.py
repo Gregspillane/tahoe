@@ -64,26 +64,26 @@ class TranscriptionReconciler:
         try:
             # Extract provider results
             assemblyai_result = self._extract_provider_result(provider_results, "assemblyai")
-            google_result = self._extract_provider_result(provider_results, "google_speech")
+            openai_result = self._extract_provider_result(provider_results, "openai")
             
             # Validate we have results from both providers
-            if not assemblyai_result and not google_result:
+            if not assemblyai_result and not openai_result:
                 raise ValueError("No valid transcription results found from any provider")
             
             # Handle single provider success
             if not assemblyai_result:
-                logger.warning(f"AssemblyAI failed for job {job_id}, using Google Speech only")
-                return self._create_single_provider_result(job_id, google_result, "google_speech")
+                logger.warning(f"AssemblyAI failed for job {job_id}, using OpenAI only")
+                return self._create_single_provider_result(job_id, openai_result, "openai")
             
-            if not google_result:
-                logger.warning(f"Google Speech failed for job {job_id}, using AssemblyAI only")
+            if not openai_result:
+                logger.warning(f"OpenAI failed for job {job_id}, using AssemblyAI only")
                 return self._create_single_provider_result(job_id, assemblyai_result, "assemblyai")
             
             # Perform Gemini-based reconciliation
             reconciliation_result = await self.gemini_client.reconcile_transcripts(
                 job_id=job_id,
                 assemblyai_result=assemblyai_result,
-                google_result=google_result
+                openai_result=openai_result
             )
             
             # Create final result structure

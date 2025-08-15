@@ -1,7 +1,7 @@
 """
 Google Gemini API client for intelligent transcription reconciliation.
 Uses Gemini 2.5 Pro's advanced reasoning capabilities to resolve discrepancies
-between AssemblyAI and Google Speech transcription results.
+between AssemblyAI and OpenAI transcription results.
 """
 
 import asyncio
@@ -22,12 +22,12 @@ class ReconciliationDecision:
     """Represents a reconciliation decision for a segment."""
     segment_index: int
     chosen_text: str
-    chosen_provider: str  # "assemblyai", "google_speech", or "reconciled"
+    chosen_provider: str  # "assemblyai", "openai", or "reconciled"
     confidence_score: float
     reasoning: str
     discrepancies_found: List[str]
     original_assemblyai: str
-    original_google: str
+    original_openai: str
 
 
 @dataclass
@@ -101,15 +101,15 @@ class GeminiClient:
         self, 
         job_id: str,
         assemblyai_result: Dict,
-        google_result: Dict
+        openai_result: Dict
     ) -> ReconciliationResult:
         """
-        Reconcile transcripts from AssemblyAI and Google Speech using Gemini reasoning.
+        Reconcile transcripts from AssemblyAI and OpenAI using Gemini reasoning.
         
         Args:
             job_id: Unique job identifier
             assemblyai_result: Complete AssemblyAI transcription result
-            google_result: Complete Google Speech transcription result
+            openai_result: Complete OpenAI transcription result
             
         Returns:
             ReconciliationResult with final transcript and decision audit trail
@@ -120,10 +120,10 @@ class GeminiClient:
         try:
             # Extract and normalize transcript segments
             assemblyai_segments = self._extract_segments(assemblyai_result, "assemblyai")
-            google_segments = self._extract_segments(google_result, "google_speech")
+            openai_segments = self._extract_segments(openai_result, "openai")
             
             # Align segments for comparison
-            aligned_segments = self._align_segments(assemblyai_segments, google_segments)
+            aligned_segments = self._align_segments(assemblyai_segments, openai_segments)
             
             # Perform reconciliation using Gemini
             decisions = await self._reconcile_with_gemini(job_id, aligned_segments)
@@ -146,7 +146,7 @@ class GeminiClient:
                 model_used=self.model,
                 metadata={
                     "assemblyai_segments": len(assemblyai_segments),
-                    "google_segments": len(google_segments),
+                    "openai_segments": len(openai_segments),
                     "aligned_segments": len(aligned_segments),
                     "discrepancies_found": sum(1 for d in decisions if d.discrepancies_found),
                     "reconciliation_timestamp": start_time.isoformat()
@@ -190,8 +190,8 @@ class GeminiClient:
                         "provider": provider_name
                     })
                     
-            elif provider_name == "google_speech":
-                # Google Speech format
+            elif provider_name == "openai":
+                # OpenAI format
                 if "results" in provider_result:
                     for i, result in enumerate(provider_result["results"]):
                         if "alternatives" in result and result["alternatives"]:
@@ -224,21 +224,21 @@ class GeminiClient:
             logger.error(f"Failed to extract segments from {provider_name}: {e}")
             return []
     
-    def _align_segments(self, assemblyai_segments: List[Dict], google_segments: List[Dict]) -> List[Dict]:
+    def _align_segments(self, assemblyai_segments: List[Dict], openai_segments: List[Dict]) -> List[Dict]:
         """Align segments from both providers for comparison."""
         aligned = []
         
         # Simple alignment strategy: pair by index or create comparison pairs
-        max_segments = max(len(assemblyai_segments), len(google_segments))
+        max_segments = max(len(assemblyai_segments), len(openai_segments))
         
         for i in range(max_segments):
             assemblyai_segment = assemblyai_segments[i] if i < len(assemblyai_segments) else None
-            google_segment = google_segments[i] if i < len(google_segments) else None
+            openai_segment = openai_segments[i] if i < len(openai_segments) else None
             
             aligned.append({
                 "index": i,
                 "assemblyai": assemblyai_segment,
-                "google_speech": google_segment
+                "openai": openai_segment
             })
         
         logger.debug(f"Aligned {len(aligned)} segment pairs for comparison")
