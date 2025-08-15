@@ -13,6 +13,7 @@ from transcription.assemblyai_client import AssemblyAIClient, AssemblyAIError
 from transcription.google_client import GoogleSpeechClient, GoogleSpeechError
 from storage.s3_manager import S3Manager, S3ManagerError
 from reconciliation.reconciler import TranscriptionReconciler
+from formatting.transcript_formatters import create_transcript_formatter
 
 logger = logging.getLogger(__name__)
 
@@ -32,6 +33,7 @@ class WorkerPoolManager:
         aws_access_key_id: str,
         aws_secret_access_key: str,
         aws_region: str,
+        s3_transcript_bucket: str,
         gemini_model: str = "gemini-2.5-pro",
         gemini_max_tokens: int = 8192,
         gemini_temperature: float = 0.1,
@@ -42,6 +44,9 @@ class WorkerPoolManager:
         self.workers = []
         self.running = False
         self.worker_stats = {}
+        
+        # Store S3 transcript bucket for Phase 5 storage
+        self.s3_transcript_bucket = s3_transcript_bucket
         
         # Initialize transcription clients
         self.assemblyai_client = AssemblyAIClient(assemblyai_api_key)
@@ -67,6 +72,9 @@ class WorkerPoolManager:
             max_tokens=gemini_max_tokens,
             temperature=gemini_temperature
         )
+        
+        # Initialize transcript formatter
+        self.formatter = create_transcript_formatter()
         
         # Worker settings
         self.poll_interval = 5  # seconds between job polling
@@ -170,11 +178,51 @@ class WorkerPoolManager:
             # Perform Gemini reconciliation on the provider results
             reconciled_result = await self.reconciler.reconcile_provider_results(job_id, provider_results)
             
+            # Format outputs and store in S3 (Phase 5 enhancement)
+            try:
+                formatted_outputs = self.formatter.format_reconciliation_result(
+                    job_id=job_id,
+                    tenant_id="default",  # TODO: Extract from job data or context
+                    reconciliation_result=reconciled_result,
+                    original_filename=job_data.get("original_filename")
+                )
+                
+                # Upload formatted transcripts to S3
+                s3_urls = await self.s3_manager.upload_multiple_transcript_formats(
+                    bucket=self.s3_transcript_bucket,
+                    tenant_id="default",
+                    job_uuid=job_id,
+                    raw_transcript=formatted_outputs.raw_json,
+                    agent_optimized=formatted_outputs.agent_optimized_json
+                )
+                
+                # Create enhanced result with S3 URLs and metadata
+                enhanced_result = {
+                    **reconciled_result,
+                    "s3_storage": s3_urls,
+                    "formatted_outputs": {
+                        "word_count": formatted_outputs.word_count,
+                        "duration_seconds": formatted_outputs.duration_seconds,
+                        "display_text": formatted_outputs.display_text,
+                        "display_text_preview": formatted_outputs.display_text[:200] + "..." if len(formatted_outputs.display_text) > 200 else formatted_outputs.display_text
+                    }
+                }
+                
+                logger.info(f"Successfully stored transcripts for job {job_id}: {formatted_outputs.word_count} words, S3 URLs: {list(s3_urls.keys())}")
+                
+            except Exception as e:
+                logger.error(f"Failed to format and store outputs for job {job_id}: {e}")
+                # Fallback: store reconciled result without S3 storage
+                enhanced_result = {
+                    **reconciled_result,
+                    "storage_error": str(e)
+                }
+            
             # Mark job as completed with reconciled transcription result
             await self.job_manager.complete_job(
                 job_id, 
                 transcript_url=reconciled_result.get("s3_url", f"s3://transcripts/{job_id}/reconciled.json"),
-                result_data=reconciled_result
+                result_data=enhanced_result
             )
             
             # Update stats

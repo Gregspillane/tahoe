@@ -229,13 +229,13 @@ enum JobStatus {
 
 enum TranscriptionProvider {
   ASSEMBLYAI
-  OPENAI
+  GOOGLE_SPEECH
 }
 
 enum ResolutionMethod {
   ASSEMBLYAI_PREFERRED
-  OPENAI_PREFERRED
-  GPT5_RECONCILED
+  GOOGLE_SPEECH_PREFERRED
+  GEMINI_RECONCILED
   CONFIDENCE_WEIGHTED
   MANUAL_REVIEW
 }
@@ -254,4 +254,79 @@ enum ProcessingStatus {
   COMPLETED
   FAILED
   SKIPPED
+}
+
+// Phase 5: Enhanced Production Schema with Multi-Tenant Support
+
+// New job record with UUID-based tracking
+model JobRecord {
+  id                String    @id @default(uuid())
+  
+  // Multi-tenant identification
+  tenantId          String
+  originalFilename  String
+  
+  // S3 file paths
+  s3AudioPath       String
+  
+  // Processing status
+  status            JobRecordStatus @default(UPLOADED)
+  
+  // Client metadata (flexible JSON for tenant-specific data)
+  metadata          Json?
+  
+  // Timestamps
+  createdAt         DateTime  @default(now())
+  updatedAt         DateTime  @updatedAt
+  
+  // Relationships
+  transcriptRecord  TranscriptRecord?
+  
+  @@map("job_records")
+  @@index([tenantId])
+  @@index([status])
+  @@index([createdAt])
+}
+
+// Enhanced transcript record for Phase 5
+model TranscriptRecord {
+  id                     String       @id @default(cuid())
+  
+  // Job reference
+  jobId                  String       @unique
+  job                    JobRecord    @relation(fields: [jobId], references: [id], onDelete: Cascade)
+  
+  // Display text for web UI (fast database queries)
+  transcriptText         String
+  
+  // S3 storage URLs for different formats
+  s3RawTranscriptUrl     String
+  s3AgentOptimizedUrl    String
+  
+  // Reconciliation metrics
+  confidenceScore        Float
+  wordCount              Int
+  durationSeconds        Int?
+  reconciliationSummary  Json         // JSON summary from Gemini
+  qualityMetrics         Json         // Processing quality data
+  
+  // Audit trail
+  assemblyaiConfidence   Float?
+  googleSpeechConfidence Float?
+  reconciliationReasoning String?
+  
+  // Timestamps
+  createdAt              DateTime     @default(now())
+  
+  @@map("transcript_records")
+  @@index([jobId])
+}
+
+// New enums for Phase 5
+enum JobRecordStatus {
+  UPLOADED
+  TRANSCRIBING
+  RECONCILING
+  COMPLETED
+  FAILED
 }

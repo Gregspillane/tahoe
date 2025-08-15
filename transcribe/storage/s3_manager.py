@@ -8,8 +8,9 @@ import boto3
 import asyncio
 import tempfile
 import logging
+import json
 from pathlib import Path
-from typing import Optional, Tuple
+from typing import Optional, Tuple, Dict
 from botocore.exceptions import ClientError, NoCredentialsError
 from urllib.parse import urlparse
 from datetime import datetime, timedelta
@@ -242,3 +243,261 @@ class S3Manager:
         except Exception as e:
             logger.error(f"Failed to get file info for {s3_url}: {e}")
             return None
+    
+    # Phase 5: Multi-tenant UUID-based storage methods
+    
+    def generate_tenant_uuid_path(self, tenant_id: str, job_uuid: str, filename: str, bucket: str = None) -> str:
+        """
+        Generate S3 path using tenant/UUID structure for Phase 5.
+        
+        Args:
+            tenant_id: Tenant identifier
+            job_uuid: Job UUID identifier
+            filename: Name of the file (e.g., 'raw_transcript.json', 'agent_optimized.json')
+            bucket: S3 bucket name (optional, for full S3 URL)
+            
+        Returns:
+            S3 path or full S3 URL if bucket provided
+        """
+        path = f"{tenant_id}/{job_uuid}/{filename}"
+        
+        if bucket:
+            return f"s3://{bucket}/{path}"
+        
+        return path
+    
+    async def upload_transcript_data(
+        self,
+        bucket: str,
+        tenant_id: str,
+        job_uuid: str,
+        transcript_data: Dict,
+        format_type: str = "raw"
+    ) -> str:
+        """
+        Upload transcript data to S3 with tenant/UUID structure.
+        
+        Args:
+            bucket: S3 bucket name
+            tenant_id: Tenant identifier
+            job_uuid: Job UUID identifier
+            transcript_data: Dictionary data to upload as JSON
+            format_type: Type of format ('raw', 'agent_optimized')
+            
+        Returns:
+            S3 URL of uploaded file
+        """
+        filename = f"{format_type}_transcript.json"
+        s3_path = self.generate_tenant_uuid_path(tenant_id, job_uuid, filename)
+        s3_url = f"s3://{bucket}/{s3_path}"
+        
+        logger.info(f"Uploading {format_type} transcript for job {job_uuid} to {s3_url}")
+        
+        try:
+            # Convert data to JSON
+            json_data = json.dumps(transcript_data, indent=2, default=str)
+            
+            # Upload to S3
+            await asyncio.get_event_loop().run_in_executor(
+                None,
+                lambda: self.s3_client.put_object(
+                    Bucket=bucket,
+                    Key=s3_path,
+                    Body=json_data,
+                    ContentType='application/json',
+                    Metadata={
+                        'tenant_id': tenant_id,
+                        'job_uuid': job_uuid,
+                        'format_type': format_type,
+                        'upload_timestamp': datetime.now().isoformat()
+                    }
+                )
+            )
+            
+            logger.info(f"Successfully uploaded {format_type} transcript: {s3_url}")
+            return s3_url
+            
+        except Exception as e:
+            logger.error(f"Failed to upload {format_type} transcript to {s3_url}: {e}")
+            raise S3ManagerError(f"Upload failed: {str(e)}") from e
+    
+    async def upload_multiple_transcript_formats(
+        self,
+        bucket: str,
+        tenant_id: str,
+        job_uuid: str,
+        raw_transcript: Dict,
+        agent_optimized: Dict
+    ) -> Dict[str, str]:
+        """
+        Upload multiple transcript formats for a single job.
+        
+        Args:
+            bucket: S3 bucket name
+            tenant_id: Tenant identifier
+            job_uuid: Job UUID identifier
+            raw_transcript: Raw transcript data
+            agent_optimized: Agent-optimized transcript data
+            
+        Returns:
+            Dictionary mapping format types to S3 URLs
+        """
+        logger.info(f"Uploading multiple transcript formats for job {job_uuid}")
+        
+        try:
+            # Upload both formats in parallel
+            raw_task = asyncio.create_task(
+                self.upload_transcript_data(bucket, tenant_id, job_uuid, raw_transcript, "raw")
+            )
+            agent_task = asyncio.create_task(
+                self.upload_transcript_data(bucket, tenant_id, job_uuid, agent_optimized, "agent_optimized")
+            )
+            
+            raw_url, agent_url = await asyncio.gather(raw_task, agent_task)
+            
+            result = {
+                "raw_transcript_url": raw_url,
+                "agent_optimized_url": agent_url
+            }
+            
+            logger.info(f"Successfully uploaded all formats for job {job_uuid}: {list(result.keys())}")
+            return result
+            
+        except Exception as e:
+            logger.error(f"Failed to upload multiple formats for job {job_uuid}: {e}")
+            raise S3ManagerError(f"Multi-format upload failed: {str(e)}") from e
+    
+    async def retrieve_transcript_data(self, s3_url: str) -> Dict:
+        """
+        Retrieve and parse transcript data from S3.
+        
+        Args:
+            s3_url: S3 URL to retrieve
+            
+        Returns:
+            Parsed JSON data
+        """
+        logger.info(f"Retrieving transcript data from {s3_url}")
+        
+        try:
+            bucket, key = self.parse_s3_url(s3_url)
+            
+            # Download object
+            response = await asyncio.get_event_loop().run_in_executor(
+                None,
+                lambda: self.s3_client.get_object(Bucket=bucket, Key=key)
+            )
+            
+            # Parse JSON data
+            json_data = response['Body'].read().decode('utf-8')
+            transcript_data = json.loads(json_data)
+            
+            logger.info(f"Successfully retrieved transcript data from {s3_url}")
+            return transcript_data
+            
+        except json.JSONDecodeError as e:
+            logger.error(f"Invalid JSON in transcript file {s3_url}: {e}")
+            raise S3ManagerError(f"JSON parsing failed: {str(e)}") from e
+        except Exception as e:
+            logger.error(f"Failed to retrieve transcript data from {s3_url}: {e}")
+            raise S3ManagerError(f"Retrieval failed: {str(e)}") from e
+    
+    def generate_presigned_download_url(self, s3_url: str, expiration_hours: int = 24) -> str:
+        """
+        Generate presigned URL for transcript download with longer expiration.
+        
+        Args:
+            s3_url: S3 URL to create presigned URL for
+            expiration_hours: URL expiration time in hours (default 24h for transcript access)
+            
+        Returns:
+            Presigned URL string
+        """
+        return self.generate_presigned_url(s3_url, expiration_hours)
+    
+    async def list_tenant_jobs(self, bucket: str, tenant_id: str, limit: int = 100) -> list:
+        """
+        List jobs for a specific tenant from S3.
+        
+        Args:
+            bucket: S3 bucket name
+            tenant_id: Tenant identifier
+            limit: Maximum number of jobs to return
+            
+        Returns:
+            List of job UUIDs for the tenant
+        """
+        logger.info(f"Listing jobs for tenant {tenant_id}")
+        
+        try:
+            # List objects with tenant prefix
+            response = await asyncio.get_event_loop().run_in_executor(
+                None,
+                lambda: self.s3_client.list_objects_v2(
+                    Bucket=bucket,
+                    Prefix=f"{tenant_id}/",
+                    Delimiter="/",
+                    MaxKeys=limit
+                )
+            )
+            
+            # Extract job UUIDs from prefixes
+            job_uuids = []
+            for prefix in response.get('CommonPrefixes', []):
+                # Extract UUID from prefix like "tenant_id/uuid/"
+                parts = prefix['Prefix'].rstrip('/').split('/')
+                if len(parts) >= 2:
+                    job_uuids.append(parts[1])
+            
+            logger.info(f"Found {len(job_uuids)} jobs for tenant {tenant_id}")
+            return job_uuids
+            
+        except Exception as e:
+            logger.error(f"Failed to list jobs for tenant {tenant_id}: {e}")
+            raise S3ManagerError(f"Job listing failed: {str(e)}") from e
+    
+    async def delete_job_data(self, bucket: str, tenant_id: str, job_uuid: str) -> bool:
+        """
+        Delete all data for a specific job.
+        
+        Args:
+            bucket: S3 bucket name
+            tenant_id: Tenant identifier
+            job_uuid: Job UUID identifier
+            
+        Returns:
+            True if deletion successful
+        """
+        logger.info(f"Deleting job data for {tenant_id}/{job_uuid}")
+        
+        try:
+            # List all objects for this job
+            prefix = f"{tenant_id}/{job_uuid}/"
+            response = await asyncio.get_event_loop().run_in_executor(
+                None,
+                lambda: self.s3_client.list_objects_v2(Bucket=bucket, Prefix=prefix)
+            )
+            
+            # Delete all objects
+            objects_to_delete = []
+            for obj in response.get('Contents', []):
+                objects_to_delete.append({'Key': obj['Key']})
+            
+            if objects_to_delete:
+                await asyncio.get_event_loop().run_in_executor(
+                    None,
+                    lambda: self.s3_client.delete_objects(
+                        Bucket=bucket,
+                        Delete={'Objects': objects_to_delete}
+                    )
+                )
+                
+                logger.info(f"Deleted {len(objects_to_delete)} objects for job {job_uuid}")
+            else:
+                logger.info(f"No objects found for job {job_uuid}")
+            
+            return True
+            
+        except Exception as e:
+            logger.error(f"Failed to delete job data for {job_uuid}: {e}")
+            return False
