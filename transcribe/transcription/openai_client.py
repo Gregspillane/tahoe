@@ -114,7 +114,7 @@ class OpenAIClient:
                     # Transcription parameters
                     data = {
                         'model': self.model,
-                        'response_format': 'verbose_json',  # Include timestamps and confidence
+                        'response_format': 'verbose_json',  # Use verbose_json for complete data
                         'timestamp_granularities[]': ['word', 'segment'],  # Word and segment level timestamps
                         'language': None,  # Auto-detect language
                     }
@@ -145,6 +145,9 @@ class OpenAIClient:
         
         # Extract core transcript
         transcript_text = transcript_data.get("text", "")
+        
+        logger.debug(f"OpenAI transcript data keys: {list(transcript_data.keys())}")
+        logger.debug(f"Transcript text length: {len(transcript_text)} chars")
         
         # Extract segments with timestamps
         segments = []
@@ -188,27 +191,29 @@ class OpenAIClient:
         if segments_data:
             duration = max(seg.get("end", 0) for seg in segments_data)
         
-        # Format result to match the expected provider structure
+        # Standardized result format to match AssemblyAI structure
         result = {
+            "provider": "openai",
             "job_id": job_id,
             "audio_url": audio_url,
-            "provider": "openai",
+            "text": transcript_text,  # Use 'text' key for consistency with AssemblyAI
+            "transcript": transcript_text,  # Keep both for compatibility
+            "confidence": confidence,
+            "duration": duration,
+            "word_count": len(transcript_text.split()) if transcript_text else 0,
+            "words": words,
+            "segments": segments,
             "model": self.model,
             "language": transcript_data.get("language", "en"),
             "status": "completed",
-            "transcript": transcript_text,
-            "confidence": confidence,
-            "words": words,
-            "segments": segments,
-            "word_count": len(transcript_text.split()) if transcript_text else 0,
-            "duration": duration,
             "metadata": {
                 "processing_time": datetime.utcnow().isoformat(),
                 "model_version": self.model,
                 "api_version": "v1",
                 "language": transcript_data.get("language"),
                 "task": transcript_data.get("task", "transcribe")
-            }
+            },
+            "raw_response": transcript_data  # Keep full response for debugging
         }
         
         logger.info(f"Formatted OpenAI result for job {job_id}: {len(transcript_text)} chars, {confidence:.2f} confidence")

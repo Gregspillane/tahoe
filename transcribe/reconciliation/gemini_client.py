@@ -205,11 +205,12 @@ class GeminiClient:
                                 "speaker": f"Speaker {i % 2}",  # Simple speaker assignment
                                 "provider": provider_name
                             })
-                elif "transcript" in provider_result:
-                    # Fallback to full transcript
+                elif "text" in provider_result or "transcript" in provider_result:
+                    # Fallback to full transcript text
+                    text = provider_result.get("text") or provider_result.get("transcript", "")
                     segments.append({
                         "index": 0,
-                        "text": provider_result["transcript"],
+                        "text": text,
                         "confidence": provider_result.get("confidence", 0.0),
                         "start": 0,
                         "end": 0,
@@ -256,17 +257,17 @@ class GeminiClient:
                 logger.error(f"Failed to reconcile segment {segment_pair['index']} for job {job_id}: {e}")
                 # Create fallback decision
                 assemblyai_text = segment_pair.get("assemblyai", {}).get("text", "") if segment_pair.get("assemblyai") else ""
-                google_text = segment_pair.get("google_speech", {}).get("text", "") if segment_pair.get("google_speech") else ""
+                openai_text = segment_pair.get("openai", {}).get("text", "") if segment_pair.get("openai") else ""
                 
                 decisions.append(ReconciliationDecision(
                     segment_index=segment_pair["index"],
-                    chosen_text=assemblyai_text or google_text,
-                    chosen_provider="assemblyai" if assemblyai_text else "google_speech",
+                    chosen_text=assemblyai_text or openai_text,
+                    chosen_provider="assemblyai" if assemblyai_text else "openai",
                     confidence_score=0.5,
                     reasoning="Fallback due to reconciliation error",
                     discrepancies_found=["reconciliation_error"],
                     original_assemblyai=assemblyai_text,
-                    original_google=google_text
+                    original_openai=openai_text
                 ))
         
         return decisions
@@ -274,30 +275,30 @@ class GeminiClient:
     async def _reconcile_segment_pair(self, job_id: str, segment_pair: Dict) -> ReconciliationDecision:
         """Reconcile a single segment pair using Gemini reasoning."""
         assemblyai_segment = segment_pair.get("assemblyai")
-        google_segment = segment_pair.get("google_speech")
+        openai_segment = segment_pair.get("openai")
         
         assemblyai_text = assemblyai_segment.get("text", "") if assemblyai_segment else ""
-        google_text = google_segment.get("text", "") if google_segment else ""
+        openai_text = openai_segment.get("text", "") if openai_segment else ""
         assemblyai_confidence = assemblyai_segment.get("confidence", 0.0) if assemblyai_segment else 0.0
-        google_confidence = google_segment.get("confidence", 0.0) if google_segment else 0.0
+        openai_confidence = openai_segment.get("confidence", 0.0) if openai_segment else 0.0
         
         # If texts are identical, no reconciliation needed
-        if assemblyai_text.strip().lower() == google_text.strip().lower():
+        if assemblyai_text.strip().lower() == openai_text.strip().lower():
             return ReconciliationDecision(
                 segment_index=segment_pair["index"],
                 chosen_text=assemblyai_text,
                 chosen_provider="both_agree",
-                confidence_score=max(assemblyai_confidence, google_confidence),
+                confidence_score=max(assemblyai_confidence, openai_confidence),
                 reasoning="Both providers produced identical text",
                 discrepancies_found=[],
                 original_assemblyai=assemblyai_text,
-                original_google=google_text
+                original_openai=openai_text
             )
         
         # Build reconciliation prompt
         prompt = self._build_reconciliation_prompt(
-            assemblyai_text, google_text,
-            assemblyai_confidence, google_confidence,
+            assemblyai_text, openai_text,
+            assemblyai_confidence, openai_confidence,
             segment_pair["index"]
         )
         
@@ -313,7 +314,7 @@ class GeminiClient:
                 response.text, 
                 segment_pair["index"],
                 assemblyai_text,
-                google_text
+                openai_text
             )
             
             return decision
@@ -325,9 +326,9 @@ class GeminiClient:
     def _build_reconciliation_prompt(
         self, 
         assemblyai_text: str, 
-        google_text: str,
+        openai_text: str,
         assemblyai_confidence: float,
-        google_confidence: float,
+        openai_confidence: float,
         segment_index: int
     ) -> str:
         """Build a structured prompt for Gemini reconciliation."""
@@ -340,9 +341,9 @@ class GeminiClient:
 Text: "{assemblyai_text}"
 Confidence: {assemblyai_confidence:.3f}
 
-**Google Speech Result:**
-Text: "{google_text}"
-Confidence: {google_confidence:.3f}
+**OpenAI Result:**
+Text: "{openai_text}"
+Confidence: {openai_confidence:.3f}
 
 **Your Task:**
 1. Compare both transcripts carefully for accuracy, grammar, and context
@@ -355,7 +356,7 @@ Confidence: {google_confidence:.3f}
 ```json
 {{
     "chosen_text": "final chosen or reconciled text",
-    "chosen_provider": "assemblyai|google_speech|reconciled",
+    "chosen_provider": "assemblyai|openai|reconciled",
     "confidence_score": 0.95,
     "reasoning": "detailed explanation of why this choice was made",
     "discrepancies_found": ["specific difference 1", "specific difference 2"],
@@ -378,7 +379,7 @@ Provide only the JSON response, no other text."""
         response_text: str, 
         segment_index: int,
         original_assemblyai: str,
-        original_google: str
+        original_openai: str
     ) -> ReconciliationDecision:
         """Parse Gemini's structured JSON response into a ReconciliationDecision."""
         
@@ -401,7 +402,7 @@ Provide only the JSON response, no other text."""
                 reasoning=parsed.get("reasoning", "No reasoning provided"),
                 discrepancies_found=parsed.get("discrepancies_found", []),
                 original_assemblyai=original_assemblyai,
-                original_google=original_google
+                original_openai=original_openai
             )
             
         except (json.JSONDecodeError, ValueError, KeyError) as e:
@@ -411,13 +412,13 @@ Provide only the JSON response, no other text."""
             # Return fallback decision
             return ReconciliationDecision(
                 segment_index=segment_index,
-                chosen_text=original_assemblyai or original_google,
-                chosen_provider="assemblyai" if original_assemblyai else "google_speech",
+                chosen_text=original_assemblyai or original_openai,
+                chosen_provider="assemblyai" if original_assemblyai else "openai",
                 confidence_score=0.5,
                 reasoning="Failed to parse Gemini response, using fallback",
                 discrepancies_found=["parse_error"],
                 original_assemblyai=original_assemblyai,
-                original_google=original_google
+                original_openai=original_openai
             )
     
     def _assemble_final_transcript(self, decisions: List[ReconciliationDecision]) -> str:

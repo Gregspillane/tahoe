@@ -150,3 +150,19 @@ memory-bank/
 
 # Local development files
 docker-compose.override.yml
+
+# Local development files
+.mp3
+.wav
+
+# Build artifacts
+build.log
+*.log
+
+# Service account credentials (keep secure)
+credentials/
+service-account-key.json
+
+# Temporary files
+temp/
+tmp/

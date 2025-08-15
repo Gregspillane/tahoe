@@ -133,18 +133,12 @@ class TranscriptionReconciler:
         # Extract text from provider result
         if provider_name == "assemblyai":
             transcript_text = provider_result.get("text", "")
-        elif provider_name == "google_speech":
-            # Google Speech may have different structure
-            if "results" in provider_result and provider_result["results"]:
-                transcript_text = " ".join([
-                    result["alternatives"][0]["transcript"] 
-                    for result in provider_result["results"] 
-                    if result.get("alternatives")
-                ])
-            else:
-                transcript_text = provider_result.get("transcript", "")
+        elif provider_name == "openai":
+            # OpenAI structure
+            transcript_text = provider_result.get("text", "") or provider_result.get("transcript", "")
         else:
-            transcript_text = str(provider_result)
+            # Generic fallback
+            transcript_text = provider_result.get("text", "") or provider_result.get("transcript", "") or str(provider_result)
         
         return {
             "job_id": job_id,
@@ -192,7 +186,7 @@ class TranscriptionReconciler:
                 "discrepancies_found": total_discrepancies,
                 "segments_reconciled": reconciled_segments,
                 "segments_from_assemblyai": sum(1 for d in reconciliation_result.decisions if d.chosen_provider == "assemblyai"),
-                "segments_from_google": sum(1 for d in reconciliation_result.decisions if d.chosen_provider == "google_speech"),
+                "segments_from_openai": sum(1 for d in reconciliation_result.decisions if d.chosen_provider == "openai"),
                 "segments_agreed": sum(1 for d in reconciliation_result.decisions if d.chosen_provider == "both_agree")
             },
             
@@ -206,7 +200,7 @@ class TranscriptionReconciler:
                         "reasoning": decision.reasoning,
                         "discrepancies_found": decision.discrepancies_found,
                         "original_assemblyai": decision.original_assemblyai,
-                        "original_google": decision.original_google
+                        "original_openai": decision.original_openai
                     }
                     for decision in reconciliation_result.decisions
                 ],
@@ -237,13 +231,11 @@ class TranscriptionReconciler:
                         fallback_text = result["text"]
                         fallback_provider = provider_name
                         break
-                    elif provider_name == "google_speech":
-                        if "results" in result and result["results"]:
-                            fallback_text = " ".join([
-                                res["alternatives"][0]["transcript"] 
-                                for res in result["results"] 
-                                if res.get("alternatives")
-                            ])
+                    elif provider_name == "openai":
+                        # OpenAI structure
+                        text = result.get("text") or result.get("transcript", "")
+                        if text:
+                            fallback_text = text
                             fallback_provider = provider_name
                             break
         except Exception as e:
@@ -302,7 +294,7 @@ class TranscriptionReconciler:
                 
                 "provider_contribution": {
                     "assemblyai_segments": metadata.get("segments_from_assemblyai", 0),
-                    "google_segments": metadata.get("segments_from_google", 0),
+                    "openai_segments": metadata.get("segments_from_openai", 0),
                     "reconciled_segments": metadata.get("segments_reconciled", 0),
                     "agreed_segments": metadata.get("segments_agreed", 0)
                 },
@@ -345,12 +337,12 @@ class TranscriptionReconciler:
             
             # Provider performance recommendations
             assemblyai_segments = metadata.get("segments_from_assemblyai", 0)
-            google_segments = metadata.get("segments_from_google", 0)
+            openai_segments = metadata.get("segments_from_openai", 0)
             
-            if assemblyai_segments > google_segments * 2:
+            if assemblyai_segments > openai_segments * 2:
                 recommendations.append("AssemblyAI performed significantly better")
-            elif google_segments > assemblyai_segments * 2:
-                recommendations.append("Google Speech performed significantly better")
+            elif openai_segments > assemblyai_segments * 2:
+                recommendations.append("OpenAI performed significantly better")
             else:
                 recommendations.append("Both providers contributed roughly equally")
             

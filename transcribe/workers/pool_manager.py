@@ -297,7 +297,7 @@ class WorkerPoolManager:
             
             if not successful_providers:
                 # Both providers failed
-                raise Exception("Both AssemblyAI and Google Speech transcription failed")
+                raise Exception("Both AssemblyAI and OpenAI transcription failed")
             
             # Generate S3 URL for combined results
             results["s3_url"] = f"s3://transcripts/{job_id}/combined.json"

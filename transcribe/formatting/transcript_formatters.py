@@ -358,11 +358,11 @@ class TranscriptFormatter:
                 if "audio_duration" in result:
                     return int(result["audio_duration"])
             
-            # Check Google Speech
-            google_data = providers.get("google_speech", {})
-            if google_data.get("status") == "completed":
-                result = google_data.get("result", {})
-                # Google Speech may store duration differently
+            # Check OpenAI
+            openai_data = providers.get("openai", {})
+            if openai_data.get("status") == "completed":
+                result = openai_data.get("result", {})
+                # OpenAI may store duration differently
                 if "duration" in result:
                     return int(result["duration"])
             
