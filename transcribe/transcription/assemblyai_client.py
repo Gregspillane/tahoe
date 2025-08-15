@@ -207,7 +207,7 @@ class AssemblyAIClient:
         
         # Extract speaker diarization
         speakers = []
-        utterances = transcript_data.get("utterances", [])
+        utterances = transcript_data.get("utterances", []) or []
         for utterance in utterances:
             speakers.append({
                 "speaker": utterance.get("speaker"),
@@ -219,7 +219,7 @@ class AssemblyAIClient:
         
         # Extract words with timestamps
         words = []
-        word_data = transcript_data.get("words", [])
+        word_data = transcript_data.get("words", []) or []
         for word in word_data:
             words.append({
                 "text": word.get("text"),
@@ -231,7 +231,7 @@ class AssemblyAIClient:
         
         # Extract chapters/topics
         chapters = []
-        chapter_data = transcript_data.get("chapters", [])
+        chapter_data = transcript_data.get("chapters", []) or []
         for chapter in chapter_data:
             chapters.append({
                 "gist": chapter.get("gist"),

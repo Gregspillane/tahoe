@@ -25,7 +25,11 @@ class Settings(BaseSettings):
     
     # Transcription Service API Keys
     assemblyai_api_key: str = Field(..., env="ASSEMBLYAI_API_KEY")
-    openai_api_key: str = Field(..., env="OPENAI_API_KEY")
+    
+    # Google Cloud Configuration
+    google_project_id: str = Field(..., env="GOOGLE_PROJECT_ID")
+    google_api_key: Optional[str] = Field(None, env="GOOGLE_API_KEY")
+    google_application_credentials: Optional[str] = Field(None, env="GOOGLE_APPLICATION_CREDENTIALS")
     
     # Service Authentication
     service_auth_token: str = Field(..., env="SERVICE_AUTH_TOKEN")
@@ -36,9 +40,9 @@ class Settings(BaseSettings):
     max_retries: int = Field(default=3, env="MAX_RETRIES")
     job_timeout: int = Field(default=1800, env="JOB_TIMEOUT")  # 30 minutes
     
-    # OpenAI Model Configuration
-    openai_model_transcribe: str = Field(default="gpt-4o-transcribe", env="OPENAI_MODEL_TRANSCRIBE")
-    openai_model_reasoning: str = Field(default="gpt-5-mini-2025-08-07", env="OPENAI_MODEL_REASONING")
+    # Google Cloud Speech Configuration
+    google_speech_model: str = Field(default="chirp_2", env="GOOGLE_SPEECH_MODEL")
+    google_language_code: str = Field(default="en-US", env="GOOGLE_LANGUAGE_CODE")
     
     # Service Configuration
     log_level: str = Field(default="INFO", env="LOG_LEVEL")

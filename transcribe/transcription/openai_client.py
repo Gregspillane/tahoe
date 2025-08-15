@@ -10,6 +10,7 @@ from datetime import datetime
 import httpx
 import os
 from pathlib import Path
+from storage.s3_helper import S3Helper
 
 logger = logging.getLogger(__name__)
 
