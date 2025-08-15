@@ -24,8 +24,8 @@ class WorkerPoolManager:
         job_manager, 
         assemblyai_api_key: str, 
         google_project_id: str,
-        google_api_key: Optional[str],
         google_credentials_path: Optional[str],
+        google_api_key: Optional[str],
         google_model: str,
         google_language_code: str,
         aws_access_key_id: str,
@@ -43,8 +43,8 @@ class WorkerPoolManager:
         self.assemblyai_client = AssemblyAIClient(assemblyai_api_key)
         self.google_client = GoogleSpeechClient(
             project_id=google_project_id,
-            api_key=google_api_key,
             credentials_path=google_credentials_path,
+            api_key=google_api_key,
             model=google_model,
             language_code=google_language_code
         )
