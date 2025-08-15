@@ -1,0 +1,52 @@
+services:
+  # PostgreSQL Database - Shared across all Tahoe services
+  postgres:
+    image: postgres:15-alpine
+    container_name: tahoe-postgres
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB:-tahoe}
+      POSTGRES_USER: ${POSTGRES_USER:-tahoe_user}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-tahoe_pass}
+    ports:
+      - "${POSTGRES_PORT:-5432}:5432"
+    volumes:
+      - tahoe_postgres_data:/var/lib/postgresql/data
+      - ./init.sql:/docker-entrypoint-initdb.d/init.sql:ro
+    networks:
+      - tahoe-network
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-tahoe_user} -d ${POSTGRES_DB:-tahoe}"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+
+  # Redis - Shared across all Tahoe services  
+  redis:
+    image: redis:7-alpine
+    container_name: tahoe-redis
+    ports:
+      - "${REDIS_PORT:-6379}:6379"
+    volumes:
+      - tahoe_redis_data:/data
+    networks:
+      - tahoe-network
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+
+networks:
+  tahoe-network:
+    name: tahoe-network
+    driver: bridge
+
+volumes:
+  tahoe_postgres_data:
+    driver: local
+    name: tahoe_postgres_data
+  tahoe_redis_data:
+    driver: local
+    name: tahoe_redis_data

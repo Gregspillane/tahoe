@@ -4,16 +4,18 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Essential Development Commands
 
-### Service Management
+### Service Management (Updated for Shared Infrastructure)
 ```bash
-# Start dependencies (PostgreSQL and Redis)
-docker-compose up -d postgres redis
+# Start shared infrastructure first (from project root)
+cd ../infrastructure && docker-compose up -d
 
-# Start main service with auto-reload
-python main.py
+# Start transcription service
+docker-compose up -d
 
-# Full Docker stack
-docker-compose up
+# Or use root-level convenience commands:
+# make infra-up      (start infrastructure)
+# make transcribe-up (start transcription service)
+# make all-up        (start everything)
 
 # Run tests
 pytest tests/
@@ -24,16 +26,19 @@ isort .
 mypy .
 ```
 
-### Database Operations
+### Database Operations (Shared Infrastructure)
 ```bash
 # Generate Prisma client
 prisma generate
 
-# Apply database migrations
+# Apply database migrations (uses shared tahoe database)
 prisma db push
 
 # Reset database (development only)
 prisma db push --force-reset
+
+# Direct database access
+docker exec -it tahoe-postgres psql -U tahoe_user -d tahoe
 ```
 
 ### Testing API Endpoints

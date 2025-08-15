@@ -1,55 +1,14 @@
-version: '3.8'
-
 services:
-  # PostgreSQL Database
-  postgres:
-    image: postgres:15-alpine
-    container_name: transcription_postgres
-    environment:
-      POSTGRES_DB: transcription
-      POSTGRES_USER: transcription_user
-      POSTGRES_PASSWORD: transcription_pass
-    ports:
-      - "5433:5432"
-    volumes:
-      - postgres_data:/var/lib/postgresql/data
-      - ./init.sql:/docker-entrypoint-initdb.d/init.sql:ro
-    networks:
-      - transcription_network
-    restart: unless-stopped
-    healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U transcription_user -d transcription"]
-      interval: 30s
-      timeout: 10s
-      retries: 5
-
-  # Redis for Queue Management
-  redis:
-    image: redis:7-alpine
-    container_name: transcription_redis
-    ports:
-      - "6379:6379"
-    volumes:
-      - redis_data:/data
-    networks:
-      - transcription_network
-    restart: unless-stopped
-    healthcheck:
-      test: ["CMD", "redis-cli", "ping"]
-      interval: 30s
-      timeout: 10s
-      retries: 5
-
   # Main Transcription Service
-  transcription_service:
+  app:
     build: .
     container_name: transcription_app
     ports:
       - "9100:9100"  # Main API
       - "9101:9101"  # Admin/monitoring
     environment:
-      - DATABASE_URL=postgresql://transcription_user:transcription_pass@postgres:5432/transcription
-      - REDIS_URL=redis://redis:6379
+      - DATABASE_URL=postgresql://tahoe_user:tahoe_pass@tahoe-postgres:5432/tahoe
+      - REDIS_URL=redis://tahoe-redis:6379
       - AWS_ACCESS_KEY_ID=${AWS_ACCESS_KEY_ID}
       - AWS_SECRET_ACCESS_KEY=${AWS_SECRET_ACCESS_KEY}
       - AWS_REGION=${AWS_REGION:-us-east-1}
@@ -73,12 +32,7 @@ services:
       - ./logs:/app/logs
       - ./.env:/app/.env:ro
     networks:
-      - transcription_network
-    depends_on:
-      postgres:
-        condition: service_healthy
-      redis:
-        condition: service_healthy
+      - tahoe-network
     restart: unless-stopped
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:9100/health"]
@@ -87,11 +41,5 @@ services:
       retries: 5
 
 networks:
-  transcription_network:
-    driver: bridge
-
-volumes:
-  postgres_data:
-    driver: local
-  redis_data:
-    driver: local
+  tahoe-network:
+    external: true
