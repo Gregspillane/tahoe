@@ -1,5 +1,5 @@
 # Tahoe Project Management Makefile
-.PHONY: help infra-up infra-down infra-logs infra-status transcribe-up transcribe-down transcribe-logs all-up all-down clean reset test
+.PHONY: help infra-up infra-down infra-logs infra-status transcribe-up transcribe-down transcribe-logs platform-up platform-down platform-logs platform-restart platform-status all-up all-down clean reset test
 
 # Default target
 help:
@@ -15,9 +15,14 @@ help:
 	@echo "  transcribe-up     Start transcription service"
 	@echo "  transcribe-down   Stop transcription service"
 	@echo "  transcribe-logs   View transcription service logs"
+	@echo "  platform-up       Start platform service"
+	@echo "  platform-down     Stop platform service"
+	@echo "  platform-logs     View platform service logs"
+	@echo "  platform-restart  Restart platform service"
+	@echo "  platform-status   Check platform service status"
 	@echo ""
 	@echo "Combined Commands:"
-	@echo "  all-up            Start infrastructure + transcription service"
+	@echo "  all-up            Start infrastructure + all services"
 	@echo "  all-down          Stop all services"
 	@echo ""
 	@echo "Maintenance Commands:"
@@ -59,23 +64,39 @@ transcribe-down:
 transcribe-logs:
 	cd transcribe && docker-compose logs -f
 
-# Combined commands
-all-up: infra-up
-	@echo "Infrastructure is up, starting transcription service..."
-	@sleep 5
-	$(MAKE) transcribe-up
+# Platform Service Commands
+platform-up:
+	cd platform && docker-compose up -d
 
-all-down: transcribe-down infra-down
+platform-down:
+	cd platform && docker-compose down
+
+platform-logs:
+	cd platform && docker-compose logs -f
+
+platform-restart:
+	cd platform && docker-compose restart
+
+platform-status:
+	@echo "Platform Service Status:"
+	@curl -s http://localhost:9200/health || echo "Platform service not responding"
+
+# Combined commands
+all-up: infra-up platform-up transcribe-up
+	@echo "All services started"
+
+all-down: transcribe-down platform-down infra-down
 	@echo "All services stopped"
 
 # Maintenance commands
-clean: transcribe-down infra-down
+clean: transcribe-down platform-down infra-down
 	@echo "Removing containers (keeping volumes)..."
 	cd transcribe && docker-compose rm -f
+	cd platform && docker-compose rm -f
 	cd infrastructure && docker-compose rm -f
 	@echo "Cleanup complete"
 
-reset: transcribe-down
+reset: transcribe-down platform-down
 	@echo "WARNING: This will destroy all data!"
 	@read -p "Are you sure? (y/N): " confirm && [ "$$confirm" = "y" ] || exit 1
 	cd infrastructure && docker-compose down -v
@@ -90,4 +111,6 @@ test:
 	docker exec tahoe-redis redis-cli ping || echo "Redis connection failed"
 	@echo "Testing transcription service..."
 	curl -s http://localhost:9100/health || echo "Transcription service not responding"
+	@echo "Testing platform service..."
+	curl -s http://localhost:9200/health || echo "Platform service not responding"
 	@echo "Tests complete"
