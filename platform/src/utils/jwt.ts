@@ -1,6 +1,7 @@
 import jwt from 'jsonwebtoken';
 import { JWTPayload } from '../types';
 import { UserRole } from '@prisma/client';
+import { getRolePermissions, Permission } from './permissions';
 
 const JWT_SECRET = process.env.JWT_SECRET || 'your-256-bit-secret';
 const JWT_EXPIRY = process.env.JWT_EXPIRY || '3600';
@@ -16,10 +17,13 @@ export function generateTokens(
   userId: string,
   tenantId: string,
   role: UserRole,
-  permissions: string[] = []
+  customPermissions?: Permission[]
 ): TokenPair {
   const now = Math.floor(Date.now() / 1000);
   const expiresIn = parseInt(JWT_EXPIRY);
+  
+  // Use custom permissions or derive from role
+  const permissions = customPermissions || getRolePermissions(role);
   
   const accessPayload: JWTPayload = {
     sub: userId,

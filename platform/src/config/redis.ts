@@ -138,6 +138,27 @@ class RedisClient {
     await this.client.del(cacheKey);
   }
 
+  // Raw Redis methods for rate limiting
+  async incr(key: string): Promise<number> {
+    return this.client.incr(key);
+  }
+
+  async expire(key: string, seconds: number): Promise<number> {
+    return this.client.expire(key, seconds);
+  }
+
+  async keys(pattern: string): Promise<string[]> {
+    return this.client.keys(pattern);
+  }
+
+  async del(...keys: string[]): Promise<number> {
+    return this.client.del(...keys);
+  }
+
+  async pipeline() {
+    return this.client.pipeline();
+  }
+
   // Health check
   async ping(): Promise<string> {
     return this.client.ping();

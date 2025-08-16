@@ -220,6 +220,63 @@ RUN apk add --no-cache openssl libc6-compat
 - Connection management with proper error handling
 - Session storage, rate limiting, and cache functionality
 
+### Decision: Permission System Architecture
+**Date**: August 16, 2025  
+**Context**: Need granular authorization system beyond simple role-based access control.
+
+**Decision**: Implement comprehensive permission-based authorization with role mappings and multiple validation middleware.
+
+**Rationale**:
+- **Flexibility**: Granular permissions allow fine-tuned access control
+- **Role Mapping**: Roles automatically grant appropriate permission sets
+- **API Keys**: Different permission scopes for programmatic access
+- **Middleware Variants**: Support single, any, or all permission requirements
+- **Future-Proof**: Easy to add new permissions without role changes
+
+**Implementation**:
+- Central permission definitions in `PERMISSIONS` constant
+- Role-to-permission mapping in `ROLE_PERMISSIONS`
+- Multiple middleware: `requirePermission`, `requireAnyPermission`, `requireAllPermissions`
+- API key permission validation and defaults based on creator role
+
+### Decision: API Key Security Model
+**Date**: August 16, 2025  
+**Context**: Need secure API key system for service-to-service and programmatic access.
+
+**Decision**: Use bcrypt-hashed API keys with structured format and permission scoping.
+
+**Rationale**:
+- **Security**: bcrypt hashing prevents key recovery from database
+- **Format**: Structured `sk_prefix_secret` format for easy identification
+- **Permissions**: Keys scoped to specific permissions, not full role access
+- **Tracking**: Last used timestamps and expiration support
+- **Revocation**: Database-based revocation with Redis cache invalidation
+
+**Implementation**:
+- Format: `sk_[8-hex-chars]_[64-hex-chars]`
+- bcrypt cost factor 12 for hashing
+- Permission arrays stored as JSON in database
+- Automatic last-used tracking on authentication
+
+### Decision: Rate Limiting Strategy
+**Date**: August 16, 2025  
+**Context**: Need comprehensive rate limiting to prevent abuse while maintaining performance.
+
+**Decision**: Implement Redis-based sliding window rate limiting with multiple strategies.
+
+**Rationale**:
+- **Performance**: Redis provides fast counter operations
+- **Flexibility**: Multiple strategies (tenant, user, IP, auth attempts)
+- **Resilience**: Graceful degradation when Redis fails
+- **Standards**: Proper HTTP headers and 429 responses
+- **Cleanup**: Automatic expiration prevents Redis bloat
+
+**Implementation**:
+- Sliding window counters with automatic expiration
+- Multiple preconfigured limiters for different use cases
+- Middleware with configurable key generators
+- Cleanup utility for expired keys
+
 ### Decision: Database Access Pattern
 **Date**: August 15, 2025  
 **Context**: Need consistent database access across controllers while maintaining proper initialization.

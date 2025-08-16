@@ -1,5 +1,6 @@
-import { PrismaClient, ApiKey } from '@prisma/client';
+import { PrismaClient, ApiKey, Prisma } from '@prisma/client';
 import { ApiKeyRequest, PaginationParams } from '../types';
+import { Permission } from '../utils/permissions';
 
 export class ApiKeyRepository {
   constructor(private prisma: PrismaClient) {}
@@ -45,14 +46,62 @@ export class ApiKeyRepository {
         name: data.name,
         keyHash,
         keyPrefix,
-        permissions: data.permissions,
+        permissions: data.permissions as Prisma.JsonArray,
         expiresAt: data.expiresAt || null,
       },
       include: {
-        tenant: true,
-        user: true,
+        tenant: {
+          select: {
+            id: true,
+            name: true,
+            slug: true,
+          },
+        },
+        user: {
+          select: {
+            id: true,
+            email: true,
+            firstName: true,
+            lastName: true,
+          },
+        },
       },
     });
+  }
+
+  async update(
+    keyId: string,
+    tenantId: string,
+    data: Partial<{ name: string; permissions: Permission[]; expiresAt: Date | null }>
+  ): Promise<ApiKey | null> {
+    try {
+      return await this.prisma.apiKey.update({
+        where: {
+          id: keyId,
+          tenantId,
+          revokedAt: null,
+        },
+        data: {
+          ...data,
+          ...(data.permissions && { permissions: data.permissions as Prisma.JsonArray }),
+        },
+        include: {
+          user: {
+            select: {
+              id: true,
+              email: true,
+              firstName: true,
+              lastName: true,
+            },
+          },
+        },
+      });
+    } catch (error) {
+      if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === 'P2025') {
+        return null;
+      }
+      throw error;
+    }
   }
 
   async updateLastUsed(keyId: string): Promise<ApiKey> {
@@ -73,29 +122,44 @@ export class ApiKeyRepository {
     });
   }
 
-  async findByTenant(tenantId: string, params: PaginationParams = {}): Promise<ApiKey[]> {
+  async findByTenant(
+    tenantId: string, 
+    params: PaginationParams = {}
+  ): Promise<{ apiKeys: ApiKey[]; total: number; page: number; totalPages: number }> {
     const { page = 1, limit = 10, sortBy = 'createdAt', sortOrder = 'desc' } = params;
     const skip = (page - 1) * limit;
 
-    return this.prisma.apiKey.findMany({
-      where: {
-        tenantId,
-        revokedAt: null,
-      },
-      skip,
-      take: limit,
-      orderBy: { [sortBy]: sortOrder },
-      include: {
-        user: {
-          select: {
-            id: true,
-            email: true,
-            firstName: true,
-            lastName: true,
+    const where: Prisma.ApiKeyWhereInput = {
+      tenantId,
+      revokedAt: null,
+    };
+
+    const [apiKeys, total] = await Promise.all([
+      this.prisma.apiKey.findMany({
+        where,
+        skip,
+        take: limit,
+        orderBy: { [sortBy]: sortOrder },
+        include: {
+          user: {
+            select: {
+              id: true,
+              email: true,
+              firstName: true,
+              lastName: true,
+            },
           },
         },
-      },
-    });
+      }),
+      this.prisma.apiKey.count({ where }),
+    ]);
+
+    return {
+      apiKeys,
+      total,
+      page,
+      totalPages: Math.ceil(total / limit),
+    };
   }
 
   async countByTenant(tenantId: string): Promise<number> {

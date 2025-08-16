@@ -6,7 +6,12 @@ import dotenv from 'dotenv';
 import { initializeDatabase, connectDatabase } from './config/database';
 import { redisClient } from './config/redis';
 import { AuthController } from './controllers/auth.controller';
-import { requireAuthentication, validateInternalServiceToken } from './middleware/auth';
+import { ApiKeyController } from './controllers/apikey.controller';
+import { requireAuthentication, validateInternalServiceToken, requirePermission } from './middleware/auth';
+import { enhanceTenantContext } from './middleware/tenantContext';
+import { globalRateLimit, tenantRateLimit } from './middleware/rateLimit';
+import { trackApiUsage } from './utils/usageTracking';
+import { PERMISSIONS } from './utils/permissions';
 import { logger } from './utils/logger';
 
 dotenv.config();
@@ -14,12 +19,17 @@ dotenv.config();
 const app = express();
 const PORT = process.env.PORT || 9200;
 const authController = new AuthController();
+const apiKeyController = new ApiKeyController();
 
 app.use(helmet());
 app.use(cors());
 app.use(morgan('combined'));
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
+
+// Global middleware
+app.use(trackApiUsage());
+app.use(globalRateLimit.middleware());
 
 app.get('/health', (req, res) => {
   res.json({
@@ -37,6 +47,7 @@ app.get('/', (req, res) => {
     endpoints: {
       health: '/health',
       auth: '/api/v1/auth',
+      apiKeys: '/api/v1/api-keys',
     },
   });
 });
@@ -47,6 +58,14 @@ app.post('/api/v1/auth/logout', requireAuthentication, authController.logout.bin
 app.post('/api/v1/auth/refresh', authController.refresh.bind(authController));
 app.post('/api/v1/auth/validate', validateInternalServiceToken, authController.validate.bind(authController));
 app.get('/api/v1/auth/me', requireAuthentication, authController.me.bind(authController));
+
+// API Key routes
+app.use('/api/v1/api-keys', requireAuthentication, enhanceTenantContext, tenantRateLimit.middleware());
+app.post('/api/v1/api-keys', requirePermission(PERMISSIONS.API_KEY_CREATE), apiKeyController.createApiKey.bind(apiKeyController));
+app.get('/api/v1/api-keys', requirePermission(PERMISSIONS.API_KEY_READ), apiKeyController.getApiKeys.bind(apiKeyController));
+app.get('/api/v1/api-keys/:id', requirePermission(PERMISSIONS.API_KEY_READ), apiKeyController.getApiKey.bind(apiKeyController));
+app.patch('/api/v1/api-keys/:id', requirePermission(PERMISSIONS.API_KEY_UPDATE), apiKeyController.updateApiKey.bind(apiKeyController));
+app.delete('/api/v1/api-keys/:id', requirePermission(PERMISSIONS.API_KEY_DELETE), apiKeyController.revokeApiKey.bind(apiKeyController));
 
 async function startServer() {
   try {
@@ -79,4 +98,5 @@ process.on('SIGINT', async () => {
 
 startServer();
 
+export { app };
 export default app;
