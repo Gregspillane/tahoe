@@ -8,7 +8,6 @@ Please begin this session by:
    - @memory-bank/architecture.md - for technical patterns
    - @memory-bank/progress.md - for development status
    - @memory-bank/decisions.md - for key project decisions
-   - @PROJECT_TRACKER.md - for project progress and next steps
 
 3. Check any active references marked with [ ] checkboxes
 

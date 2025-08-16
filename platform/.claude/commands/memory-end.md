@@ -24,10 +24,7 @@ Please close this session by updating the memory bank:
    - Any project decisions were made
    - Rationale for choices needs documenting
 
-5. Update `PROJECT_TRACKER.md` if:
-   - Progress
-
-6. **Archive Management**:
+5. **Archive Management**:
    - Only archive documents that are truly no longer needed:
      - Implementation plans that are fully executed
      - Investigation docs where findings are now integrated
@@ -41,7 +38,7 @@ Please close this session by updating the memory bank:
      - Format: `archive/YYYY-MM-DD-description.md`
      - Remove references from memory bank files
 
-7. Provide a summary of:
+6. Provide a summary of:
    - What was updated in each file
    - What was archived (if anything) and why
    - What completed docs were kept active and why

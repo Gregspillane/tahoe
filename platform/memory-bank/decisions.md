@@ -23,8 +23,8 @@
 **Trade-offs**:
 -  Simplified infrastructure and operations
 -  Easier data relationships between services
--   Potential schema migration coordination needed
--   Single point of failure for all services
+- ï¿½ Potential schema migration coordination needed
+- ï¿½ Single point of failure for all services
 
 ### Decision: Row-Level Tenant Isolation
 **Date**: August 15, 2025  
@@ -163,7 +163,7 @@ RUN apk add --no-cache openssl libc6-compat
 ## Security Architecture Decisions
 
 ### Decision: JWT with Redis Sessions
-**Date**: August 15, 2025 (Planned for Phase 2)  
+**Date**: August 15, 2025 (Implemented in Phase 2, Session 2)  
 **Context**: Need scalable authentication with session management capabilities.
 
 **Decision**: Use JWT tokens for stateless authentication combined with Redis session storage.
@@ -175,23 +175,69 @@ RUN apk add --no-cache openssl libc6-compat
 - **Security**: Short-lived access tokens with refresh tokens
 - **Multi-service**: Tokens can be validated by multiple services
 
-**Implementation Plan**:
+**Implementation Completed**:
 - Short-lived access tokens (1 hour)
 - Longer-lived refresh tokens (7 days)
 - Redis session store for token revocation
 - Tenant and user context embedded in JWT
+- Full authentication flow operational
 
-### Decision: bcrypt for Password Hashing
-**Date**: August 15, 2025 (Planned for Phase 2)  
-**Context**: Need secure password storage.
+### Decision: bcryptjs for Password Hashing
+**Date**: August 15, 2025 (Implemented in Phase 2, Session 2)  
+**Context**: Need secure password storage with JavaScript compatibility.
 
-**Decision**: Use bcrypt with cost factor 12 for password hashing.
+**Decision**: Use bcryptjs with cost factor 12 for password hashing.
 
 **Rationale**:
 - **Security**: Proven cryptographic algorithm
 - **Adaptive**: Cost factor can be increased over time
 - **Performance**: Cost factor 12 balances security and performance
+- **JavaScript Compatibility**: Pure JavaScript implementation without native dependencies
 - **Industry Standard**: Widely adopted and vetted
+
+**Implementation Details**:
+- bcryptjs v2.4.3 for pure JavaScript implementation
+- Cost factor 12 configured via environment variable
+- Password strength validation with complexity requirements
+- Secure password generation utility included
+
+### Decision: ioredis vs redis Package
+**Date**: August 15, 2025  
+**Context**: Need Redis client for session management with proper TypeScript support.
+
+**Decision**: Use ioredis package instead of redis package for Redis connectivity.
+
+**Rationale**:
+- **TypeScript Support**: ioredis has better native TypeScript support
+- **API Design**: More intuitive Promise-based API
+- **Performance**: Better connection pooling and performance optimizations
+- **Features**: More comprehensive feature set for advanced Redis operations
+- **Stability**: Mature library with active maintenance
+
+**Implementation**:
+- ioredis v5.3.2 for Redis client
+- Custom RedisClient wrapper class for session management
+- Connection management with proper error handling
+- Session storage, rate limiting, and cache functionality
+
+### Decision: Database Access Pattern
+**Date**: August 15, 2025  
+**Context**: Need consistent database access across controllers while maintaining proper initialization.
+
+**Decision**: Use getDatabase() function pattern for database access in controllers.
+
+**Rationale**:
+- **Initialization Safety**: Ensures database is properly initialized before use
+- **Consistency**: Standardized access pattern across all controllers
+- **Error Handling**: Clear error messages when database not initialized
+- **Flexibility**: Allows for proper dependency injection and testing
+- **Repository Pattern**: Supports clean repository instantiation
+
+**Implementation**:
+- Export getDatabase() function from database config
+- Controllers instantiate repositories with getDatabase()
+- Proper error handling for uninitialized database
+- Maintains singleton pattern for Prisma client
 
 ---
 

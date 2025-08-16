@@ -20,6 +20,8 @@ export function getDatabase(): PrismaClient {
   return prisma;
 }
 
+export { prisma };
+
 export async function connectDatabase(): Promise<void> {
   try {
     const db = getDatabase();
