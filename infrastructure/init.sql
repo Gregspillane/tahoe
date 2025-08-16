@@ -14,4 +14,7 @@ SET timezone = 'UTC';
 COMMENT ON DATABASE tahoe IS 'Shared database for all Tahoe microservices';
 
 -- Note: Individual service schemas and tables will be created by their respective migration systems
--- For example, the transcription service will use Prisma to create its tables
+-- Service examples:
+--   - Platform service: Uses Prisma to create auth/tenant tables (tenants, users, api_keys, etc.)
+--   - Transcription service: Uses Prisma to create transcription tables (transcription_jobs, etc.)
+--   - Future services: Each will create their own domain-specific tables

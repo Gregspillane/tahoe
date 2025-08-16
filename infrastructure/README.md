@@ -132,6 +132,7 @@ networks:
 
 Services should prefix their Redis keys with their service name to avoid conflicts:
 
+- Platform service: `platform:*`
 - Transcription service: `transcription:*`
 - Agent engine: `agent_engine:*`
 - Loading service: `loading:*`
